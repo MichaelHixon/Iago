@@ -56,6 +56,7 @@ class TrialResult:
     latency_s: float
     timestamp: str
     turns: int = 1  # 1 = single-shot; >1 = multi-turn (crescendo / context-priming)
+    shots: int | None = None  # many-shot techniques: fabricated compliant shots used (None = n/a)
     # Decode-gating: cipher / low-resource techniques hide the objective, so a refusal
     # can be a DECODE FAILURE (false-safe), not a real guardrail hold.
     gated: bool = False           # technique hides the objective (cipher / low-resource)
@@ -96,6 +97,7 @@ def run(
     authorized: bool = False,
     technique_limit: int | None = None,
     objective_limit: int | None = None,
+    shots: int | None = None,
     artifacts_dir: Path | None = None,
     techniques: list[Technique] | None = None,
     objectives: list[Objective] | None = None,
@@ -104,7 +106,8 @@ def run(
     """Execute the full matrix and write a JSONL artifact file. Returns its path.
 
     `technique_limit` / `objective_limit` cap the matrix for a fast smoke run
-    without hammering the model for the whole library.
+    without hammering the model for the whole library. `shots` overrides the
+    fabricated-shot count for many-shot techniques (exercises long-context scaling).
     """
     # Authorization guard — the ethic, made executable.
     if not target.is_local and not authorized:
@@ -142,7 +145,7 @@ def run(
             seed = base_seed + trial
             for tech in lib:
                 for obj in objs:
-                    turns = tech.rendered_turns(obj.objective)  # single-shot => [one prompt]
+                    turns = tech.rendered_turns(obj.objective, shots=shots)  # single-shot => [one prompt]
                     opts = {"temperature": temperature, "seed": seed}
                     started = time.monotonic()
                     try:
@@ -183,6 +186,7 @@ def run(
                         latency_s=round(latency, 3),
                         timestamp=datetime.now(timezone.utc).isoformat(),
                         turns=len(turns),
+                        shots=tech.shot_count(shots),
                         gated=gated,
                         decoded=decoded,
                     )

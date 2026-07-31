@@ -34,7 +34,7 @@ Iago applies a classic offensive-security loop to a new target class — an LLM 
 ```
 
 1. **Target adapter** — a clean interface to the model under test (local via Ollama for MVP; swappable).
-2. **Attack library** — guardrail-bypass techniques as structured data, grouped by category (direct-ask, role-play / persona, instruction-hierarchy, encoding / obfuscation, prompt-injection, refusal-suppression, multi-turn, and the indirect-injection surfaces: RAG-context, agent tool-use, and MCP tool/server injection).
+2. **Attack library** — 43 guardrail-bypass techniques as structured data across 15 categories: direct-ask, role-play / persona, format-shift, instruction-hierarchy, encoding / obfuscation, low-resource-language, prompt-injection, **template-injection** (forged ChatML / Llama control tokens — probes the serialization boundary), refusal-suppression, **competing-objectives** (helpful-vs-harmless dual response; Wei et al. 2023), **many-shot** (fabricated compliant transcript, shot count drivable via `--shots`; Anil et al. 2024), multi-turn, and the indirect-injection surfaces: RAG-context, agent tool-use, and MCP tool/server injection. Techniques carry OWASP LLM Top-10 tags, and cipher / low-resource techniques are decode-gated so a decode failure isn't miscounted as a held guardrail.
 3. **Runner** — fires each technique against a set of forbidden objectives and captures the responses.
 4. **Judge** — decides per attempt whether the guardrail **held** or was **bypassed** (heuristic judge to start; an LLM-based judge for nuance).
 5. **Report generator** — a markdown report: summary (X/Y bypassed), results by category, the prompt-and-response evidence, and a **hardening recommendations** section — the defensive payoff.
@@ -53,7 +53,7 @@ Iago applies a classic offensive-security loop to a new target class — an LLM 
 
 ## Status
 
-**End-to-end loop working.** Point Iago at a local model and one command fires the full attack library × objectives, judges each response, and writes a pentest-style report to `reports/`. Methodology built in: multi-trial **bypass rates** (not single shots), pinned sampling (fixed temperature + per-trial seed) so runs reproduce, a benign **control objective** that calibrates the judge, and structured JSONL artifacts so reporting never re-hits the model. Still ahead: the Claude-API rubric judge (reasons about content, not keywords), a broader attack library, and multi-turn attacks.
+**End-to-end loop working.** Point Iago at a local model and one command fires the full attack library × objectives, judges each response, and writes a pentest-style report to `reports/`. Methodology built in: multi-trial **bypass rates** (not single shots) with 95% Wilson confidence intervals, pinned sampling (fixed temperature + per-trial seed) so runs reproduce, a benign **control objective** that calibrates the judge, a **Claude rubric judge** (`iago regrade`) that reasons about content instead of keywords, decode-gating for cipher / low-resource techniques, and structured JSONL artifacts so reporting never re-hits the model. The report surfaces per-technique caveats (e.g. template-injection's runtime dependency, many-shot's pool cycling) so limitations sit next to the numbers. Still ahead: new attack *goals* (system-prompt extraction, unsafe-output handling) and an attack-vs-defense delta against a guardrail proxy.
 
 ## Getting started
 
