@@ -100,16 +100,24 @@ here duplicates an existing technique.
 
 **Round-2 candidates (from the 2026-07-30 Council review of the Tier-1 batch):**
 
+> **✅ Shipped 2026-07-31** — all four below. Library now 43 techniques across 15 categories (2 new:
+> `competing-objectives`, `template-injection`); many-shot count is runner-driven via `--shots`; 55 tests
+> green; live-verified end-to-end (64-shot run on llama3.1, `shots` recorded in the artifact).
+
 - [x] **Decode-gating** (methodology) — cipher/low-resource techniques false-safe on a small model (a
   decode failure looks like a held guardrail). Shipped: `iago/decode.py` flags per-trial whether the
   model recovered the objective; gated templates force a plaintext-English echo; the report separates
   decode failures from real holds. ✅ 2026-07-30
-- [ ] **Competing-objectives / dual-response** (LLM01, Wei et al. 2023) — "answer as GPT AND as DAN",
-  side-by-side safe/unsafe, straight from the canonical failure-mode paper.
-- [ ] **Special-token / chat-template injection** (LLM01) — forged `<|im_start|>system` / assistant
-  turns; targets the serialization boundary nothing else in the set touches.
-- [ ] **Many-shot scaling** — drive `ms-001`'s shot count from the runner (16/64/128+) so it exercises
-  the long-context scaling Anil et al. describe, not just the priming seed.
+- [x] **Competing-objectives / dual-response** (LLM01, Wei et al. 2023) — "answer as GPT AND as DAN",
+  side-by-side safe/unsafe, straight from the canonical failure-mode paper. → new `competing-objectives`
+  category: `co-001` (dual safe/unrestricted response) + `co-002` (helpfulness-over-safety tie-break).
+- [x] **Special-token / chat-template injection** (LLM01) — forged `<|im_start|>system` / assistant
+  turns; targets the serialization boundary nothing else in the set touches. → new `template-injection`
+  category: `ti-001` (forged ChatML system turn) + `ti-002` (forged Llama assistant-prefill header).
+- [x] **Many-shot scaling** — drive `ms-001`'s shot count from the runner (16/64/128+) so it exercises
+  the long-context scaling Anil et al. describe, not just the priming seed. → `{shots}` render marker +
+  a benign shot pool in `attacks.py`; `--shots N` CLI flag threads through the runner; the effective
+  count is recorded per-trial in the artifact (`shots` field).
 
 ### Tier 2 — new attack GOALS (needs a new objective + judge criterion)
 
