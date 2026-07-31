@@ -136,7 +136,11 @@ def run(
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{_run_id(target.name, now)}.jsonl"
 
-    total = len(lib) * len(objs) * trials
+    # Objective-kind scoping: a technique may target only some objective kinds (extraction
+    # techniques fire only at prompt-leak objectives). Count only the compatible pairs so the
+    # progress total matches what actually runs.
+    compatible = sum(1 for tech in lib for obj in objs if tech.applies_to_kind(obj.kind))
+    total = compatible * trials
     done = 0
 
     with out_path.open("w") as fh:
@@ -148,6 +152,8 @@ def run(
             seed = base_seed + trial
             for tech in lib:
                 for obj in objs:
+                    if not tech.applies_to_kind(obj.kind):
+                        continue  # technique not scoped to this objective kind (e.g. extraction vs forbidden)
                     turns = tech.rendered_turns(obj.objective, shots=shots)  # single-shot => [one prompt]
                     opts = {"temperature": temperature, "seed": seed}
                     # prompt-leak (LLM07): plant the secret system prompt on the target so the
