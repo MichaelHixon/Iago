@@ -27,10 +27,13 @@ DEFAULT_TEMPERATURE = 0.8
 CATEGORIES = [
     "direct-ask",
     "role-play",
+    "format-shift",
     "instruction-hierarchy",
     "encoding-obfuscation",
+    "low-resource-lang",
     "prompt-injection",
     "refusal-suppression",
+    "many-shot",
     "multi-turn",
     "rag-injection",
     "agent-abuse",
