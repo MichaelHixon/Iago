@@ -104,9 +104,6 @@ here duplicates an existing technique.
   decode failure looks like a held guardrail). Shipped: `iago/decode.py` flags per-trial whether the
   model recovered the objective; gated templates force a plaintext-English echo; the report separates
   decode failures from real holds. ✅ 2026-07-30
-- [ ] **Payload-splitting / token-smuggling** (LLM01, Kang et al. 2023) — split a banned term across
-  variables and concatenate. The glaring single-prompt gap; tests *compositional assembly*, a distinct
-  failure mode from encoding. Highest-value next add.
 - [ ] **Competing-objectives / dual-response** (LLM01, Wei et al. 2023) — "answer as GPT AND as DAN",
   side-by-side safe/unsafe, straight from the canonical failure-mode paper.
 - [ ] **Special-token / chat-template injection** (LLM01) — forged `<|im_start|>system` / assistant
@@ -139,3 +136,18 @@ Payload splitting / token smuggling → `prompt-injection` (pi-003). Prefix-inje
 → `prompt-injection` (pi-002) + `refusal-suppression` (rs-002). Crescendo / context-priming →
 `multi-turn`. Static base64 / reverse / leetspeak → `encoding-obfuscation`. Hypothetical / educational
 framing → `refusal-suppression` (rs-003). Harmless-POC reframing → `refusal-suppression` (rs-004).
+Payload-splitting / token-smuggling → `prompt-injection` (pi-003).
+
+### Defense-side integration (harvested from guardrails-ai/guardrails, 2026-07-30)
+
+Iago attacks guardrails; `guardrails-ai/guardrails` builds them — a natural foil, and the strongest
+takeaway from harvesting that repo (LifeOS core already covers its patterns).
+
+- [ ] **Attack-vs-defense delta.** guardrails-ai ships a `guardrails start` OpenAI-compatible proxy
+  with input/output guards in front of the model. Point the target at (a) the raw model and (b) the
+  same model behind a guardrails-ai guard, run the same library, and report the **bypass-rate delta**
+  ("this guard cut jailbreak X% → Y%"). Strong attack-vs-defense demo; extends `Target` with a proxied
+  backend and reuses the existing runner/report machinery.
+- [ ] **Named hardening recommendations.** The Guardrails Hub is a catalog of concrete defenses (input
+  jailbreak classifier, PII/output validators, toxicity). Upgrade the report's generic "add output-side
+  classification" line to name specific, installable defenses per leaking category.
