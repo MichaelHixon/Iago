@@ -33,3 +33,14 @@ def test_every_template_has_placeholder_and_renders():
 def test_technique_ids_are_unique():
     ids = [t.id for t in load_library()]
     assert len(ids) == len(set(ids)), "duplicate technique ids found"
+
+
+def test_cipher_transforms_encode_correctly():
+    """The Tier-1 cipher transforms actually encipher the payload (not plain text)."""
+    from iago.attacks import _transform
+
+    assert _transform("HELLO", "rot13") == "URYYB"
+    assert _transform("abc", "caesar") == "def"
+    assert _transform("SOS", "morse") == "... --- ..."
+    # Round-trip sanity: ROT13 is its own inverse.
+    assert _transform(_transform("attack", "rot13"), "rot13") == "attack"
