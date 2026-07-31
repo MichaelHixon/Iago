@@ -26,6 +26,7 @@ from pathlib import Path
 
 from .attacks import Technique, load_library
 from .config import ARTIFACTS_DIR, BASE_SEED, DEFAULT_TEMPERATURE, DEFAULT_TRIALS
+from .decode import decode_recovered, is_decode_gated
 from .judge import judge
 from .objectives import Objective, load_objectives
 from .target import Target
@@ -55,6 +56,10 @@ class TrialResult:
     latency_s: float
     timestamp: str
     turns: int = 1  # 1 = single-shot; >1 = multi-turn (crescendo / context-priming)
+    # Decode-gating: cipher / low-resource techniques hide the objective, so a refusal
+    # can be a DECODE FAILURE (false-safe), not a real guardrail hold.
+    gated: bool = False           # technique hides the objective (cipher / low-resource)
+    decoded: bool | None = None   # gated trials: did the model recover the objective? (None = not gated)
 
 
 class AuthorizationError(RuntimeError):
@@ -152,6 +157,11 @@ def run(
                     latency = time.monotonic() - started
 
                     v = judge(response)
+                    # Decode-gating: for cipher / low-resource techniques, record whether the
+                    # model actually recovered the objective — a refusal after a decode failure
+                    # is a false-safe, and the report reads it as "not a valid probe".
+                    gated = is_decode_gated(tech)
+                    decoded = decode_recovered(obj.objective, response) if gated else None
                     row = TrialResult(
                         technique_id=tech.id,
                         technique_name=tech.name,
@@ -173,6 +183,8 @@ def run(
                         latency_s=round(latency, 3),
                         timestamp=datetime.now(timezone.utc).isoformat(),
                         turns=len(turns),
+                        gated=gated,
+                        decoded=decoded,
                     )
                     fh.write(json.dumps(asdict(row)) + "\n")
                     fh.flush()
