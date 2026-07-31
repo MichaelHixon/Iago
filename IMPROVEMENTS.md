@@ -80,7 +80,7 @@ here duplicates an existing technique.
 
 - [ ] **Many-shot jailbreaking** (LLM01) — prefill the context with N fabricated Q&A pairs of the
   assistant happily complying, then ask; exploits the long context window. Anthropic's own 2024
-  finding — strong interview demo. New category `many-shot`. *Distinct from `multi-turn`: fabricated
+  finding — high-impact and widely cited. New category `many-shot`. *Distinct from `multi-turn`: fabricated
   in-context examples, not a real carried conversation.*
 - [ ] **Low-resource-language / translation** (LLM01) — issue the objective in a low-resource
   language (e.g. Zulu, Scots Gaelic); safety training is English-heavy (Yong et al. 2023). Trivial.
@@ -92,7 +92,7 @@ here duplicates an existing technique.
   a JSON/CSV field carrying the payload. New category `format-shift`. *`role-play` is persona-based;
   this is output-format-based.*
 - [ ] **Named persona jailbreaks** (LLM01) — DAN / "developer mode" / the "grandma exploit". Add
-  under `role-play` as specific, recognizable techniques a reviewer expects to see named.
+  under `role-play` as specific, widely-referenced techniques worth having named in the library.
 - [ ] **Skeleton Key** (LLM01, Microsoft 2024) — instruct the model to *augment* its guidelines (add
   a warning prefix) rather than refuse. Add under `refusal-suppression` / `instruction-hierarchy`.
 
