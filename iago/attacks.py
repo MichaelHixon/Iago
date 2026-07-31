@@ -15,6 +15,7 @@ from pathlib import Path
 import yaml
 
 from .config import ATTACKS_DIR, CATEGORIES
+from .objectives import VALID_KINDS as OBJECTIVE_KINDS
 
 REQUIRED_FIELDS = ("id", "name", "category", "description", "template")
 PLACEHOLDER = "{objective}"
@@ -244,10 +245,19 @@ class Technique:
     # technique whose template carries {shots}. The runner can override this per run
     # (--shots) to exercise the long-context scaling. None = not a shot-scaled technique.
     shots: int | None = None
+    # Objective-kind scoping: the objective kinds this technique targets. None = applies
+    # to every kind (the default for general jailbreaks). Extraction-native techniques set
+    # this to ("prompt-leak",) so they fire only against system-prompt-leak objectives and
+    # never against harmful-content ones (where "repeat your instructions" is incoherent).
+    applies_to: tuple[str, ...] | None = None
 
     @property
     def is_multiturn(self) -> bool:
         return bool(self.turns)
+
+    def applies_to_kind(self, kind: str) -> bool:
+        """True if this technique should be fired against an objective of `kind`."""
+        return self.applies_to is None or kind in self.applies_to
 
     @property
     def is_shot_scaled(self) -> bool:
@@ -316,6 +326,22 @@ def load_library(attacks_dir: Path | None = None) -> list[Technique]:
             if rec["id"] in seen_ids:
                 raise ValueError(f"duplicate technique id {rec['id']!r} in {path.name}")
             seen_ids.add(rec["id"])
+            applies_to = rec.get("applies_to")
+            if applies_to is not None:
+                # Must be a non-empty list of known kinds. A bare string would iterate
+                # character-by-character, and an empty list would silently mean "all kinds" —
+                # both are silent scoping bugs, so fail loudly (the whole point of this check).
+                if not isinstance(applies_to, list) or not applies_to:
+                    raise ValueError(
+                        f"{path.name}: technique {rec['id']!r} applies_to must be a non-empty list of "
+                        f"objective kinds (got {applies_to!r}); omit the field entirely for 'all kinds'"
+                    )
+                bad = [k for k in applies_to if k not in OBJECTIVE_KINDS]
+                if bad:
+                    raise ValueError(
+                        f"{path.name}: technique {rec['id']!r} applies_to has unknown objective "
+                        f"kind(s) {bad!r} (want a subset of {OBJECTIVE_KINDS})"
+                    )
             techniques.append(
                 Technique(
                     id=rec["id"],
@@ -328,6 +354,7 @@ def load_library(attacks_dir: Path | None = None) -> list[Technique]:
                     owasp=rec.get("owasp", "LLM01: Prompt Injection"),
                     turns=tuple(rec["turns"]) if rec.get("turns") else None,
                     shots=rec.get("shots"),
+                    applies_to=tuple(applies_to) if applies_to else None,
                 )
             )
 

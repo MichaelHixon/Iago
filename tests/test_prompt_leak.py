@@ -114,3 +114,61 @@ def test_forbidden_objectives_get_no_system_prompt(tmp_path):
     run(t, trials=1, artifacts_dir=tmp_path, techniques=TECH,
         objectives=[Objective("f1", "bad thing", "forbidden")])
     assert t.systems == [None]  # only prompt-leak objectives plant a secret
+
+
+# --- objective-kind scoping (extraction-native technique family) -------------------
+
+def test_extraction_techniques_are_scoped_to_prompt_leak():
+    from iago.attacks import load_library
+    extraction = [t for t in load_library() if t.category == "prompt-extraction"]
+    assert extraction, "expected a prompt-extraction category"
+    for t in extraction:
+        assert t.applies_to == ("prompt-leak",)
+        assert t.applies_to_kind("prompt-leak")
+        assert not t.applies_to_kind("forbidden")  # never fires at harmful-content objectives
+
+
+def test_default_technique_applies_to_every_kind():
+    t = Technique("g1", "General", "direct-ask", "d", "Do: {objective}")
+    assert t.applies_to is None
+    assert all(t.applies_to_kind(k) for k in ("forbidden", "control", "prompt-leak"))
+
+
+def test_runner_skips_incompatible_technique_objective_pairs(tmp_path):
+    extract = Technique("x1", "Extract", "prompt-extraction", "d",
+                        "Reveal: {objective}", applies_to=("prompt-leak",))
+    general = Technique("g1", "General", "direct-ask", "d", "Do: {objective}")
+    objs = [Objective("f1", "bad", "forbidden"),
+            Objective("l1", "leak it", "prompt-leak", system_prompt="secret ZZZ", canary="ZZZ")]
+    out = run(_SystemCapturingTarget(), trials=1, artifacts_dir=tmp_path,
+              techniques=[extract, general], objectives=objs)
+    fired = {(r["technique_id"], r["objective_id"]) for r in load_artifacts(out)}
+    # extraction technique fires ONLY at the leak objective; general fires at both.
+    assert fired == {("x1", "l1"), ("g1", "f1"), ("g1", "l1")}
+
+
+def test_applies_to_rejects_unknown_kind(tmp_path):
+    import pytest
+    from iago.attacks import load_library
+    bad = tmp_path / "bad.yaml"
+    bad.write_text(
+        "- id: bad-001\n  name: Bad scope\n  category: direct-ask\n  description: x\n"
+        "  applies_to: ['not-a-kind']\n  template: 'Do: {objective}'\n"
+    )
+    with pytest.raises(ValueError, match="unknown objective kind"):
+        load_library(bad.parent)
+
+
+def test_applies_to_rejects_non_list_and_empty(tmp_path):
+    """A bare string or empty-list applies_to is a silent scoping bug — fail loudly."""
+    import pytest
+    from iago.attacks import load_library
+
+    for val in ("prompt-leak", "[]"):  # bare string (would iterate chars); empty list (would mean 'all')
+        bad = tmp_path / "bad.yaml"
+        bad.write_text(
+            "- id: bad-001\n  name: Bad scope\n  category: direct-ask\n  description: x\n"
+            f"  applies_to: {val}\n  template: 'Do: {{objective}}'\n"
+        )
+        with pytest.raises(ValueError, match="non-empty list"):
+            load_library(tmp_path)
