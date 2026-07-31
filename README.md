@@ -34,7 +34,7 @@ Iago applies a classic offensive-security loop to a new target class — an LLM 
 ```
 
 1. **Target adapter** — a clean interface to the model under test (local via Ollama for MVP; swappable).
-2. **Attack library** — guardrail-bypass techniques as structured data, grouped by category (direct-ask baseline, role-play / persona, instruction-hierarchy, encoding / obfuscation, prompt-injection, refusal-suppression).
+2. **Attack library** — guardrail-bypass techniques as structured data, grouped by category (direct-ask, role-play / persona, instruction-hierarchy, encoding / obfuscation, prompt-injection, refusal-suppression, multi-turn, and the indirect-injection surfaces: RAG-context, agent tool-use, and MCP tool/server injection).
 3. **Runner** — fires each technique against a set of forbidden objectives and captures the responses.
 4. **Judge** — decides per attempt whether the guardrail **held** or was **bypassed** (heuristic judge to start; an LLM-based judge for nuance).
 5. **Report generator** — a markdown report: summary (X/Y bypassed), results by category, the prompt-and-response evidence, and a **hardening recommendations** section — the defensive payoff.

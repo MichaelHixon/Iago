@@ -9,7 +9,7 @@ def test_library_has_at_least_15_techniques():
     assert len(lib) >= 15, f"expected >=15 techniques, got {len(lib)}"
 
 
-def test_all_six_categories_populated():
+def test_all_categories_populated():
     counts = summarize(load_library())
     for category in CATEGORIES:
         assert counts[category] >= 1, f"category '{category}' has no techniques"

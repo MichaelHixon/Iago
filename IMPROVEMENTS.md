@@ -47,8 +47,19 @@
 - [x] **Robust response access.** → `_extract_content` handles both the ChatResponse object
   and a dict shape (a dict-only extractor silently swallowed every reply — now regression-tested).
 
-## Roadmap (named, not built yet)
+## Roadmap
 
+### Shipped
 - [x] **Multi-turn attacks** → crescendo + context-priming; `Technique.turns` + `Target.chat()`,
   the runner carries the conversation and judges the final reply. The strongest real jailbreaks
   build across turns so no single prompt trips detection.
+- [x] **Statistical confidence on bypass rates** → `stats.wilson_interval`; the report shows a
+  95% Wilson CI on every rate (overall / per-category / per-technique) plus a mean judge
+  confidence per technique, so a 1/3 finding isn't confused with 30/90.
+- [x] **RAG / agent / MCP attack surfaces** → `attacks/rag_injection.yaml`, `agent_abuse.yaml`,
+  `mcp_injection.yaml` — indirect injection via retrieved context, poisoned tool output / goal
+  substitution, and malicious MCP tool-description / server-response injection.
+
+### Not built yet
+- [ ] Parallel / adaptive trial execution — run trials concurrently for speed, and run *more*
+  trials where the bypass rate is borderline (tighten only the intervals that matter).

@@ -23,7 +23,7 @@ DEFAULT_TRIALS = 3
 BASE_SEED = 1337
 DEFAULT_TEMPERATURE = 0.8
 
-# The six attack categories the library is organized around.
+# The attack categories the library is organized around.
 CATEGORIES = [
     "direct-ask",
     "role-play",
@@ -32,4 +32,7 @@ CATEGORIES = [
     "prompt-injection",
     "refusal-suppression",
     "multi-turn",
+    "rag-injection",
+    "agent-abuse",
+    "mcp-injection",
 ]
