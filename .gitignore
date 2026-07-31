@@ -1,0 +1,22 @@
+# Secrets — NEVER commit (Claude/API keys go here)
+.env
+.env.*
+*.key
+secrets/
+
+# Local reports / generated output — keep the structure, ignore the contents.
+reports/*
+!reports/.gitkeep
+
+# Python / uv
+.venv/
+venv/
+__pycache__/
+*.pyc
+.python-version
+uv.lock
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
