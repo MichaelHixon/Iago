@@ -33,6 +33,7 @@ CATEGORIES = [
     "low-resource-lang",
     "prompt-injection",
     "template-injection",
+    "prompt-extraction",
     "refusal-suppression",
     "competing-objectives",
     "many-shot",
