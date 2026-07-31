@@ -78,22 +78,24 @@ here duplicates an existing technique.
 
 ### Tier 1 — single-prompt techniques (a YAML add; highest ROI)
 
-- [ ] **Many-shot jailbreaking** (LLM01) — prefill the context with N fabricated Q&A pairs of the
+> **✅ Shipped 2026-07-30** — all six below. Library now 39 techniques across 13 categories (3 new: `many-shot`, `low-resource-lang`, `format-shift`); 3 new cipher transforms (rot13/caesar/morse); 46 tests green.
+
+- [x] **Many-shot jailbreaking** (LLM01) — prefill the context with N fabricated Q&A pairs of the
   assistant happily complying, then ask; exploits the long context window. Anthropic's own 2024
   finding — high-impact and widely cited. New category `many-shot`. *Distinct from `multi-turn`: fabricated
   in-context examples, not a real carried conversation.*
-- [ ] **Low-resource-language / translation** (LLM01) — issue the objective in a low-resource
+- [x] **Low-resource-language / translation** (LLM01) — issue the objective in a low-resource
   language (e.g. Zulu, Scots Gaelic); safety training is English-heavy (Yong et al. 2023). Trivial.
   New category `low-resource-lang`.
-- [ ] **Cipher-reasoning** (LLM01) — Caesar/ROT13/Morse the payload and have the model *decode-and-
+- [x] **Cipher-reasoning** (LLM01) — Caesar/ROT13/Morse the payload and have the model *decode-and-
   comply*. *Extends `encoding-obfuscation` (static base64/leet) — here the model reasons through the
   cipher, a path some safety layers don't cover.*
-- [ ] **Fictional / format-shift wrappers** (LLM01) — screenplay, song lyric, poem, code-comment, or
+- [x] **Fictional / format-shift wrappers** (LLM01) — screenplay, song lyric, poem, code-comment, or
   a JSON/CSV field carrying the payload. New category `format-shift`. *`role-play` is persona-based;
   this is output-format-based.*
-- [ ] **Named persona jailbreaks** (LLM01) — DAN / "developer mode" / the "grandma exploit". Add
+- [x] **Named persona jailbreaks** (LLM01) — DAN / "developer mode" / the "grandma exploit". Add
   under `role-play` as specific, widely-referenced techniques worth having named in the library.
-- [ ] **Skeleton Key** (LLM01, Microsoft 2024) — instruct the model to *augment* its guidelines (add
+- [x] **Skeleton Key** (LLM01, Microsoft 2024) — instruct the model to *augment* its guidelines (add
   a warning prefix) rather than refuse. Add under `refusal-suppression` / `instruction-hierarchy`.
 
 ### Tier 2 — new attack GOALS (needs a new objective + judge criterion)

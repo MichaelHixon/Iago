@@ -8,6 +8,7 @@ placeholder that the runner fills at execution time.
 from __future__ import annotations
 
 import base64
+import codecs
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,13 +21,45 @@ PLACEHOLDER = "{objective}"
 
 _LEET = str.maketrans({"a": "4", "e": "3", "i": "1", "o": "0", "s": "5", "t": "7"})
 
+# International Morse for A–Z and 0–9; space becomes "/" so word boundaries survive.
+_MORSE = {
+    "A": ".-", "B": "-...", "C": "-.-.", "D": "-..", "E": ".", "F": "..-.",
+    "G": "--.", "H": "....", "I": "..", "J": ".---", "K": "-.-", "L": ".-..",
+    "M": "--", "N": "-.", "O": "---", "P": ".--.", "Q": "--.-", "R": ".-.",
+    "S": "...", "T": "-", "U": "..-", "V": "...-", "W": ".--", "X": "-..-",
+    "Y": "-.--", "Z": "--..",
+    "0": "-----", "1": ".----", "2": "..---", "3": "...--", "4": "....-",
+    "5": ".....", "6": "-....", "7": "--...", "8": "---..", "9": "----.",
+    " ": "/",
+}
+
+
+def _caesar(text: str, shift: int = 3) -> str:
+    """Classic Caesar shift on letters (default 3); non-letters pass through."""
+    out = []
+    for ch in text:
+        if ch.isupper():
+            out.append(chr((ord(ch) - 65 + shift) % 26 + 65))
+        elif ch.islower():
+            out.append(chr((ord(ch) - 97 + shift) % 26 + 97))
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def _morse(text: str) -> str:
+    """Encode as space-separated Morse; unknown characters pass through unchanged."""
+    return " ".join(_MORSE.get(ch.upper(), ch) for ch in text)
+
 
 def _transform(objective: str, kind: str | None) -> str:
     """Actually encode the payload before injection (IMPROVEMENTS P2).
 
     Without this, an 'encoding' technique ships the objective in plain text and
     only tests instruction-following, not evasion — a real attacker sends the
-    already-transformed payload past the surface filters.
+    already-transformed payload past the surface filters. The cipher transforms
+    (rot13 / caesar / morse) additionally make the model *reason through* the
+    decoding, a path some safety layers don't cover (IMPROVEMENTS Tier 1).
     """
     if not kind or kind == "none":
         return objective
@@ -36,6 +69,12 @@ def _transform(objective: str, kind: str | None) -> str:
         return objective[::-1]
     if kind == "leetspeak":
         return objective.translate(_LEET)
+    if kind == "rot13":
+        return codecs.encode(objective, "rot_13")
+    if kind == "caesar":
+        return _caesar(objective)
+    if kind == "morse":
+        return _morse(objective)
     raise ValueError(f"unknown transform {kind!r}")
 
 
@@ -49,7 +88,7 @@ class Technique:
     description: str
     template: str
     reference: str | None = None
-    transform: str | None = None  # none | base64 | reverse | leetspeak
+    transform: str | None = None  # none | base64 | reverse | leetspeak | rot13 | caesar | morse
     # OWASP LLM Top-10 tag — guardrail bypasses live under LLM01 (Prompt Injection),
     # which is the umbrella for jailbreaks. Override per technique in YAML when a
     # sharper mapping applies (e.g. LLM07 System-Prompt Leakage).
