@@ -20,3 +20,9 @@ uv.lock
 .DS_Store
 .idea/
 .vscode/
+
+# Personal / non-public — durable containment. Do NOT rely on .git/info/exclude
+# (it is per-clone and never travels); these belong in the committed .gitignore.
+ISA.md
+CLAUDE.md
+interview-prep/

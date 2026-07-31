@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .config import REPORTS_DIR
 from .judge import BYPASSED, NEEDS_REVIEW
+from .stats import wilson_interval
 
 # A trial "bypassed" a FORBIDDEN objective => guardrail failure. Control objectives
 # are scored separately (they are the calibration canary, not a finding).
@@ -41,6 +42,12 @@ def _pct(x: float) -> str:
     return f"{x * 100:.0f}%"
 
 
+def _ci_str(hits: int, total: int) -> str:
+    """95% Wilson confidence interval on hits/total, formatted as a percent range."""
+    lo, hi = wilson_interval(hits, total)
+    return f"{_pct(lo)}–{_pct(hi)}"
+
+
 def build_report(rows: list[dict]) -> str:
     """Render the markdown report from artifact rows."""
     if not rows:
@@ -63,6 +70,7 @@ def build_report(rows: list[dict]) -> str:
     tech_stats = []
     for tid, trs in by_tech.items():
         hits = sum(1 for r in trs if _verdict(r) == BYPASSED)
+        hit_confs = [_conf(r) for r in trs if _verdict(r) == BYPASSED]
         tech_stats.append(
             {
                 "id": tid,
@@ -72,6 +80,8 @@ def build_report(rows: list[dict]) -> str:
                 "hits": hits,
                 "total": len(trs),
                 "rate": _rate(hits, len(trs)),
+                "ci": _ci_str(hits, len(trs)),
+                "mean_conf": round(sum(hit_confs) / len(hit_confs), 2) if hit_confs else 0.0,
             }
         )
     tech_stats.sort(key=lambda s: (-s["rate"], s["id"]))
@@ -84,7 +94,8 @@ def build_report(rows: list[dict]) -> str:
     for cat, trs in by_cat.items():
         hits = sum(1 for r in trs if _verdict(r) == BYPASSED)
         cat_stats.append(
-            {"category": cat, "hits": hits, "total": len(trs), "rate": _rate(hits, len(trs))}
+            {"category": cat, "hits": hits, "total": len(trs), "rate": _rate(hits, len(trs)),
+             "ci": _ci_str(hits, len(trs))}
         )
     cat_stats.sort(key=lambda s: (-s["rate"], s["category"]))
 
@@ -109,7 +120,8 @@ def build_report(rows: list[dict]) -> str:
     a("## Executive Summary")
     a("")
     a(f"**{len(bypasses)} / {trials_total} forbidden-objective trials were confirmed "
-      f"bypasses ({_pct(overall_rate)} confirmed-bypass rate).**")
+      f"bypasses — {_pct(overall_rate)} confirmed-bypass rate "
+      f"(95% CI {_ci_str(len(bypasses), trials_total)}).**")
     a("")
     if needs_review:
         a(f"A further **{len(needs_review)} / {trials_total}** trials produced substantive, "
@@ -120,9 +132,11 @@ def build_report(rows: list[dict]) -> str:
           "clean bill of health.")
         a("")
     a("Bypass rate is reported across repeated trials rather than a single shot, because")
-    a("guardrail bypass is probabilistic — one lucky hit is noise. Sampling is pinned")
-    a("(fixed temperature, per-trial seed) to make runs reproducible *where the backend")
-    a("honors the seed* — verify seed determinism for your target before relying on it.")
+    a("guardrail bypass is probabilistic — one lucky hit is noise. Each rate carries a")
+    a("**95% Wilson confidence interval**: with few trials the interval is wide (a 1/3 rate")
+    a("is not the same finding as 30/90), so the CI is what makes a rate defensible rather than")
+    a("anecdotal — raise `--trials` to tighten it. Sampling is pinned (fixed temperature,")
+    a("per-trial seed) to make runs reproducible *where the backend honors the seed*.")
     a("")
 
     # Control calibration note.
@@ -143,19 +157,19 @@ def build_report(rows: list[dict]) -> str:
 
     a("## Bypass Rate by Category")
     a("")
-    a("| Category | Bypassed | Trials | Rate |")
-    a("|----------|----------|--------|------|")
+    a("| Category | Bypassed | Trials | Rate | 95% CI |")
+    a("|----------|----------|--------|------|--------|")
     for s in cat_stats:
-        a(f"| {s['category']} | {s['hits']} | {s['total']} | {_pct(s['rate'])} |")
+        a(f"| {s['category']} | {s['hits']} | {s['total']} | {_pct(s['rate'])} | {s['ci']} |")
     a("")
 
     a("## Bypass Rate by Technique")
     a("")
-    a("| Rank | Technique | Category | OWASP | Bypassed | Trials | Rate |")
-    a("|------|-----------|----------|-------|----------|--------|------|")
+    a("| Rank | Technique | Category | OWASP | Bypassed | Trials | Rate | 95% CI | Mean conf |")
+    a("|------|-----------|----------|-------|----------|--------|------|--------|-----------|")
     for i, s in enumerate(tech_stats, 1):
         a(f"| {i} | {s['name']} (`{s['id']}`) | {s['category']} | {s['owasp']} | {s['hits']} | "
-          f"{s['total']} | {_pct(s['rate'])} |")
+          f"{s['total']} | {_pct(s['rate'])} | {s['ci']} | {s['mean_conf']:.2f} |")
     a("")
 
     # Evidence: strongest bypasses (highest-confidence bypassed trials on forbidden objs).
