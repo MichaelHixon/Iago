@@ -59,7 +59,65 @@
 - [x] **RAG / agent / MCP attack surfaces** → `attacks/rag_injection.yaml`, `agent_abuse.yaml`,
   `mcp_injection.yaml` — indirect injection via retrieved context, poisoned tool output / goal
   substitution, and malicious MCP tool-description / server-response injection.
+- [x] **Measurement hardening (harvested from greenlight, gadievron)** → an `error` verdict so
+  transport/run failures are excluded from rates instead of mislabeled as refusals; round-robin
+  trials with `batch_id` / `run_seq` telemetry + a non-stationarity caveat on the Wilson CI; and a
+  harmless-POC reframing technique (`rs-004`).
 
 ### Not built yet
 - [ ] Parallel / adaptive trial execution — run trials concurrently for speed, and run *more*
   trials where the bypass rate is borderline (tighten only the intervals that matter).
+
+## Attack Library — Candidate Additions
+
+Techniques Iago doesn't yet cover, grounded in published jailbreak research and the OWASP LLM
+Top-10. Ranked by value × novelty × effort. Most of Tier 1 is a single-prompt YAML add (a new
+technique or category); Tier 2 needs a new objective + a judge criterion; Tier 3 is harder and may
+be out of scope for a black-box Ollama target. Cross-checked against the current library so nothing
+here duplicates an existing technique.
+
+### Tier 1 — single-prompt techniques (a YAML add; highest ROI)
+
+- [ ] **Many-shot jailbreaking** (LLM01) — prefill the context with N fabricated Q&A pairs of the
+  assistant happily complying, then ask; exploits the long context window. Anthropic's own 2024
+  finding — strong interview demo. New category `many-shot`. *Distinct from `multi-turn`: fabricated
+  in-context examples, not a real carried conversation.*
+- [ ] **Low-resource-language / translation** (LLM01) — issue the objective in a low-resource
+  language (e.g. Zulu, Scots Gaelic); safety training is English-heavy (Yong et al. 2023). Trivial.
+  New category `low-resource-lang`.
+- [ ] **Cipher-reasoning** (LLM01) — Caesar/ROT13/Morse the payload and have the model *decode-and-
+  comply*. *Extends `encoding-obfuscation` (static base64/leet) — here the model reasons through the
+  cipher, a path some safety layers don't cover.*
+- [ ] **Fictional / format-shift wrappers** (LLM01) — screenplay, song lyric, poem, code-comment, or
+  a JSON/CSV field carrying the payload. New category `format-shift`. *`role-play` is persona-based;
+  this is output-format-based.*
+- [ ] **Named persona jailbreaks** (LLM01) — DAN / "developer mode" / the "grandma exploit". Add
+  under `role-play` as specific, recognizable techniques a reviewer expects to see named.
+- [ ] **Skeleton Key** (LLM01, Microsoft 2024) — instruct the model to *augment* its guidelines (add
+  a warning prefix) rather than refuse. Add under `refusal-suppression` / `instruction-hierarchy`.
+
+### Tier 2 — new attack GOALS (needs a new objective + judge criterion)
+
+- [ ] **System-prompt extraction / prompt leaking** (LLM07: System Prompt Leakage) — a *different*
+  objective: get the model to reveal its hidden system prompt. Needs a `prompt-leak` objective + a
+  judge check ("did it disclose hidden instructions?"). High value — LLM07 is its own Top-10 entry
+  Iago doesn't touch.
+- [ ] **Unsafe output handling** (LLM05: Improper Output Handling) — coax the model into emitting
+  content dangerous *when rendered downstream*: a markdown-image data-exfil URL, HTML/JS, a shell
+  one-liner in a fenced block. Needs an objective + a "dangerous-when-rendered?" judge criterion.
+
+### Tier 3 — research / methodology (harder; may be out of scope for a black-box target)
+
+- [ ] **Best-of-N adaptive retry** (Anthropic 2024) — perturb the prompt (case, typos, token
+  shuffling) and retry until one bypasses; report the augmentation budget. This is a *runner mode*,
+  not a single technique — pairs with the existing multi-trial machinery.
+- [ ] **Adversarial-suffix (GCG)** (Zou et al. 2023) — an optimized gibberish suffix that forces
+  compliance. *Needs white-box gradient access; a local Ollama target is black-box, so this is
+  likely out of scope — noted for completeness / a future white-box target.*
+
+### Already covered (do NOT re-add)
+
+Payload splitting / token smuggling → `prompt-injection` (pi-003). Prefix-injection / forced-opener
+→ `prompt-injection` (pi-002) + `refusal-suppression` (rs-002). Crescendo / context-priming →
+`multi-turn`. Static base64 / reverse / leetspeak → `encoding-obfuscation`. Hypothetical / educational
+framing → `refusal-suppression` (rs-003). Harmless-POC reframing → `refusal-suppression` (rs-004).
