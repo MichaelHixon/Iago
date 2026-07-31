@@ -23,6 +23,8 @@ uv.lock
 
 # Personal / non-public — durable containment. Do NOT rely on .git/info/exclude
 # (it is per-clone and never travels); these belong in the committed .gitignore.
+# Local-only working notes; keep the name neutral so the public ignore list carries
+# no framing about what they contain.
 ISA.md
 CLAUDE.md
-interview-prep/
+local-notes/
