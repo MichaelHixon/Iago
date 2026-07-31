@@ -45,6 +45,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             authorized=args.authorized,
             technique_limit=tech_limit,
             objective_limit=obj_limit,
+            shots=args.shots,
             progress=True,
         )
     except AuthorizationError as exc:
@@ -108,6 +109,9 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
     r.add_argument("--limit-techniques", type=int, default=None, dest="limit_techniques")
     r.add_argument("--limit-objectives", type=int, default=None, dest="limit_objectives")
+    r.add_argument("--shots", type=int, default=None,
+                   help="override fabricated-shot count for many-shot techniques (e.g. 64, 128) "
+                        "to exercise long-context scaling")
     r.add_argument("--smoke", action="store_true", help="1x1x1 fast proof of the loop")
     r.add_argument("--authorized", action="store_true",
                    help="permit a non-local target (only for models you own/are authorized to test)")
