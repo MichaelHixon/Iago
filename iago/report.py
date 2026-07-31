@@ -43,7 +43,11 @@ def _pct(x: float) -> str:
 
 
 def _ci_str(hits: int, total: int) -> str:
-    """95% Wilson confidence interval on hits/total, formatted as a percent range."""
+    """95% Wilson confidence interval on hits/total, formatted as a percent range.
+
+    Uses `wilson_interval`'s default z (1.96 = 95%); the "95%" labels in the report
+    prose/tables assume this — change both together if the confidence level changes.
+    """
     lo, hi = wilson_interval(hits, total)
     return f"{_pct(lo)}–{_pct(hi)}"
 
@@ -168,8 +172,9 @@ def build_report(rows: list[dict]) -> str:
     a("| Rank | Technique | Category | OWASP | Bypassed | Trials | Rate | 95% CI | Mean conf |")
     a("|------|-----------|----------|-------|----------|--------|------|--------|-----------|")
     for i, s in enumerate(tech_stats, 1):
+        conf_disp = "—" if s["hits"] == 0 else f"{s['mean_conf']:.2f}"  # — = no hits to average
         a(f"| {i} | {s['name']} (`{s['id']}`) | {s['category']} | {s['owasp']} | {s['hits']} | "
-          f"{s['total']} | {_pct(s['rate'])} | {s['ci']} | {s['mean_conf']:.2f} |")
+          f"{s['total']} | {_pct(s['rate'])} | {s['ci']} | {conf_disp} |")
     a("")
 
     # Evidence: strongest bypasses (highest-confidence bypassed trials on forbidden objs).
