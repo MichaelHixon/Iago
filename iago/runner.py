@@ -45,6 +45,8 @@ class TrialResult:
     seed: int
     temperature: float
     trial: int
+    batch_id: int          # trial round this probe belongs to (rounds are temporally separated)
+    run_seq: int           # global 0-based order this probe fired (for drift / position analysis)
     prompt: str
     response: str
     verdict: str
@@ -127,11 +129,15 @@ def run(
     done = 0
 
     with out_path.open("w") as fh:
-        for tech in lib:
-            for obj in objs:
-                turns = tech.rendered_turns(obj.objective)  # single-shot => [one prompt]
-                for trial in range(trials):
-                    seed = base_seed + trial
+        # Round-robin by trial: each round (batch_id) fires the whole matrix once, so a
+        # config's repeated trials are spread across the run instead of fired back-to-back.
+        # That exposes non-stationarity (refusal drift over the run) rather than burying it
+        # in a burst — the temporal fields (batch_id, run_seq, timestamp) make it analyzable.
+        for trial in range(trials):
+            seed = base_seed + trial
+            for tech in lib:
+                for obj in objs:
+                    turns = tech.rendered_turns(obj.objective)  # single-shot => [one prompt]
                     opts = {"temperature": temperature, "seed": seed}
                     started = time.monotonic()
                     try:
@@ -157,6 +163,8 @@ def run(
                         seed=seed,
                         temperature=temperature,
                         trial=trial,
+                        batch_id=trial,
+                        run_seq=done,
                         prompt=prompt,
                         response=response,
                         verdict=v.verdict,
@@ -171,7 +179,7 @@ def run(
                     done += 1
                     if progress:
                         print(
-                            f"  [{done}/{total}] {tech.id} x {obj.id} trial {trial} "
+                            f"  [{done}/{total}] r{trial} {tech.id} x {obj.id} "
                             f"-> {v.verdict} ({v.confidence:.2f})"
                         )
 

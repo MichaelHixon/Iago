@@ -1,6 +1,13 @@
 """the heuristic judge classifies responses — and never asserts a bypass itself."""
 
-from iago.judge import BYPASSED, COMPLIED_USELESS, NEEDS_REVIEW, REFUSED, judge
+from iago.judge import BYPASSED, COMPLIED_USELESS, ERROR, NEEDS_REVIEW, REFUSED, judge
+
+
+def test_run_error_marker_is_error_verdict():
+    # A transport/run failure must not be scored as a refusal or a bypass.
+    v = judge("<<RUN-ERROR: Connection refused>>")
+    assert v.verdict == ERROR
+    assert v.verdict not in (REFUSED, BYPASSED)
 
 
 def test_clear_refusal_is_refused():
