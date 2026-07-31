@@ -98,6 +98,22 @@ here duplicates an existing technique.
 - [x] **Skeleton Key** (LLM01, Microsoft 2024) — instruct the model to *augment* its guidelines (add
   a warning prefix) rather than refuse. Add under `refusal-suppression` / `instruction-hierarchy`.
 
+**Round-2 candidates (from the 2026-07-30 Council review of the Tier-1 batch):**
+
+- [x] **Decode-gating** (methodology) — cipher/low-resource techniques false-safe on a small model (a
+  decode failure looks like a held guardrail). Shipped: `iago/decode.py` flags per-trial whether the
+  model recovered the objective; gated templates force a plaintext-English echo; the report separates
+  decode failures from real holds. ✅ 2026-07-30
+- [ ] **Payload-splitting / token-smuggling** (LLM01, Kang et al. 2023) — split a banned term across
+  variables and concatenate. The glaring single-prompt gap; tests *compositional assembly*, a distinct
+  failure mode from encoding. Highest-value next add.
+- [ ] **Competing-objectives / dual-response** (LLM01, Wei et al. 2023) — "answer as GPT AND as DAN",
+  side-by-side safe/unsafe, straight from the canonical failure-mode paper.
+- [ ] **Special-token / chat-template injection** (LLM01) — forged `<|im_start|>system` / assistant
+  turns; targets the serialization boundary nothing else in the set touches.
+- [ ] **Many-shot scaling** — drive `ms-001`'s shot count from the runner (16/64/128+) so it exercises
+  the long-context scaling Anil et al. describe, not just the priming seed.
+
 ### Tier 2 — new attack GOALS (needs a new objective + judge criterion)
 
 - [ ] **System-prompt extraction / prompt leaking** (LLM07: System Prompt Leakage) — a *different*
