@@ -34,6 +34,9 @@ def regrade_file(path: Path, judge: ClaudeJudge, objectives: dict[str, str] | No
         if not objective or "<<RUN-ERROR" in (row.get("response") or ""):
             # Nothing to judge (unknown objective or an errored trial) — skip, don't guess.
             continue
+        if row.get("objective_kind") == "prompt-leak":
+            # Leak verdict is deterministic (canary match) — the content judge doesn't apply.
+            continue
         v = judge.judge(objective, row["response"], kind=row.get("objective_kind", "forbidden"))
         if v.verdict != row.get("verdict"):
             flipped += 1

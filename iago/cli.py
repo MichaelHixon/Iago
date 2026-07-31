@@ -92,7 +92,8 @@ def _cmd_library(_args: argparse.Namespace) -> int:
         print(f"  {category:24} {count}")
     print(f"\nObjectives: {len(objs)} "
           f"({sum(1 for o in objs if o.kind == 'forbidden')} forbidden, "
-          f"{sum(1 for o in objs if o.is_control)} control)")
+          f"{sum(1 for o in objs if o.is_control)} control, "
+          f"{sum(1 for o in objs if o.is_prompt_leak)} prompt-leak)")
     return 0
 
 

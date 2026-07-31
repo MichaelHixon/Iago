@@ -27,7 +27,7 @@ from pathlib import Path
 from .attacks import Technique, load_library
 from .config import ARTIFACTS_DIR, BASE_SEED, DEFAULT_TEMPERATURE, DEFAULT_TRIALS
 from .decode import decode_recovered, is_decode_gated
-from .judge import judge
+from .judge import judge, judge_leak
 from .objectives import Objective, load_objectives
 from .target import Target
 
@@ -67,11 +67,14 @@ class AuthorizationError(RuntimeError):
     """Raised when a run targets a non-local model without explicit authorization."""
 
 
-def _run_multiturn(target, turns: list[str], options: dict) -> tuple[str, str]:
+def _run_multiturn(target, turns: list[str], options: dict, system: str | None = None) -> tuple[str, str]:
     """Send a sequence of user turns, carrying the conversation, and return
     (readable_transcript, final_assistant_reply). The FINAL reply is what gets judged —
-    the earlier turns prime the model so the last ask lands."""
+    the earlier turns prime the model so the last ask lands. An optional `system` message
+    (a planted secret for prompt-leak objectives) leads the conversation."""
     messages: list[dict] = []
+    if system:
+        messages.append({"role": "system", "content": system})
     transcript_parts: list[str] = []
     final_reply = ""
     for i, user_turn in enumerate(turns, 1):
@@ -147,19 +150,24 @@ def run(
                 for obj in objs:
                     turns = tech.rendered_turns(obj.objective, shots=shots)  # single-shot => [one prompt]
                     opts = {"temperature": temperature, "seed": seed}
+                    # prompt-leak (LLM07): plant the secret system prompt on the target so the
+                    # attack has something hidden to extract. Other objective kinds send none.
+                    system = obj.system_prompt if obj.is_prompt_leak else None
                     started = time.monotonic()
                     try:
                         if tech.is_multiturn:
-                            prompt, response = _run_multiturn(target, turns, opts)
+                            prompt, response = _run_multiturn(target, turns, opts, system=system)
                         else:
                             prompt = turns[0]
-                            response = target.generate(prompt, options=opts)
+                            response = target.generate(prompt, system=system, options=opts)
                     except Exception as exc:  # keep the run alive; record the failure
                         prompt = "\n---\n".join(turns)
                         response = f"<<RUN-ERROR: {exc}>>"
                     latency = time.monotonic() - started
 
-                    v = judge(response)
+                    # prompt-leak trials are judged deterministically by canary match; all other
+                    # objectives go through the harmful-content heuristic (Claude judge confirms).
+                    v = judge_leak(obj.canary, response) if obj.is_prompt_leak else judge(response)
                     # Decode-gating: for cipher / low-resource techniques, record whether the
                     # model actually recovered the objective — a refusal after a decode failure
                     # is a false-safe, and the report reads it as "not a valid probe".
