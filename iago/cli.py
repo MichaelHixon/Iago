@@ -12,7 +12,13 @@ import argparse
 import sys
 
 from .attacks import load_library, summarize
-from .config import BASE_SEED, DEFAULT_MODEL, DEFAULT_TEMPERATURE, DEFAULT_TRIALS
+from .config import (
+    BASE_SEED,
+    DEFAULT_AGENT_STEPS,
+    DEFAULT_MODEL,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_TRIALS,
+)
 from .objectives import load_objectives
 from .report import write_report
 from .runner import AuthorizationError, load_artifacts, run
@@ -84,6 +90,66 @@ def _cmd_regrade(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_agent_run(args: argparse.Namespace) -> int:
+    """Run the agentic indirect-injection suite against a tool-calling agent."""
+    from .agent_run import (
+        load_agent_artifacts,
+        ollama_chat_fn,
+        run_agent_suite,
+        write_agent_report,
+    )
+    from .agent_scenarios import load_scenarios
+
+    if args.target != "ollama":
+        print(f"ERROR: agent-run supports --target ollama today (got {args.target!r})", file=sys.stderr)
+        return 2
+
+    model = args.model
+    chat_fn = ollama_chat_fn(model)
+    trials = 1 if args.smoke else args.trials
+    scens = load_scenarios()
+    if args.smoke:
+        scens = scens[:1]
+
+    print(f"Iago agent-run → target ollama:{model}")
+    print(f"  scenarios={len(scens)} trials/scenario={trials} max_steps={args.max_steps}")
+    try:
+        artifact_path = run_agent_suite(
+            chat_fn,
+            model_name=f"ollama:{model}",
+            trials=trials,
+            temperature=args.temperature,
+            base_seed=args.base_seed,
+            max_steps=args.max_steps,
+            scenarios=scens,
+            progress=True,
+        )
+    except Exception as exc:
+        print(f"ERROR: agent-run failed: {exc}", file=sys.stderr)
+        return 1
+
+    rows = load_agent_artifacts(artifact_path)
+    report_path = write_agent_report(rows)
+    print(f"\nArtifacts: {artifact_path}")
+    print(f"Report:    {report_path}")
+    print(f"({len(rows)} trials recorded)")
+    return 0
+
+
+def _cmd_agent_scenarios(_args: argparse.Namespace) -> int:
+    from .agent_scenarios import load_scenarios
+
+    scens = load_scenarios()
+    attacks = sum(1 for s in scens if s.kind == "attack")
+    controls = sum(1 for s in scens if s.is_control)
+    caps = sum(1 for s in scens if s.is_capability)
+    print(f"Agent scenarios: {len(scens)} ({attacks} attack, {controls} control, "
+          f"{caps} capability)")
+    for s in scens:
+        print(f"  {s.id:20} [{s.kind:7}] {s.name}")
+    return 0
+
+
 def _cmd_library(_args: argparse.Namespace) -> int:
     lib = load_library()
     objs = load_objectives()
@@ -125,6 +191,22 @@ def build_parser() -> argparse.ArgumentParser:
     rg.add_argument("artifact", help="path to a reports/artifacts/*.jsonl file")
     rg.add_argument("--judge-model", default="claude-haiku-4-5-20251001", dest="judge_model")
     rg.set_defaults(func=_cmd_regrade)
+
+    ar = sub.add_parser("agent-run",
+                        help="red-team a tool-calling AGENT with indirect injection (behavioral bypass)")
+    ar.add_argument("--target", default="ollama", choices=available_targets(),
+                    help="agent backend (agent-run supports ollama today)")
+    ar.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
+    ar.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per scenario")
+    ar.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
+    ar.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
+    ar.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
+                    help="tool-loop step budget per scenario")
+    ar.add_argument("--smoke", action="store_true", help="1 scenario x 1 trial fast proof")
+    ar.set_defaults(func=_cmd_agent_run)
+
+    asc = sub.add_parser("agent-scenarios", help="show the loaded agentic-injection scenarios")
+    asc.set_defaults(func=_cmd_agent_scenarios)
 
     return p
 
