@@ -20,7 +20,7 @@ from .config import (
     DEFAULT_TRIALS,
 )
 from .objectives import load_objectives
-from .report import write_report
+from .report import write_html_report, write_log, write_report
 from .runner import AuthorizationError, load_artifacts, run
 from .target import available_targets, build_target
 
@@ -62,7 +62,28 @@ def _cmd_run(args: argparse.Namespace) -> int:
     report_path = write_report(rows)
     print(f"\nArtifacts: {artifact_path}")
     print(f"Report:    {report_path}")
+    if getattr(args, "html", False):
+        print(f"HTML:      {write_html_report(rows)}")
+    if getattr(args, "log", False):
+        print(f"Transcript: {write_log(rows, html=getattr(args, 'html', False))}")
     print(f"({len(rows)} trials recorded)")
+    return 0
+
+
+def _cmd_report(args: argparse.Namespace) -> int:
+    """(Re)generate a report from an artifact file — summary, --html, and/or full --log."""
+    from pathlib import Path
+
+    path = Path(args.artifact)
+    if not path.exists():
+        print(f"ERROR: artifact not found: {path}", file=sys.stderr)
+        return 2
+    rows = load_artifacts(path)
+    if args.log:
+        print(f"Transcript: {write_log(rows, html=args.html)}  ({len(rows)} trials)")
+    else:
+        out = write_html_report(rows) if args.html else write_report(rows)
+        print(f"Report: {out}  ({len(rows)} trials)")
     return 0
 
 
@@ -180,9 +201,21 @@ def build_parser() -> argparse.ArgumentParser:
                    help="override fabricated-shot count for many-shot techniques (e.g. 64, 128) "
                         "to exercise long-context scaling")
     r.add_argument("--smoke", action="store_true", help="1x1x1 fast proof of the loop")
+    r.add_argument("--html", action="store_true", help="also write a styled, colored HTML report")
+    r.add_argument("--log", action="store_true",
+                   help="also write a full request/response transcript (every trial, untruncated) — "
+                        "SENSITIVE: contains live payloads + any leaked secrets, do not share publicly")
     r.add_argument("--authorized", action="store_true",
                    help="permit a non-local target (only for models you own/are authorized to test)")
     r.set_defaults(func=_cmd_run)
+
+    rep = sub.add_parser("report", help="(re)generate a report from an existing artifact file")
+    rep.add_argument("artifact", help="path to a reports/artifacts/*.jsonl file")
+    rep.add_argument("--html", action="store_true", help="emit styled, colored HTML (report or --log)")
+    rep.add_argument("--log", action="store_true",
+                     help="emit a full request/response transcript instead of the summary report — "
+                          "SENSITIVE: contains live payloads + any leaked secrets, do not share publicly")
+    rep.set_defaults(func=_cmd_report)
 
     lib = sub.add_parser("library", help="show the loaded attack library + objectives")
     lib.set_defaults(func=_cmd_library)
