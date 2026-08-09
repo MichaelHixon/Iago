@@ -23,6 +23,7 @@ from .objectives import load_objectives
 from .report import write_html_report, write_log, write_report
 from .runner import AuthorizationError, load_artifacts, run
 from .target import available_targets, build_target
+from .guards import GuardedTarget, available_guards, build_guards
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
@@ -31,6 +32,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
     model = None if (args.target != "ollama" and args.model == DEFAULT_MODEL) else args.model
     try:
         target = build_target(args.target, model=model)
+        if getattr(args, "guard", None):
+            target = GuardedTarget(target, build_guards(args.guard))
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -84,6 +87,69 @@ def _cmd_report(args: argparse.Namespace) -> int:
     else:
         out = write_html_report(rows) if args.html else write_report(rows)
         print(f"Report: {out}  ({len(rows)} trials)")
+    return 0
+
+
+def _cmd_delta(args: argparse.Namespace) -> int:
+    """Compute the attack-vs-defense delta from an existing raw and guarded artifact."""
+    from pathlib import Path
+    from .delta import write_delta_report
+
+    raw_path, guarded_path = Path(args.raw), Path(args.guarded)
+    for p in (raw_path, guarded_path):
+        if not p.exists():
+            print(f"ERROR: artifact not found: {p}", file=sys.stderr)
+            return 2
+    raw_rows = load_artifacts(raw_path)
+    guarded_rows = load_artifacts(guarded_path)
+    out = write_delta_report(raw_rows, guarded_rows)
+    print(f"Delta report: {out}")
+    return 0
+
+
+def _cmd_defense_delta(args: argparse.Namespace) -> int:
+    """Paired run: fire the same library at the raw model AND the guarded model (identical
+    seeds), then write the attack-vs-defense delta report — the one-command demo."""
+    from .delta import write_delta_report
+
+    model = None if (args.target != "ollama" and args.model == DEFAULT_MODEL) else args.model
+    try:
+        base = build_target(args.target, model=model)
+        guards = build_guards(args.guard)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    if not guards:
+        print("ERROR: --guard is required (e.g. --guard all)", file=sys.stderr)
+        return 2
+    guarded = GuardedTarget(base, guards)
+
+    trials = 1 if args.smoke else args.trials
+    tech_limit = 1 if args.smoke else args.limit_techniques
+    obj_limit = 1 if args.smoke else args.limit_objectives
+    common = dict(
+        trials=trials, temperature=args.temperature, base_seed=args.base_seed,
+        authorized=args.authorized, technique_limit=tech_limit, objective_limit=obj_limit,
+        shots=args.shots, progress=True,
+    )
+
+    print(f"Iago defense-delta → raw {base.name}  vs  guarded {guarded.name}")
+    print(f"  guards={'+'.join(g.name for g in guards)}  trials/pair={trials} base_seed={args.base_seed}")
+    try:
+        print("\n[1/2] raw run…")
+        raw_path = run(base, **common)
+        print("\n[2/2] guarded run…")
+        guarded_path = run(guarded, **common)
+    except AuthorizationError as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
+
+    raw_rows = load_artifacts(raw_path)
+    guarded_rows = load_artifacts(guarded_path)
+    delta_path = write_delta_report(raw_rows, guarded_rows)
+    print(f"\nRaw artifacts:     {raw_path}")
+    print(f"Guarded artifacts: {guarded_path}")
+    print(f"Delta report:      {delta_path}")
     return 0
 
 
@@ -200,6 +266,9 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--shots", type=int, default=None,
                    help="override fabricated-shot count for many-shot techniques (e.g. 64, 128) "
                         "to exercise long-context scaling")
+    r.add_argument("--guard", default=None,
+                   help=f"wrap the target in a defense and measure holds: '{','.join(available_guards())}' "
+                        "or 'all' (run raw + guarded, then `iago delta` — or use `defense-delta`)")
     r.add_argument("--smoke", action="store_true", help="1x1x1 fast proof of the loop")
     r.add_argument("--html", action="store_true", help="also write a styled, colored HTML report")
     r.add_argument("--log", action="store_true",
@@ -219,6 +288,29 @@ def build_parser() -> argparse.ArgumentParser:
 
     lib = sub.add_parser("library", help="show the loaded attack library + objectives")
     lib.set_defaults(func=_cmd_library)
+
+    dl = sub.add_parser("delta", help="attack-vs-defense delta from a raw + a guarded artifact")
+    dl.add_argument("raw", help="path to the RAW-model reports/artifacts/*.jsonl")
+    dl.add_argument("guarded", help="path to the GUARDED-model reports/artifacts/*.jsonl")
+    dl.set_defaults(func=_cmd_delta)
+
+    dd = sub.add_parser("defense-delta",
+                        help="paired run (raw + guarded, same seeds) → attack-vs-defense delta report")
+    dd.add_argument("--target", default="ollama", choices=available_targets(),
+                    help="target backend (default: ollama)")
+    dd.add_argument("--model", default=DEFAULT_MODEL, help="model tag within the target backend")
+    dd.add_argument("--guard", default="all",
+                    help=f"defense to measure: '{','.join(available_guards())}' or 'all' (default: all)")
+    dd.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per (technique, objective)")
+    dd.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
+    dd.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
+    dd.add_argument("--limit-techniques", type=int, default=None, dest="limit_techniques")
+    dd.add_argument("--limit-objectives", type=int, default=None, dest="limit_objectives")
+    dd.add_argument("--shots", type=int, default=None, help="override many-shot fabricated-shot count")
+    dd.add_argument("--smoke", action="store_true", help="tiny paired proof (1x1x1 each side)")
+    dd.add_argument("--authorized", action="store_true",
+                    help="permit a non-local target (only for models you own/are authorized to test)")
+    dd.set_defaults(func=_cmd_defense_delta)
 
     rg = sub.add_parser("regrade", help="re-score an artifact file with the Claude rubric judge")
     rg.add_argument("artifact", help="path to a reports/artifacts/*.jsonl file")

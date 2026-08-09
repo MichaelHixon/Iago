@@ -201,11 +201,29 @@ Payload-splitting / token-smuggling → `prompt-injection` (pi-003).
 Iago attacks guardrails; `guardrails-ai/guardrails` builds them — a natural foil, and the strongest
 takeaway from harvesting that repo (LifeOS core already covers its patterns).
 
-- [ ] **Attack-vs-defense delta.** guardrails-ai ships a `guardrails start` OpenAI-compatible proxy
-  with input/output guards in front of the model. Point the target at (a) the raw model and (b) the
-  same model behind a guardrails-ai guard, run the same library, and report the **bypass-rate delta**
-  ("this guard cut jailbreak X% → Y%"). Strong attack-vs-defense demo; extends `Target` with a proxied
-  backend and reuses the existing runner/report machinery.
+- [x] **Attack-vs-defense delta.** ✅ **Shipped 2026-08-09.** New `iago/guards.py` — a `Guard`
+  protocol + a `GuardedTarget(Target)` wrapper that runs the SAME attack library behind a defense, so
+  the runner/report machinery is reused unchanged (a blocked call returns a refusal sentinel the
+  heuristic judge already scores as a hold; a `[GUARD-BLOCKED:<name>]` tag attributes which guard
+  fired — zero artifact-schema change). Two transparent reference defenses ship: an
+  `InputJailbreakClassifier` (pattern-based input stage) and an `OutputSystemPromptDLP` (output-stage
+  data-loss filter, handed the protected system prompt, blocks distinctive tokens / 8-word spans —
+  never told the canary, block reasons secret-free). `iago/delta.py` renders the **bypass-rate delta**
+  (raw vs guarded) reusing report.py's rate/Wilson helpers, with guard attribution (blocks vs bypasses
+  actually neutralized), over-block cost on benign controls, and a residual-bypass list. CLI: `--guard`
+  on `run`, `iago delta <raw> <guarded>`, and `iago defense-delta --guard all` (paired run + report in
+  one shot — the demo command). Tests 94→137 green (offline). **Live-verified vs llama3.1 (full library,
+  1 trial, Claude-regraded):** LLM07 system-prompt exfiltration **26% (37/144) → 0% (0/144), −25.7 pts,
+  non-overlapping 95% CIs** — 37 paired trials discordant in the guard's favour, 0 against (deterministic
+  canary judge — a *verbatim / canary-only* measure; paraphrased or translated leakage routes around both
+  the oracle and the DLP, a documented false-negative, and the DLP is handed the prompt it protects — so 0%
+  is a floor, never "leak solved"). Harmful-content **5% (4/86) → 2% (2/86), −2.4 pts** — a small reduction
+  the report keeps *directional* (overlapping CIs, not asserted significant). Over-block **15/43** controls
+  but **0** `direct-ask` (pure-benign traffic untouched — only attack-framed controls blocked). The report
+  labels the significance test as a conservative independent-CI proxy for the correct paired McNemar test,
+  and flags a heuristic-only run's harmful-content row as "not adjudicated" rather than a fake 0→0. The `Guard` protocol is the seam for a real third-party guard (guardrails-ai validator, a
+  Hub jailbreak classifier) as a drop-in — left as a clean extension point so the shipped delta stays
+  dependency-light and reproducible.
 - [ ] **Named hardening recommendations.** The Guardrails Hub is a catalog of concrete defenses (input
   jailbreak classifier, PII/output validators, toxicity). Upgrade the report's generic "add output-side
   classification" line to name specific, installable defenses per leaking category.
