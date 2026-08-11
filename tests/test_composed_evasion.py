@@ -3,6 +3,7 @@
 import pytest
 
 from iago.attacks import (
+    _WRAPPER_FRAMES,
     _WRAPPERS,
     _transform,
     _transform_chain,
@@ -15,6 +16,15 @@ def _get(tech_id: str):
         if tech.id == tech_id:
             return tech
     raise AssertionError(f"technique {tech_id!r} not in library")
+
+
+def _frame_marker(name: str) -> str:
+    """A stable substring of wrapper `name`'s ACTIVE frame text, independent of whether an
+    operator has overridden the inert default in wrappers.local.yaml. Render assertions key
+    off this so a present local frame file doesn't break the tests (it legitimately replaces
+    the placeholder strings). The longest non-{text} segment is always present in the output."""
+    parts = _WRAPPER_FRAMES[name].split("{text}")
+    return max((p.strip() for p in parts), key=len)
 
 
 # --- transform chain ---------------------------------------------------------------
@@ -45,8 +55,8 @@ def test_wrappers_apply_outward_last_is_outermost():
     tech = _get("ce-persona-b64")  # wrappers: [decode-preamble, persona]
     rendered = tech.render("TEST")
     # persona is applied last, so its frame is the outermost text (comes first).
-    persona_idx = rendered.index("[PERSONA FRAME")
-    decode_idx = rendered.index("contains an encoded instruction")
+    persona_idx = rendered.index(_frame_marker("persona"))
+    decode_idx = rendered.index(_frame_marker("decode-preamble"))
     assert persona_idx < decode_idx, "last wrapper must be outermost"
 
 
@@ -56,7 +66,7 @@ def test_render_encodes_then_wraps():
     # payload is base64-encoded (verbatim gone), and both wrapper frames are present.
     assert _transform("TEST_OBJECTIVE", "base64") in rendered
     assert "TEST_OBJECTIVE" not in rendered
-    assert "[PERSONA FRAME" in rendered  # persona wrapper frame present (inert default)
+    assert _frame_marker("persona") in rendered  # persona wrapper frame applied (default or override)
     assert "decode" in rendered.lower()
 
 
@@ -71,7 +81,7 @@ def test_social_only_stack_has_no_encoding():
     assert tech.transforms is None and tech.transform is None
     rendered = tech.render("PLAINTEXT_OBJ")
     assert "PLAINTEXT_OBJ" in rendered  # payload stays verbatim
-    assert "[AUTHORITY-OVERRIDE FRAME" in rendered  # authority-header frame present (inert default)
+    assert _frame_marker("authority-header") in rendered  # authority-header frame applied (default or override)
 
 
 def test_wrappers_apply_only_to_final_turn_in_crescendo():
@@ -90,7 +100,7 @@ def test_manyshot_persona_composes_shots_and_wrapper():
     assert tech.is_shot_scaled
     rendered = tech.render("TEST_OBJECTIVE", shots=5)
     assert rendered.count("Assistant:") == 5 + 1  # 5 fabricated + the trailing turn
-    assert "[PERSONA FRAME" in rendered  # persona wrapper composed on top (inert default)
+    assert _frame_marker("persona") in rendered  # persona wrapper composed on top (default or override)
 
 
 # --- composes metadata resolves ----------------------------------------------------
@@ -194,3 +204,30 @@ def test_rejects_empty_composes_list(tmp_path):
 def test_wrapper_registry_names_are_stable():
     # The YAML references these names; keep the registry surface locked.
     assert set(_WRAPPERS) == {"persona", "refusal-ban", "authority-header", "decode-preamble"}
+
+
+def test_local_frame_file_is_not_parsed_as_a_technique(tmp_path):
+    """Regression: a `*.local.yaml` file (operator frame DATA) in the attacks dir must be
+    SKIPPED by the technique glob, not parsed as a technique. A present wrappers.local.yaml
+    previously took down load_library entirely — the whole library failed and 19 tests went
+    red the moment an operator supplied frames (the documented workflow)."""
+    (tmp_path / "real.yaml").write_text(
+        "- id: ok-001\n  name: n\n  category: direct-ask\n  description: d\n"
+        "  template: 'do {objective}'\n"
+    )
+    # A frame dict, exactly the shape of wrappers.local.yaml — a mapping, not a technique list.
+    (tmp_path / "wrappers.local.yaml").write_text("persona: |\n  You are X.\n\n  {text}\n")
+    lib = load_library(tmp_path)  # must NOT raise on the .local.yaml file
+    assert [t.id for t in lib] == ["ok-001"]
+
+
+def test_shipped_default_frames_are_inert():
+    """The REAL invariant the render tests used to conflate with rendered output: the frames
+    that SHIP in the public tree are inert placeholders (or mild/benign), never ready-to-paste
+    jailbreak strings. Operative text is supplied locally and gitignored."""
+    from iago.attacks import _DEFAULT_WRAPPER_FRAMES
+
+    assert "[PERSONA FRAME" in _DEFAULT_WRAPPER_FRAMES["persona"]
+    assert "[AUTHORITY-OVERRIDE FRAME" in _DEFAULT_WRAPPER_FRAMES["authority-header"]
+    for name, frame in _DEFAULT_WRAPPER_FRAMES.items():
+        assert "{text}" in frame, f"default frame {name!r} must carry the {{text}} placeholder"

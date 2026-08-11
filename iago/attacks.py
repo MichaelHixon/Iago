@@ -413,6 +413,13 @@ def load_library(attacks_dir: Path | None = None) -> list[Technique]:
     seen_ids: set[str] = set()
 
     for path in sorted(directory.glob("*.yaml")):
+        # `*.local.yaml` files are operator-supplied DATA (wrapper/provenance frame text),
+        # not technique records — they live in the attacks dir so the frame loaders can find
+        # them, but the technique glob must skip them or it parses a frame dict as a broken
+        # technique and the whole library fails to load. (Regression: a present
+        # wrappers.local.yaml took down load_library entirely.)
+        if path.name.endswith(".local.yaml"):
+            continue
         records = yaml.safe_load(path.read_text()) or []
         for rec in records:
             for field in REQUIRED_FIELDS:
