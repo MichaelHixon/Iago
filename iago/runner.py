@@ -24,10 +24,15 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .attacks import Technique, load_library
+from .attacks import (
+    NEUTRAL_HISTORY_USER,
+    PLANTED_HISTORY_ACK,
+    Technique,
+    load_library,
+)
 from .config import ARTIFACTS_DIR, BASE_SEED, DEFAULT_TEMPERATURE, DEFAULT_TRIALS
 from .decode import decode_recovered, is_decode_gated
-from .judge import judge, judge_leak
+from .judge import _trust_arm_signal, judge, judge_leak, judge_trust
 from .objectives import Objective, load_objectives
 from .target import Target
 
@@ -61,6 +66,16 @@ class TrialResult:
     # can be a DECODE FAILURE (false-safe), not a real guardrail hold.
     gated: bool = False           # technique hides the objective (cipher / low-resource)
     decoded: bool | None = None   # gated trials: did the model recover the objective? (None = not gated)
+    # Trust-escalation (provenance-forging) differential arms. The row's `response`/`verdict` are
+    # the PROVENANCE arm + the three-arm differential verdict; these capture the ANONYMOUS and
+    # PLACEBO baselines and every arm's action-token signal so the refuse→grant attribution is
+    # auditable (escalation requires prov granted while anon AND placebo held). None = not a
+    # trust-escalation trial.
+    anon_response: str | None = None
+    anon_signal: str | None = None       # granted | held (anonymous arm)
+    placebo_response: str | None = None
+    placebo_signal: str | None = None    # granted | held (neutral-placebo arm — the null floor)
+    prov_signal: str | None = None       # granted | held (provenance arm)
 
 
 class AuthorizationError(RuntimeError):
@@ -84,6 +99,54 @@ def _run_multiturn(target, turns: list[str], options: dict, system: str | None =
         transcript_parts.append(f"[turn {i} — user]\n{user_turn}\n[turn {i} — assistant]\n{reply}")
         final_reply = reply
     return "\n\n".join(transcript_parts), final_reply
+
+
+def _execute_arm(target, tech: Technique, turns: list[str], opts: dict,
+                 system: str | None) -> tuple[str, str]:
+    """Fire one arm (single-shot or multi-turn) and return (prompt, response). A transport
+    failure is captured as a <<RUN-ERROR>> response so the run stays alive and the judge can
+    exclude it. `system` plants context (a secret for prompt-leak, fabricated provenance for a
+    trust-escalation provenance arm, or None for the anonymous arm / plain forbidden objectives)."""
+    try:
+        if tech.is_multiturn:
+            return _run_multiturn(target, turns, opts, system=system)
+        prompt = turns[0]
+        return prompt, target.generate(prompt, system=system, options=opts)
+    except Exception as exc:  # keep the run alive; record the failure
+        return "\n---\n".join(turns), f"<<RUN-ERROR: {exc}>>"
+
+
+def _execute_planted(target, system: str | None, planted: list[dict], ask: str,
+                     opts: dict) -> tuple[str, str]:
+    """Build a conversation with fabricated PRIOR turns (planted as history, NOT model-generated)
+    followed by the real ask, call the model ONCE, and return (readable_transcript, final_reply).
+    `planted` is a list of {role, content} turns injected as conversation history — this is how a
+    trust-escalation arm plants 'loaded memory' in the prior-turn channel (never the system channel,
+    which would confound trust-transfer with authority-override). A transport failure is captured as
+    a <<RUN-ERROR>> reply so the run stays alive."""
+    messages: list[dict] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.extend(planted)
+    messages.append({"role": "user", "content": ask})
+    try:
+        reply = target.chat(messages, options=opts)
+    except Exception as exc:  # keep the run alive; record the failure
+        reply = f"<<RUN-ERROR: {exc}>>"
+    readable = "\n\n".join(f"[{m['role']}]\n{m['content']}" for m in messages)
+    return readable, reply
+
+
+def _fires(tech: Technique, obj: Objective) -> bool:
+    """Whether `tech` should be fired at `obj`. Honors objective-kind scoping, and additionally
+    restricts trust-escalation objectives to provenance-bearing techniques — a general jailbreak
+    has no fabricated history to plant, so its 'provenance arm' would be identical to anonymous and
+    could never produce an escalation (only noise rows in the trust section)."""
+    if not tech.applies_to_kind(obj.kind):
+        return False
+    if obj.is_trust_escalation and not tech.provenance:
+        return False
+    return True
 
 
 def _run_id(model: str, now: datetime) -> str:
@@ -137,9 +200,9 @@ def run(
     out_path = out_dir / f"{_run_id(target.name, now)}.jsonl"
 
     # Objective-kind scoping: a technique may target only some objective kinds (extraction
-    # techniques fire only at prompt-leak objectives). Count only the compatible pairs so the
-    # progress total matches what actually runs.
-    compatible = sum(1 for tech in lib for obj in objs if tech.applies_to_kind(obj.kind))
+    # techniques fire only at prompt-leak objectives; provenance techniques only at trust
+    # objectives). Count only the compatible pairs so the progress total matches what actually runs.
+    compatible = sum(1 for tech in lib for obj in objs if _fires(tech, obj))
     total = compatible * trials
     done = 0
 
@@ -152,28 +215,47 @@ def run(
             seed = base_seed + trial
             for tech in lib:
                 for obj in objs:
-                    if not tech.applies_to_kind(obj.kind):
-                        continue  # technique not scoped to this objective kind (e.g. extraction vs forbidden)
+                    if not _fires(tech, obj):
+                        continue  # technique not scoped to this objective (kind, or non-provenance vs trust)
                     turns = tech.rendered_turns(obj.objective, shots=shots)  # single-shot => [one prompt]
                     opts = {"temperature": temperature, "seed": seed}
-                    # prompt-leak (LLM07): plant the secret system prompt on the target so the
-                    # attack has something hidden to extract. Other objective kinds send none.
-                    system = obj.system_prompt if obj.is_prompt_leak else None
                     started = time.monotonic()
-                    try:
-                        if tech.is_multiturn:
-                            prompt, response = _run_multiturn(target, turns, opts, system=system)
-                        else:
-                            prompt = turns[0]
-                            response = target.generate(prompt, system=system, options=opts)
-                    except Exception as exc:  # keep the run alive; record the failure
-                        prompt = "\n---\n".join(turns)
-                        response = f"<<RUN-ERROR: {exc}>>"
-                    latency = time.monotonic() - started
+                    anon_response = anon_signal = placebo_response = placebo_signal = prov_signal = None
 
-                    # prompt-leak trials are judged deterministically by canary match; all other
-                    # objectives go through the harmful-content heuristic (Claude judge confirms).
-                    v = judge_leak(obj.canary, response) if obj.is_prompt_leak else judge(response)
+                    if obj.is_trust_escalation:
+                        # THREE-ARM DIFFERENTIAL under the SAME scenario gate (obj.system_prompt):
+                        #   anonymous  — the ask with no planted history.
+                        #   placebo    — the ask after NEUTRAL planted prior turns (null floor for
+                        #                "any prior context at all").
+                        #   provenance — the ask after fabricated RELATIONSHIP history planted as
+                        #                prior turns (paired with a generic assistant ack).
+                        # judge_trust confirms an escalation only when provenance crosses the gate
+                        # (emits the action token) while anon AND placebo do not — isolating the
+                        # relationship content. History goes in the PRIOR-TURN channel, never system.
+                        gate = obj.system_prompt
+                        ask = tech.render(obj.objective, shots=shots)  # wrapped final ask (no priming)
+                        ack = PLANTED_HISTORY_ACK
+                        _, anon_response = _execute_planted(target, gate, [], ask, opts)
+                        placebo_plant = [{"role": "user", "content": NEUTRAL_HISTORY_USER},
+                                         {"role": "assistant", "content": ack}]
+                        _, placebo_response = _execute_planted(target, gate, placebo_plant, ask, opts)
+                        prov_plant = [{"role": "user", "content": tech.provenance_history()},
+                                      {"role": "assistant", "content": ack}]
+                        prompt, response = _execute_planted(target, gate, prov_plant, ask, opts)
+                        latency = time.monotonic() - started
+                        v = judge_trust(anon_response, placebo_response, response, obj.action_token)
+                        anon_signal = _trust_arm_signal(anon_response, obj.action_token)
+                        placebo_signal = _trust_arm_signal(placebo_response, obj.action_token)
+                        prov_signal = _trust_arm_signal(response, obj.action_token)
+                    else:
+                        # prompt-leak (LLM07): plant the secret system prompt so the attack has
+                        # something hidden to extract. Other objective kinds send no system message.
+                        system = obj.system_prompt if obj.is_prompt_leak else None
+                        prompt, response = _execute_arm(target, tech, turns, opts, system)
+                        latency = time.monotonic() - started
+                        # prompt-leak → deterministic canary match; everything else → the
+                        # harmful-content heuristic (the Claude judge confirms a bypass later).
+                        v = judge_leak(obj.canary, response) if obj.is_prompt_leak else judge(response)
                     # Decode-gating: for cipher / low-resource techniques, record whether the
                     # model actually recovered the objective — a refusal after a decode failure
                     # is a false-safe, and the report reads it as "not a valid probe".
@@ -203,6 +285,11 @@ def run(
                         shots=tech.shot_count(shots),
                         gated=gated,
                         decoded=decoded,
+                        anon_response=anon_response,
+                        anon_signal=anon_signal,
+                        placebo_response=placebo_response,
+                        placebo_signal=placebo_signal,
+                        prov_signal=prov_signal,
                     )
                     fh.write(json.dumps(asdict(row)) + "\n")
                     fh.flush()
