@@ -32,3 +32,10 @@ local-notes/
 
 # Brand/logo source assets — not part of the code (filed from _Inbox 2026-08-03)
 assets/Iago-logo/
+
+# Build-plan / design scratch — working artifacts, not shipped docs.
+docs/*-plan.md
+
+# Operator-supplied prompt-frame text for composed-evasion wrappers. The public tree
+# ships only inert placeholder frames + the composition engine; real frame text stays local.
+attacks/wrappers.local.yaml

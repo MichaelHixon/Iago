@@ -20,20 +20,20 @@ from pathlib import Path
 from .config import REPORTS_DIR
 from .guards import guard_that_fired
 from .judge import BYPASSED, ERROR, NEEDS_REVIEW
-from .report import _ci_str, _pct, _rate, _verdict
+from .report import ci_str, pct, bypass_rate, verdict_of
 from .stats import wilson_interval
 
 
 def _valid(rows: list[dict], kind: str) -> list[dict]:
     """Rows of one objective kind that are valid probes (transport errors excluded)."""
-    return [r for r in rows if r["objective_kind"] == kind and _verdict(r) != ERROR]
+    return [r for r in rows if r["objective_kind"] == kind and verdict_of(r) != ERROR]
 
 
 def _rate_block(rows: list[dict], kind: str) -> dict:
     valid = _valid(rows, kind)
-    hits = sum(1 for r in valid if _verdict(r) == BYPASSED)
+    hits = sum(1 for r in valid if verdict_of(r) == BYPASSED)
     total = len(valid)
-    return {"hits": hits, "total": total, "rate": _rate(hits, total), "ci": _ci_str(hits, total)}
+    return {"hits": hits, "total": total, "rate": bypass_rate(hits, total), "ci": ci_str(hits, total)}
 
 
 def _delta_pts(raw: dict, guarded: dict) -> float:
@@ -51,12 +51,12 @@ def _discordant(raw_rows: list[dict], guarded_rows: list[dict], kind: str) -> tu
                       for r in guarded_rows if r["objective_kind"] == kind}
     b = c = 0
     for r in raw_rows:
-        if r["objective_kind"] != kind or _verdict(r) == ERROR:
+        if r["objective_kind"] != kind or verdict_of(r) == ERROR:
             continue
         twin = guarded_by_key.get((r["technique_id"], r["objective_id"], r.get("trial", 0)))
-        if twin is None or _verdict(twin) == ERROR:
+        if twin is None or verdict_of(twin) == ERROR:
             continue
-        raw_by, guard_by = _verdict(r) == BYPASSED, _verdict(twin) == BYPASSED
+        raw_by, guard_by = verdict_of(r) == BYPASSED, verdict_of(twin) == BYPASSED
         if raw_by and not guard_by:
             b += 1
         elif guard_by and not raw_by:
@@ -77,8 +77,8 @@ def _headline(a, label: str, raw: dict, guarded: dict) -> None:
     d = _delta_pts(raw, guarded)
     arrow = "▼" if d < 0 else ("▲" if d > 0 else "—")
     sig = " *(non-overlapping 95% CIs)*" if _significant(raw, guarded) else ""
-    a(f"- **{label}:** {_pct(raw['rate'])} (raw, {raw['hits']}/{raw['total']}, 95% CI {raw['ci']}) "
-      f"→ {_pct(guarded['rate'])} (guarded, {guarded['hits']}/{guarded['total']}, 95% CI {guarded['ci']}) "
+    a(f"- **{label}:** {pct(raw['rate'])} (raw, {raw['hits']}/{raw['total']}, 95% CI {raw['ci']}) "
+      f"→ {pct(guarded['rate'])} (guarded, {guarded['hits']}/{guarded['total']}, 95% CI {guarded['ci']}) "
       f"— {arrow} **{abs(d):.1f} pts**{sig}")
 
 
@@ -120,7 +120,7 @@ def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict]) -> str:
     if forbidden_raw["hits"] or forbidden_guarded["hits"] or forbidden_graded:
         _headline(a, "Harmful-content bypass rate", forbidden_raw, forbidden_guarded)
     else:
-        nr = sum(1 for r in _valid(raw_rows, "forbidden") if _verdict(r) == NEEDS_REVIEW)
+        nr = sum(1 for r in _valid(raw_rows, "forbidden") if verdict_of(r) == NEEDS_REVIEW)
         a(f"- **Harmful-content bypass rate:** _not adjudicated._ This was a heuristic-only run, and "
           f"the heuristic judge never asserts a harmful-content bypass by design — so a 0% here would "
           f"be an artifact, not a result. Run `iago regrade` on **both** artifacts (raw + guarded) to "
@@ -170,7 +170,7 @@ def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict]) -> str:
             continue
         blocks_by_guard[g] += 1
         twin = raw_by_key.get((r["technique_id"], r["objective_id"], r.get("trial", 0)))
-        if twin is not None and _verdict(twin) == BYPASSED:
+        if twin is not None and verdict_of(twin) == BYPASSED:
             neutralized_by_guard[g] += 1
 
     a("## Guard attribution")
@@ -201,7 +201,7 @@ def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict]) -> str:
     a("")
     if control_guarded:
         a(f"- Control-objective trials blocked by a guard: **{len(over)}/{len(control_guarded)}** "
-          f"({_pct(_rate(len(over), len(control_guarded)))}).")
+          f"({pct(bypass_rate(len(over), len(control_guarded)))}).")
         a(f"- Of those, **{len(over_benign)}** were `direct-ask` (benign payload, benign framing) — "
           "the truest false-positive signal; the rest were benign payloads wrapped in attack framings, "
           "where blocking the framing is arguably correct.")
@@ -211,7 +211,7 @@ def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict]) -> str:
 
     # --- Residual bypasses: what the guard did NOT stop ---------------------------
     residual = [r for r in guarded_rows
-                if r["objective_kind"] in ("forbidden", "prompt-leak") and _verdict(r) == BYPASSED]
+                if r["objective_kind"] in ("forbidden", "prompt-leak") and verdict_of(r) == BYPASSED]
     a("## Residual bypasses (guard did not stop these)")
     a("")
     if residual:
@@ -239,15 +239,15 @@ def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict]) -> str:
     for cat in cats:
         rk = [r for r in raw_rows if r["category"] == cat and r["objective_kind"] in ("forbidden", "prompt-leak")]
         gk = [r for r in guarded_rows if r["category"] == cat and r["objective_kind"] in ("forbidden", "prompt-leak")]
-        rb = {"hits": sum(1 for r in rk if _verdict(r) == BYPASSED and _verdict(r) != ERROR),
-              "total": sum(1 for r in rk if _verdict(r) != ERROR)}
-        gb = {"hits": sum(1 for r in gk if _verdict(r) == BYPASSED and _verdict(r) != ERROR),
-              "total": sum(1 for r in gk if _verdict(r) != ERROR)}
-        rb["rate"] = _rate(rb["hits"], rb["total"])
-        gb["rate"] = _rate(gb["hits"], gb["total"])
+        rb = {"hits": sum(1 for r in rk if verdict_of(r) == BYPASSED and verdict_of(r) != ERROR),
+              "total": sum(1 for r in rk if verdict_of(r) != ERROR)}
+        gb = {"hits": sum(1 for r in gk if verdict_of(r) == BYPASSED and verdict_of(r) != ERROR),
+              "total": sum(1 for r in gk if verdict_of(r) != ERROR)}
+        rb["rate"] = bypass_rate(rb["hits"], rb["total"])
+        gb["rate"] = bypass_rate(gb["hits"], gb["total"])
         d = (gb["rate"] - rb["rate"]) * 100.0
-        a(f"| {cat} | {_pct(rb['rate'])} ({rb['hits']}/{rb['total']}) | "
-          f"{_pct(gb['rate'])} ({gb['hits']}/{gb['total']}) | {d:+.1f} |")
+        a(f"| {cat} | {pct(rb['rate'])} ({rb['hits']}/{rb['total']}) | "
+          f"{pct(gb['rate'])} ({gb['hits']}/{gb['total']}) | {d:+.1f} |")
     a("")
 
     # --- Honesty caveats ----------------------------------------------------------

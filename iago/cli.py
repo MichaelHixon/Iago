@@ -107,6 +107,22 @@ def _cmd_delta(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_compose_delta(args: argparse.Namespace) -> int:
+    """Composition-lift report from ONE artifact that fired the composed techniques and their
+    constituent primitives: how much stacking evasions beat the best single layer."""
+    from pathlib import Path
+    from .compose_delta import write_compose_report
+
+    path = Path(args.artifact)
+    if not path.exists():
+        print(f"ERROR: artifact not found: {path}", file=sys.stderr)
+        return 2
+    rows = load_artifacts(path)
+    out = write_compose_report(rows)
+    print(f"Composition-lift report: {out}")
+    return 0
+
+
 def _cmd_defense_delta(args: argparse.Namespace) -> int:
     """Paired run: fire the same library at the raw model AND the guarded model (identical
     seeds), then write the attack-vs-defense delta report — the one-command demo."""
@@ -293,6 +309,11 @@ def build_parser() -> argparse.ArgumentParser:
     dl.add_argument("raw", help="path to the RAW-model reports/artifacts/*.jsonl")
     dl.add_argument("guarded", help="path to the GUARDED-model reports/artifacts/*.jsonl")
     dl.set_defaults(func=_cmd_delta)
+
+    cd = sub.add_parser("compose-delta",
+                        help="composition-lift report: does stacking evasions beat the best single layer?")
+    cd.add_argument("artifact", help="path to a reports/artifacts/*.jsonl file that ran the full library")
+    cd.set_defaults(func=_cmd_compose_delta)
 
     dd = sub.add_parser("defense-delta",
                         help="paired run (raw + guarded, same seeds) → attack-vs-defense delta report")
