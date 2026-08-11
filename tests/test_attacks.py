@@ -16,17 +16,22 @@ def test_all_categories_populated():
 
 
 def test_every_template_has_placeholder_and_renders():
+    from iago.attacks import _transform, _transform_chain
+
     for tech in load_library():
         assert "{objective}" in tech.template
         rendered = tech.render("TEST_OBJECTIVE")
         assert "{objective}" not in rendered
-        if tech.transform in (None, "none"):
+        if tech.transforms:
+            # Composed techniques with a transform CHAIN encode the payload through each
+            # step — the fully-chained form must be present, verbatim text gone.
+            assert _transform_chain("TEST_OBJECTIVE", tech.transforms) in rendered
+        elif tech.transform in (None, "none"):
             # Non-transforming techniques inject the objective verbatim.
             assert "TEST_OBJECTIVE" in rendered
         else:
             # Transforming techniques encode the payload, so the verbatim text is
             # gone but the encoded form must be present (real evasion, the encoding path).
-            from iago.attacks import _transform
             assert _transform("TEST_OBJECTIVE", tech.transform) in rendered
 
 
