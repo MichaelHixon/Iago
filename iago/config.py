@@ -51,6 +51,7 @@ CATEGORIES = [
     "competing-objectives",
     "many-shot",
     "multi-turn",
+    "composed-evasion",
     "rag-injection",
     "agent-abuse",
     "mcp-injection",
