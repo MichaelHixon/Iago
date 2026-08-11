@@ -39,3 +39,8 @@ docs/*-plan.md
 # Operator-supplied prompt-frame text for composed-evasion wrappers. The public tree
 # ships only inert placeholder frames + the composition engine; real frame text stays local.
 attacks/wrappers.local.yaml
+
+# Operator-supplied fabricated-provenance frame text for provenance-forging. The public tree ships
+# functional-but-mild default frames + the differential engine (so a clone reproduces a real
+# finding); this optional file holds SHARPER operator history and stays local.
+attacks/provenance.local.yaml
