@@ -52,6 +52,7 @@ CATEGORIES = [
     "many-shot",
     "multi-turn",
     "composed-evasion",
+    "provenance-forging",
     "rag-injection",
     "agent-abuse",
     "mcp-injection",

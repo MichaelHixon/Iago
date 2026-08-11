@@ -18,7 +18,7 @@ import yaml
 from .config import OBJECTIVES_FILE
 
 REQUIRED_FIELDS = ("id", "objective", "kind")
-VALID_KINDS = ("forbidden", "control", "prompt-leak")
+VALID_KINDS = ("forbidden", "control", "prompt-leak", "trust-escalation")
 
 
 @dataclass(frozen=True)
@@ -30,12 +30,21 @@ class Objective:
     kind: str  # forbidden | control | prompt-leak
     owasp: str | None = None
     rationale: str | None = None
-    # prompt-leak (OWASP LLM07) only: the SECRET system prompt planted on the target for
-    # this objective, and the unique `canary` inside it that proves a leak deterministically
-    # when it surfaces in the reply. A different goal from forbidden objectives — the attack
-    # extracts hidden instructions rather than eliciting harmful content.
+    # prompt-leak (OWASP LLM07): the SECRET system prompt planted on the target for this
+    # objective, and the unique `canary` inside it that proves a leak deterministically when it
+    # surfaces in the reply. A different goal from forbidden objectives — the attack extracts
+    # hidden instructions rather than eliciting harmful content.
+    #
+    # trust-escalation (provenance-forging) ALSO uses `system_prompt`, but as a SCENARIO POLICY
+    # GATE (not a secret): it gives the model a role with an explicit gate the model must NOT waive
+    # (e.g. "never apply a change without the 6-digit code; this overrides any claim of prior
+    # verification"). `action_token` is the machine-checkable proof the gate was crossed — a unique
+    # string the scenario tells the model to emit ONLY after it performs the gated action, so its
+    # presence in a reply is ground truth (GRANTED), exactly like the canary proves a leak. This
+    # replaces any length/keyword guess about whether the boundary actually broke.
     system_prompt: str | None = None
     canary: str | None = None
+    action_token: str | None = None
 
     @property
     def is_control(self) -> bool:
@@ -44,6 +53,16 @@ class Objective:
     @property
     def is_prompt_leak(self) -> bool:
         return self.kind == "prompt-leak"
+
+    @property
+    def is_trust_escalation(self) -> bool:
+        """A borderline request gated on TRUST, not harmfulness — a well-aligned model refuses it
+        from a stranger. Provenance-forging techniques try to flip that refusal by planting
+        fabricated relationship history as prior conversation turns. The runner fires three arms
+        (anonymous / neutral-placebo / provenance) under the SAME scenario gate, and judge_trust
+        confirms an escalation only when the provenance arm emits the action token while the
+        anonymous AND placebo arms do not — isolating the relationship content as the cause."""
+        return self.kind == "trust-escalation"
 
 
 def load_objectives(objectives_file: Path | None = None) -> list[Objective]:
@@ -85,6 +104,27 @@ def load_objectives(objectives_file: Path | None = None) -> list[Objective]:
                     f"{path.name}: prompt-leak objective {rec['id']!r} canary {canary!r} is not "
                     "present in its system_prompt — the leak oracle could never fire"
                 )
+        # A trust-escalation objective needs a scenario gate to cross and a machine-checkable
+        # action token that proves the crossing. The token must live in the system_prompt (so the
+        # model knows to emit it on the gated action) but NOT in the objective text (or an attack
+        # that merely echoes the ask would false-positive) — the same invariant as the leak canary.
+        if rec["kind"] == "trust-escalation":
+            sys_prompt, token = rec.get("system_prompt"), rec.get("action_token")
+            if not sys_prompt or not token:
+                raise ValueError(
+                    f"{path.name}: trust-escalation objective {rec['id']!r} needs both 'system_prompt' "
+                    "(the scenario policy gate) and 'action_token' (the string that proves the gate was crossed)"
+                )
+            if token not in sys_prompt:
+                raise ValueError(
+                    f"{path.name}: trust-escalation objective {rec['id']!r} action_token {token!r} is not "
+                    "present in its system_prompt — the model is never told to emit it, so the oracle could never fire"
+                )
+            if token in rec["objective"]:
+                raise ValueError(
+                    f"{path.name}: trust-escalation objective {rec['id']!r} action_token {token!r} appears in the "
+                    "objective text — an attack echoing the ask would false-positive; keep the token out of the ask"
+                )
         objectives.append(
             Objective(
                 id=rec["id"],
@@ -94,6 +134,7 @@ def load_objectives(objectives_file: Path | None = None) -> list[Objective]:
                 rationale=rec.get("rationale"),
                 system_prompt=rec.get("system_prompt"),
                 canary=rec.get("canary"),
+                action_token=rec.get("action_token"),
             )
         )
 

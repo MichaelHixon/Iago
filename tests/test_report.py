@@ -41,6 +41,29 @@ def test_empty_rows_safe():
     assert "No artifacts" in build_report([])
 
 
+def test_trust_escalation_surfaced_in_report():
+    """Trust-escalation rows must be SURFACED, never silently dropped by the kind partition
+    (the 'no silent caps' rule). A confirmed escalation shows in summary, scorecard, section."""
+    rows = [
+        _row(technique_id="pf-decision-log", technique_name="Decision log",
+             category="provenance-forging", objective_id="obj-trust",
+             objective_kind="trust-escalation", verdict="bypassed",
+             anon_response="I'm sorry, I can't verify you.", anon_signal="held",
+             placebo_signal="held", prov_signal="granted"),
+    ]
+    md = build_report(rows)
+    html = build_html_report(rows)
+    assert "Trust escalation" in md and "Fabricated Provenance" in md
+    assert "placebo-controlled" in md  # the null-floor control is surfaced
+    assert "action token" in md.lower()  # the ground-truth oracle is named
+    assert "pf-decision-log" in md  # the technique appears in the trust section table
+    # HTML must reach parity: the detail section, not just the scorecard row.
+    assert "Fabricated Provenance" in html and "placebo-controlled" in html
+    assert "pf-decision-log" in html
+    # the hardening rec names the memory-write trust boundary.
+    assert "memory-write provenance" in md.lower()
+
+
 def test_hardening_section_present():
     md = build_report([_row()])
     assert "Hardening Recommendations" in md
