@@ -21,7 +21,7 @@ from .config import REPORTS_DIR
 from .guards import guard_that_fired
 from .judge import BYPASSED, ERROR, NEEDS_REVIEW
 from .report import ci_str, pct, bypass_rate, verdict_of
-from .stats import wilson_interval
+from .stats import mcnemar_exact_p, wilson_interval
 
 
 def _valid(rows: list[dict], kind: str) -> list[dict]:
@@ -141,15 +141,27 @@ def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict]) -> str:
     a("> system prompt it protects* — a realistic DLP assumption, but a best-case oracle, not a hardened")
     a("> deployment. So `0%` is a floor on what this narrow guard stops, **never** \"prompt-leak solved.\"")
     a("")
-    # Paired-data note: the two runs are twins, so the independent-CI gate is a conservative proxy.
+    # Paired-data significance: the two runs are twins, so McNemar's exact test — conditioning on the
+    # discordant pairs — is the correct instrument. We run it here rather than name it and skip it. The
+    # significance claim is GATED on the p-value and on there being discordant pairs at all: never assert
+    # "not sampling noise" for a split that cannot support it (e.g. no discordant pairs → p = 1.0).
     b_leak, c_leak = _discordant(raw_rows, guarded_rows, "prompt-leak")
-    a("> **Paired data — the correct test is McNemar's, not independent intervals.** Each guarded trial")
-    a("> has a raw twin (same technique, objective, seed). On the LLM07 pairs there are")
-    a(f"> **{b_leak}** discordant in the guard's favour (raw leaked → guard held) and **{c_leak}** against")
-    a("> — near-total concordance. The non-overlapping-interval gate above treats the two rates as")
-    a("> *independent*, which is a **conservative** proxy: it is a STRICTER bar than the paired McNemar")
-    a("> test (which conditions on exactly these discordants and would be more powerful), so a result that")
-    a("> clears it is under-claimed, not over-claimed. Naming the better test we didn't run is the point.")
+    n_disc = b_leak + c_leak
+    p_leak = mcnemar_exact_p(b_leak, c_leak)
+    a("> **Paired data — McNemar's exact test.** Each guarded trial has a raw twin (same technique,")
+    a("> objective, seed), so the correct significance test is McNemar's, which conditions on the")
+    if n_disc == 0:
+        a("> discordant pairs. On the LLM07 pairs there were **no discordant pairs** — the guard changed no")
+        a("> verdict either way — so there is nothing for the paired test to condition on: no signal, not a")
+        a("> proven null.")
+    else:
+        claim = ("the reduction is not sampling noise" if p_leak < 0.05
+                 else "directional only — too few discordant pairs to assert significance")
+        a(f"> discordant pairs. On the LLM07 pairs: **{b_leak}** in the guard's favour (raw leaked → guard")
+        a(f"> held) and **{c_leak}** against. The exact-binomial McNemar test on that split gives a two-sided")
+        a(f"> **p = {p_leak:.2e}** — {claim}. The non-overlapping-interval gate above is a separate, coarser")
+        a("> check: it treats the two rates as *independent*, which discards the pairing's statistical power")
+        a("> — it does not buy conservatism.")
     a("")
 
     # --- Guard attribution: which guard fired, and on what -------------------------

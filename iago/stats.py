@@ -10,7 +10,28 @@ a third of the time" into a finding you can defend in a report.
 
 from __future__ import annotations
 
-from math import sqrt
+from math import comb, sqrt
+
+
+def mcnemar_exact_p(b: int, c: int) -> float:
+    """Two-sided exact-binomial McNemar p-value on discordant-pair counts (b, c).
+
+    Paired before/after data (each guarded trial has a raw twin) has one correct
+    significance test: McNemar's, which throws away the concordant pairs and asks
+    how surprising the discordant split (b vs c) is under the null that a discordant
+    pair is equally likely to fall either way (p = 0.5). This is the *exact* binomial
+    form, not the chi-square approximation, so it stays valid when the discordant
+    total is small or entirely one-sided — e.g. 37 vs 0, where the asymptotic form
+    has no business being trusted near the boundary.
+
+    Returns a p in [0, 1]; 1.0 when there are no discordant pairs (n == 0).
+    """
+    n = b + c
+    if n == 0:
+        return 1.0
+    k = min(b, c)
+    lower_tail = sum(comb(n, i) for i in range(k + 1)) * (0.5 ** n)
+    return min(1.0, 2.0 * lower_tail)
 
 
 def wilson_interval(hits: int, total: int, z: float = 1.96) -> tuple[float, float]:

@@ -1,6 +1,6 @@
-"""Tests for the Wilson confidence-interval helper."""
+"""Tests for the Wilson confidence-interval helper and the McNemar exact test."""
 
-from iago.stats import wilson_interval
+from iago.stats import mcnemar_exact_p, wilson_interval
 
 
 def test_zero_total_is_zero_zero():
@@ -27,3 +27,29 @@ def test_more_trials_tighten_the_interval():
 def test_point_estimate_lies_within_the_interval():
     lo, hi = wilson_interval(4, 10)
     assert lo <= 0.4 <= hi
+
+
+def test_mcnemar_no_discordant_pairs_is_one():
+    # No disagreement between the paired runs => nothing to be surprised about.
+    assert mcnemar_exact_p(0, 0) == 1.0
+
+
+def test_mcnemar_fully_one_sided_matches_hand_calc():
+    # 37 wins, 0 regressions: two-sided exact = 2 * 0.5**37. This is the real defense-delta case.
+    assert abs(mcnemar_exact_p(37, 0) - 2 * 0.5 ** 37) < 1e-18
+    assert mcnemar_exact_p(37, 0) < 1e-10  # overwhelmingly significant
+
+
+def test_mcnemar_small_one_sided_split():
+    # 3 vs 0 => 2 * 0.5**3 = 0.25, a case the chi-square approximation would mishandle.
+    assert abs(mcnemar_exact_p(3, 0) - 0.25) < 1e-12
+
+
+def test_mcnemar_is_symmetric_in_its_arguments():
+    # p(b, c) == p(c, b): the test cares about the split, not the direction.
+    assert mcnemar_exact_p(5, 2) == mcnemar_exact_p(2, 5)
+
+
+def test_mcnemar_even_split_is_not_significant():
+    # A 4/4 discordant split is exactly what the null predicts => p == 1.0.
+    assert mcnemar_exact_p(4, 4) == 1.0
