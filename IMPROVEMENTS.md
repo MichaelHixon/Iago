@@ -220,8 +220,9 @@ takeaway from harvesting that repo (LifeOS core already covers its patterns).
   is a floor, never "leak solved"). Harmful-content **5% (4/86) → 2% (2/86), −2.4 pts** — a small reduction
   the report keeps *directional* (overlapping CIs, not asserted significant). Over-block **15/43** controls
   but **0** `direct-ask` (pure-benign traffic untouched — only attack-framed controls blocked). The report
-  labels the significance test as a conservative independent-CI proxy for the correct paired McNemar test,
-  and flags a heuristic-only run's harmful-content row as "not adjudicated" rather than a fake 0→0. The `Guard` protocol is the seam for a real third-party guard (guardrails-ai validator, a
+  runs McNemar's exact test on the paired discordants (37 vs 0 → two-sided p ≈ 1.5e-11) alongside the
+  coarser non-overlapping-CI gate, and flags a heuristic-only run's harmful-content row as "not adjudicated"
+  rather than a fake 0→0. The `Guard` protocol is the seam for a real third-party guard (guardrails-ai validator, a
   Hub jailbreak classifier) as a drop-in — left as a clean extension point so the shipped delta stays
   dependency-light and reproducible.
 - [ ] **Named hardening recommendations.** The Guardrails Hub is a catalog of concrete defenses (input

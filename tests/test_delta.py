@@ -83,5 +83,43 @@ def test_harmful_content_headline_shows_when_claude_graded():
     assert "not adjudicated" not in md
 
 
+def _leak_pairs(n, guard_holds):
+    """n paired LLM07 leak trials: raw always leaks; guarded holds (blocked) or also leaks."""
+    blk_out = blocked_response("output-systemprompt-dlp", "reproduced a protected token")
+    raw = [_row(f"t{i}", "prompt-injection", f"obj-leak{i}", "prompt-leak", BYPASSED, owasp="LLM07")
+           for i in range(n)]
+    guarded = [_row(f"t{i}", "prompt-injection", f"obj-leak{i}", "prompt-leak",
+                    REFUSED if guard_holds else BYPASSED,
+                    response=blk_out if guard_holds else "...", owasp="LLM07") for i in range(n)]
+    return raw, guarded
+
+
+def test_mcnemar_pvalue_is_reported_not_deferred():
+    # 3-vs-0 discordant split: the report must RUN McNemar's (exact p = 2*0.5**3 = 0.25), label it
+    # directional (0.25 > 0.05), and must NOT still ship the retired folk-theorem.
+    md = build_delta_report(*_leak_pairs(3, guard_holds=True))
+    assert "McNemar" in md
+    assert "p = 2.50e-01" in md                        # the computed exact p-value, not a hand-wave
+    assert "directional only" in md                    # 0.25 is NOT significant — say so
+    assert "the better test we didn't run" not in md   # folk-theorem must be gone
+    assert "STRICTER bar" not in md
+
+
+def test_mcnemar_significant_split_reads_not_noise():
+    # 6-vs-0 => p = 2*0.5**6 = 0.03125 < 0.05 => the significance claim IS asserted.
+    md = build_delta_report(*_leak_pairs(6, guard_holds=True))
+    assert "p = 3.12e-02" in md
+    assert "the reduction is not sampling noise" in md
+
+
+def test_mcnemar_no_discordant_pairs_never_claims_significance():
+    # Guard changes no verdict (raw leaks, guarded also leaks) => 0 discordant pairs. The report must
+    # NOT print a bogus "p = 1.00e+00 — not sampling noise"; it must say there's no signal to test.
+    md = build_delta_report(*_leak_pairs(3, guard_holds=False))
+    assert "no discordant pairs" in md
+    assert "not sampling noise" not in md
+    assert "p = 1.00e+00" not in md
+
+
 def test_empty_inputs_are_handled():
     assert "Need both" in build_delta_report([], [])
