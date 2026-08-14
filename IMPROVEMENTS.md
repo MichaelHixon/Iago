@@ -179,6 +179,20 @@ here duplicates an existing technique.
   default (that path is *not* scoped out), so this is only for the extraction→harmful-content direction and
   is a low-priority escape hatch, not a default.
 
+- [ ] **Agentic tool-abuse → RCE / SSRF** (new goal; source: CkSKILLS `ai-llm-agent-security` taxonomy,
+  github.com/zhaji2333/CkSKILLS, 2026-08). Distinct from prompt-leak / harmful-content: the objective is to
+  make a *tool-calling* target invoke its own tools toward attacker-chosen system impact — e.g. coax a
+  fetch/HTTP tool into an SSRF against an internal address, or a shell/`eval` tool into command execution.
+  Needs a tool-enabled objective kind + a judge criterion scoring "did an unsafe tool call fire?" against a
+  **sandboxed** tool harness (never a live host). Complements the existing MCP-injection surface by scoring
+  the downstream *action*, not just the injected instruction.
+- [ ] **Memory / RAG poisoning as a persistence goal** (new goal; same CkSKILLS taxonomy). The two-phase,
+  write-then-later-trigger variant of the existing RAG-injection surface: plant adversarial content into a
+  retrieval/memory store the target reads on a *later* turn, then measure whether the poisoned context steers
+  a subsequent, clean-looking request. Needs a write-then-trigger objective kind + a "did injected memory alter
+  later output?" judge criterion — the agentic analogue of the fabricated-provenance (lore-injection) category
+  already on the roadmap.
+
 ### Tier 3 — research / methodology (harder; may be out of scope for a black-box target)
 
 - [ ] **Best-of-N adaptive retry** (Anthropic 2024) — perturb the prompt (case, typos, token
@@ -228,3 +242,27 @@ takeaway from harvesting that repo (LifeOS core already covers its patterns).
 - [ ] **Named hardening recommendations.** The Guardrails Hub is a catalog of concrete defenses (input
   jailbreak classifier, PII/output validators, toxicity). Upgrade the report's generic "add output-side
   classification" line to name specific, installable defenses per leaking category.
+
+## Landscape / positioning (2026-08-14)
+
+Where Iago sits among the open-source AI-red-team tools. Iago is a focused, evidence-first, black-box
+*bypass-rate measurement* tool, not a replacement for the general frameworks. Nothing below is a
+required build; the useful item is marked.
+
+- **General frameworks (adjacent, not overlapping)** — NVIDIA **Garak** (automated vuln scanning),
+  Microsoft **PyRIT** (attack-campaign orchestration), **DeepTeam** (multi-class automated red team).
+  Iago's distinct value: Wilson-CI'd bypass *rates* (not pass/fail), a deterministic canary judge for
+  system-prompt leakage, decode-gating, and the attack-vs-defense delta. *(Useful: a short "how Iago
+  relates to the general tools" paragraph in the README so the scope is explicit.)*
+- **Whistleblower — already covered.** System-prompt / hidden-instruction extraction is exactly Iago's
+  shipped `prompt-leak` objective (LLM07). The field converging on the same target confirms the
+  direction; do NOT re-add.
+- **Agentic Radar — discovery complement (Tier 3 candidate).** Maps agents / tools / MCP servers and
+  flags risky wiring. Iago *attacks* the agent/MCP surface (`agent_abuse.yaml`, `mcp_injection.yaml`)
+  but assumes it's already known. A discovery→attack chain (Radar enumerates the tool graph, Iago probes
+  what it finds) is the natural next step if Iago moves from a fixed attack library to a target it must
+  map first. *Noted for a future white-box / real-agent target; out of scope for the black-box Ollama loop.*
+- **Adversarial-ML / NLP references (out of scope, logged for completeness)** — IBM **ART**,
+  **TextAttack** (model-level perturbation attacks), Meta **PurpleLlama**, **Promptmap**,
+  **LLMFuzzer**. Model-/gradient-level or general fuzzers; Iago is prompt-level and black-box, so these
+  stay reference-only (same rationale as GCG in Tier 3).

@@ -45,6 +45,10 @@ Iago applies a classic offensive-security loop to a new target class — an LLM 
 - **Not** a model trainer or fine-tuner. It attacks a stock model as-is.
 - **Not** a web app, dashboard, or service. Command-line, single-purpose, on purpose.
 
+## How Iago relates to the general red-team tools
+
+Several mature open-source tools cover broad AI red teaming — NVIDIA [Garak](https://github.com/NVIDIA/garak) (automated vulnerability scanning), Microsoft [PyRIT](https://github.com/microsoft/PyRIT) (attack-campaign orchestration), and [DeepTeam](https://github.com/confident-ai/deepteam) (multi-class automated red team) among them. Iago is deliberately narrower and complements rather than competes with them. Its focus is **measurement**: multi-trial **bypass rates** with 95% Wilson confidence intervals — honest sampling uncertainty under a fixed attack set, not a claim of wider coverage than the general tools — instead of pass/fail, a **deterministic canary judge** for system-prompt leakage (ground truth, not a judge guess), decode-gating so a failed decode isn't miscounted as a held guardrail, and an **attack-vs-defense delta** that quantifies what a given guardrail actually neutralizes. If you want breadth of coverage, reach for the general frameworks; if you want a reproducible, statistically honest number for how often a specific control holds, that's Iago.
+
 ## Stack
 
 - **Python** (managed with [`uv`](https://github.com/astral-sh/uv))
