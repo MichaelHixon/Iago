@@ -310,8 +310,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="override fabricated-shot count for many-shot techniques (e.g. 64, 128) "
                         "to exercise long-context scaling")
     r.add_argument("--guard", default=None,
-                   help=f"wrap the target in a defense and measure holds: '{','.join(available_guards())}' "
-                        "or 'all' (run raw + guarded, then `iago delta` — or use `defense-delta`)")
+                   help=f"wrap the target in a defense and measure holds: reference '{','.join(available_guards())}' "
+                        "or 'all'; opt-in real guards (need a backend) 'llama-guard,guardrails-ai,"
+                        "hf-prompt-injection'. Run raw + guarded, then `iago delta` (or `defense-delta`)")
     r.add_argument("--smoke", action="store_true", help="1x1x1 fast proof of the loop")
     r.add_argument("--html", action="store_true", help="also write a styled, colored HTML report")
     r.add_argument("--log", action="store_true",
