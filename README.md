@@ -49,6 +49,18 @@ Iago applies a classic offensive-security loop to a new target class — an LLM 
 
 Several mature open-source tools cover broad AI red teaming — NVIDIA [Garak](https://github.com/NVIDIA/garak) (automated vulnerability scanning), Microsoft [PyRIT](https://github.com/microsoft/PyRIT) (attack-campaign orchestration), and [DeepTeam](https://github.com/confident-ai/deepteam) (multi-class automated red team) among them. Iago is deliberately narrower and complements rather than competes with them. Its focus is **measurement**: multi-trial **bypass rates** with 95% Wilson confidence intervals — honest sampling uncertainty under a fixed attack set, not a claim of wider coverage than the general tools — instead of pass/fail, a **deterministic canary judge** for system-prompt leakage (ground truth, not a judge guess), decode-gating so a failed decode isn't miscounted as a held guardrail, and an **attack-vs-defense delta** that quantifies what a given guardrail actually neutralizes. If you want breadth of coverage, reach for the general frameworks; if you want a reproducible, statistically honest number for how often a specific control holds, that's Iago.
 
+## Defenses & the attack-vs-defense delta
+
+A *guard* is a defense placed in front of the model; `iago defense-delta --guard <spec>` runs the same attack library raw and guarded and reports the bypass-rate delta — the defensive payoff in one number. Two guards ship as **zero-dependency reference baselines** (a pattern-based input jailbreak classifier and an output-side system-prompt DLP filter); `--guard all` uses only these, so the delta reproduces offline on any clone.
+
+Three **real third-party guards** are wired through the same `Guard` seam, opt-in by explicit name so their backends never become project dependencies:
+
+- `llama-guard` — Meta Llama Guard 3, run locally via Ollama (`ollama pull llama-guard3`). **Live-verified:** the real model fired through the seam on Iago's composed-evasion attacks with real hazard codes (S2/S5/S13/S14); benign traffic passed clean.
+- `guardrails-ai` — a Guardrails Hub jailbreak validator (`pip install guardrails-ai`). **Wiring-verified only** (adapter + seam exercised by tests; real backend not yet run end-to-end here).
+- `hf-prompt-injection` — a HuggingFace prompt-injection classifier (`pip install transformers`). **Wiring-verified only.**
+
+A guard whose backend isn't installed fails loudly with an install hint — never a silent pass. Example: `iago defense-delta --guard llama-guard`.
+
 ## Lexical-overlap paraphrase band (advisory, secondary)
 
 The canary judge is precise but narrow: it confirms a system-prompt leak only when the planted canary appears (decode-tolerant). A model that discloses the *substance* of its prompt while rewording it — dropping the canary — reads as held. `iago lexical-leak <artifact>` surfaces that case as an **advisory** signal.
