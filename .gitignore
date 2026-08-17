@@ -44,3 +44,7 @@ attacks/wrappers.local.yaml
 # functional-but-mild default frames + the differential engine (so a clone reproduces a real
 # finding); this optional file holds SHARPER operator history and stays local.
 attacks/provenance.local.yaml
+
+# Rendered ISA + checkpoint state — personal, never publish
+ISA.html
+.checkpoint-state.json
