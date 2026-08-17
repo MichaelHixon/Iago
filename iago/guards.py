@@ -23,10 +23,11 @@ change, and the delta report parses the tag to attribute which guard fired. The 
 every block `reason` are secret-free by construction — the DLP reason never echoes the leaked
 content.
 
-The `Guard` protocol is the extension point: a real third-party guard (e.g. a guardrails-ai
-validator, an input jailbreak classifier from the Guardrails Hub) is a drop-in — implement
-`inspect()` and register it. That integration is intentionally left as a clean seam here so the
-harness stays dependency-light and the shipped delta stays reproducible.
+The `Guard` protocol is the extension point: a real third-party guard is a drop-in — implement
+`inspect()` and register it. Three ship in `guards_thirdparty.py` (Llama Guard via Ollama,
+guardrails-ai, a HuggingFace prompt-injection classifier), opt-in by explicit name so their
+backends never become project dependencies; `--guard all` stays the zero-dependency reference set
+so the shipped delta stays reproducible offline.
 """
 
 from __future__ import annotations
@@ -256,16 +257,26 @@ def available_guards() -> list[str]:
 
 
 def build_guards(spec: str) -> list[Guard]:
-    """Build a guard stack from a spec: "all" or a comma-separated list of registered names."""
+    """Build a guard stack from a spec: "all" or a comma-separated list of names.
+
+    "all" expands to the zero-dependency REFERENCE guards only, so the offline delta stays
+    reproducible. The optional third-party guards (llama-guard, guardrails-ai, hf-prompt-injection)
+    are opt-in by explicit name and resolve through `guards_thirdparty` — a missing backend raises
+    GuardBackendUnavailable there, never a silent pass."""
     if not spec:
         return []
     names = available_guards() if spec.strip() == "all" else [n.strip() for n in spec.split(",") if n.strip()]
     guards: list[Guard] = []
     for n in names:
-        try:
+        if n in GUARD_REGISTRY:
             guards.append(GUARD_REGISTRY[n]())
-        except KeyError:
-            raise ValueError(
-                f"unknown guard {n!r}; available: {', '.join(available_guards())} (or 'all')"
-            ) from None
+            continue
+        from .guards_thirdparty import THIRDPARTY_GUARD_BUILDERS, build_thirdparty_guard
+        if n in THIRDPARTY_GUARD_BUILDERS:
+            guards.append(build_thirdparty_guard(n))
+            continue
+        raise ValueError(
+            f"unknown guard {n!r}; reference: {', '.join(available_guards())} (or 'all'); "
+            f"third-party (opt-in, need a backend): {', '.join(sorted(THIRDPARTY_GUARD_BUILDERS))}"
+        )
     return guards
