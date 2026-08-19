@@ -230,10 +230,11 @@ def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict]) -> str:
         seen: dict[tuple, dict] = {}
         for r in residual:
             seen.setdefault((r["technique_id"], r["objective_id"]), r)
-        a("| Technique | Category | Objective | OWASP |")
-        a("|---|---|---|---|")
+        a("| Technique | Category | Objective | OWASP | ASI |")
+        a("|---|---|---|---|---|")
         for (tid, oid), r in sorted(seen.items()):
-            a(f"| `{tid}` {r['technique_name']} | {r['category']} | {oid} | {r.get('owasp', '—')} |")
+            a(f"| `{tid}` {r['technique_name']} | {r['category']} | {oid} | "
+              f"{r.get('owasp', '—')} | {r.get('asi') or '—'} |")
         a("")
         a("> These attacks bypassed the guard too — the honest ceiling on this defense. Each is a")
         a("> concrete next target for a stronger or additional guard.")

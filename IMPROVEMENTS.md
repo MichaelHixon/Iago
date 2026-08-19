@@ -266,3 +266,52 @@ required build; the useful item is marked.
   **TextAttack** (model-level perturbation attacks), Meta **PurpleLlama**, **Promptmap**,
   **LLMFuzzer**. Model-/gradient-level or general fuzzers; Iago is prompt-level and black-box, so these
   stay reference-only (same rationale as GCG in Tier 3).
+
+## Attack-surface research (2026-08-19 sweep)
+
+Grounded in a last-30-days scan of jailbreak / guardrail-bypass research (arXiv, OWASP GenAI Security
+Project, Hacker News, r/LocalLLaMA). New or sharpened candidates; nothing here is a required build.
+
+- [ ] **Cross-modal / multimodal injection** (LLM01) — the 2026 OWASP GenAI LLM Top-10 folds
+  image- and audio-hidden prompts into Prompt Injection, and speech/audio compositional attacks on
+  multimodal models are now a named vector (arXiv 2511.10222, mitigated by SALMONN-Guard). Iago's whole
+  library is text-only, so this is the single largest untested surface. Out of scope for the current
+  black-box Ollama *text* target — log as the flagship item for a future multimodal target, not a YAML add.
+
+- [x] **OWASP Agentic (ASI) alignment** (methodology) — ✅ **Shipped 2026-08-19** (Council + code-review
+  gated). Optional `asi` field on `Technique` + `Scenario`, a loud `validate_asi()` against `VALID_ASI`
+  (config.py), threaded through artifacts; the technique report folds ASI into a combined **Framework**
+  column (no empty column), and the residual/delta table carries a populated ASI column. Follow-up: a
+  dedicated high-density agentic sub-report section (Council: keeps the main table lean, reads as depth).
+  The OWASP Top 10 for Agentic Applications 2026 (announced 2025-12-09) is the agentic analogue of the
+  `LLM0x` tags already on every `Technique`. Verified
+  list: **ASI01** Agent Goal Hijack · **ASI02** Tool Misuse & Exploitation · **ASI03** Agent Identity &
+  Privilege Abuse · **ASI04** Agentic Supply Chain Compromise · **ASI05** Unexpected Code Execution ·
+  **ASI06** Memory & Context Poisoning · **ASI07** Insecure Inter-Agent Communication · **ASI08** Cascading
+  Failures · **ASI09** Human-Agent Trust Exploitation · **ASI10** Rogue Agents. Add an optional `asi` field
+  alongside `owasp` on the agentic surfaces so those findings map to the framework. Current-surface mapping:
+  `agent_abuse.yaml` goal substitution → ASI01, poisoned tool-output → ASI02; `mcp_injection.yaml` poisoned
+  manifest → ASI04 (supply chain — the payload rides the tool-supply channel before any call), malicious
+  response → ASI02; `rag_injection.yaml` → ASI06; `agent_scenarios.yaml` exfil-via-doc + shadow-recipient →
+  ASI01; roadmap tool-abuse→RCE/SSRF → ASI05 (+ ASI02); memory/RAG poisoning → ASI06; fabricated-provenance
+  / lore-injection → **ASI09**. ASI03 / ASI04 / ASI08 / ASI10 are
+  genuinely uncovered surfaces, logged as future scope. Low effort, high legibility.
+
+- [ ] **Human-Agent Trust Exploitation** (new OWASP ASI category) — attackers use emotional cues, fake
+  explainability, or plausible rationales to induce an unsafe *human* (or supervising-agent) approval.
+  This is the industry name for the fabricated-provenance / lore-injection category already noted on the
+  roadmap; cite it when that category lands and anchor the judge criterion on "did the reply manufacture
+  false authority or relationship history to drive an approval?"
+
+- [ ] **Adaptive dialogue-level attacker** (Tier 3 runner mode; sharpens the Best-of-N item) — automated
+  red-team research has moved from fixed prompt lists to multi-turn, target-adaptive search over a
+  strategy library: IBM's Composition-of-Principles (CoP) and AJAR (arXiv 2601.10971) are the current
+  reference points. Extends the noted Best-of-N adaptive retry from blind perturbation (case/typo/token
+  shuffle) to feedback-driven strategy selection across turns.
+
+- [ ] **Guardrail-evasion empirical baseline** (defense-side; extends the attack-vs-defense delta) —
+  "Bypassing LLM Guardrails" (arXiv 2504.11168) reports character-injection and adversarial-ML evasion
+  beating six detectors (incl. Azure Prompt Shield, Meta Prompt Guard) at up to 100% while preserving
+  payload utility. Direct evidence that a detector *firing* is not the behavior being *blocked* — exactly
+  what the guarded-vs-raw delta measures. Candidate reference behavior if a real third-party guard is
+  wired through the existing `Guard` seam.
