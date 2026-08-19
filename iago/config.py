@@ -23,6 +23,14 @@ TOOLABUSE_SCENARIOS_FILE = PROJECT_ROOT / "attacks" / "agentic" / "toolabuse_sce
 # argument is deterministic ground truth that the RCE injection fired.
 INJECTED_CMD_MARKER = "IAGO_INJECTED_CMD"
 
+# Memory/context poisoning (ASI06) scenarios — a poisoned document plants an instruction
+# the agent stores in memory that FIRES at a later step via recall.
+MEMORY_SCENARIOS_FILE = PROJECT_ROOT / "attacks" / "agentic" / "memory_scenarios.yaml"
+# The unique token a poisoned memory instruction carries — its presence in a `remember`
+# argument proves the agent stored the POISON (not a benign note), the first half of the
+# delayed-fire chain the temporal oracle confirms.
+INJECTED_MEMORY_MARKER = "IAGO_MEM_PAYLOAD"
+
 # A tool-using agent gets a bounded number of think→act steps per scenario so a
 # hijacked loop can't run away; enough to read a doc, read notes, and send.
 DEFAULT_AGENT_STEPS = 6

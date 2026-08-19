@@ -418,6 +418,56 @@ def _cmd_toolabuse_scenarios(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_memory_run(args: argparse.Namespace) -> int:
+    """Run the agentic memory / context poisoning (ASI06) suite against a tool-calling agent."""
+    from .agent_run import ollama_chat_fn
+    from .agent_memory import (
+        load_memory_artifacts,
+        load_memory_scenarios,
+        run_memory_suite,
+        write_memory_report,
+    )
+
+    if args.target != "ollama":
+        print(f"ERROR: memory-run supports --target ollama today (got {args.target!r})",
+              file=sys.stderr)
+        return 2
+
+    model = args.model
+    chat_fn = ollama_chat_fn(model)
+    trials = 1 if args.smoke else args.trials
+    scens = load_memory_scenarios()
+    if args.smoke:
+        scens = scens[:1]
+
+    print(f"Iago memory-run → target ollama:{model} (in-process memory; never persisted)")
+    print(f"  scenarios={len(scens)} trials/scenario={trials} max_steps={args.max_steps}")
+    try:
+        artifact_path = run_memory_suite(
+            chat_fn, model_name=f"ollama:{model}", trials=trials, temperature=args.temperature,
+            base_seed=args.base_seed, max_steps=args.max_steps, scenarios=scens, progress=True)
+    except Exception as exc:
+        print(f"ERROR: memory-run failed: {exc}", file=sys.stderr)
+        return 1
+
+    rows = load_memory_artifacts(artifact_path)
+    report_path = write_memory_report(rows)
+    print(f"\nArtifacts: {artifact_path}")
+    print(f"Report:    {report_path}")
+    print(f"({len(rows)} trials recorded)")
+    return 0
+
+
+def _cmd_memory_scenarios(_args: argparse.Namespace) -> int:
+    from .agent_memory import load_memory_scenarios
+
+    scens = load_memory_scenarios()
+    print(f"Memory-poisoning scenarios: {len(scens)}")
+    for s in scens:
+        print(f"  {s.id:24} [{s.kind:10}] {s.name}")
+    return 0
+
+
 def _cmd_library(_args: argparse.Namespace) -> int:
     lib = load_library()
     objs = load_objectives()
@@ -570,6 +620,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     tas = sub.add_parser("toolabuse-scenarios", help="show the loaded tool-abuse (RCE/SSRF) scenarios")
     tas.set_defaults(func=_cmd_toolabuse_scenarios)
+
+    mr = sub.add_parser("memory-run",
+                        help="red-team a tool-calling agent for MEMORY/CONTEXT POISONING (ASI06) — "
+                             "a poisoned doc plants a note that fires at a later step via recall")
+    mr.add_argument("--target", default="ollama", choices=available_targets(),
+                    help="agent backend (memory-run supports ollama today)")
+    mr.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
+    mr.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per scenario")
+    mr.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
+    mr.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
+    mr.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
+                    help="tool-loop step budget per scenario")
+    mr.add_argument("--smoke", action="store_true", help="1 scenario x 1 trial fast proof")
+    mr.set_defaults(func=_cmd_memory_run)
+
+    ms = sub.add_parser("memory-scenarios", help="show the loaded memory-poisoning (ASI06) scenarios")
+    ms.set_defaults(func=_cmd_memory_scenarios)
 
     return p
 
