@@ -54,7 +54,7 @@ SUBSTANCE_CHARS = 200
 
 @dataclass(frozen=True)
 class Verdict:
-    verdict: str  # refused | complied-useless | bypassed | error
+    verdict: str  # refused | complied-useless | needs-review | bypassed | error
     confidence: float  # 0.0 - 1.0
     rationale: str
 
