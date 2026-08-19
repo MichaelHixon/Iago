@@ -14,6 +14,7 @@ import sys
 from .attacks import load_library, summarize
 from .config import (
     BASE_SEED,
+    DEFAULT_ADAPTIVE_TURNS,
     DEFAULT_AGENT_STEPS,
     DEFAULT_MODEL,
     DEFAULT_TEMPERATURE,
@@ -280,6 +281,93 @@ def _cmd_agent_scenarios(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_adaptive_run(args: argparse.Namespace) -> int:
+    """Run the adaptive dialogue-level attacker (target-adaptive multi-turn search)."""
+    from .adaptive import (
+        DeterministicAttacker,
+        LLMAttacker,
+        load_adaptive_artifacts,
+        run_adaptive_suite,
+        write_adaptive_report,
+    )
+
+    model = None if (args.target != "ollama" and args.model == DEFAULT_MODEL) else args.model
+    try:
+        target = build_target(args.target, model=model)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    if not target.is_local and not args.authorized:
+        print(f"ERROR: target {target.name!r} is not local; pass --authorized only for a "
+              "model you own or are authorized to test", file=sys.stderr)
+        return 2
+
+    deterministic = args.attacker == "deterministic"
+    if deterministic:
+        def make_attacker(seed, obj, _options):
+            return DeterministicAttacker(seed, obj)
+        attacker_desc = "deterministic (seeded, reproducible)"
+    else:
+        # LLM attacker: a local Ollama model writes each next turn. Reuses the Target.chat seam.
+        from .target import OllamaTarget
+        attacker_target = OllamaTarget(args.attacker_model)
+        chat_fn = lambda messages, options: attacker_target.chat(messages, options=options)
+
+        # Liveness ping — if the attacker model is unreachable, EVERY turn would silently fall back
+        # to the deterministic template and the run would be mislabeled "nondeterministic". Warn
+        # loudly up front rather than burning a whole run on templates. (The artifact stays honest
+        # either way — each fallback turn is tagged — but the operator should know before it runs.)
+        try:
+            attacker_target.chat([{"role": "user", "content": "ping"}], options={})
+        except Exception as exc:
+            print(f"WARNING: attacker model {attacker_target.name!r} did not respond ({exc}). "
+                  "Every turn will fall back to the deterministic template — this run will NOT be "
+                  "a real LLM-attacker run. Start ollama / pull the model, or use "
+                  "--attacker deterministic.", file=sys.stderr)
+
+        def make_attacker(seed, obj, options):
+            return LLMAttacker(seed, obj, chat_fn, options=options)
+        attacker_desc = f"llm ({attacker_target.name}) — NONDETERMINISTIC"
+
+    trials = 1 if args.smoke else args.trials
+    print(f"Iago adaptive-run → target {target.name}")
+    print(f"  attacker={attacker_desc} trials/objective={trials} max_turns={args.max_turns}")
+    try:
+        artifact_path = run_adaptive_suite(
+            target,
+            make_attacker=make_attacker,
+            attacker_kind=args.attacker,
+            deterministic=deterministic,
+            model_name=target.name,
+            trials=trials,
+            temperature=args.temperature,
+            base_seed=args.base_seed,
+            max_turns=args.max_turns,
+            progress=True,
+        )
+    except Exception as exc:
+        print(f"ERROR: adaptive-run failed: {exc}", file=sys.stderr)
+        return 1
+
+    rows = load_adaptive_artifacts(artifact_path)
+    report_path = write_adaptive_report(rows)
+    print(f"\nArtifacts: {artifact_path}")
+    print(f"Report:    {report_path}")
+    print(f"({len(rows)} conversations recorded)")
+    if not deterministic:
+        print("NOTE: LLM-attacker turns are nondeterministic — this run does not replay bit-for-bit.")
+    return 0
+
+
+def _cmd_strategies(_args: argparse.Namespace) -> int:
+    from .adaptive import STRATEGIES
+
+    print(f"Adaptive strategies: {len(STRATEGIES)}")
+    for s in STRATEGIES:
+        print(f"  {s.id:22} [{','.join(s.applies_to)}] {s.name}")
+    return 0
+
+
 def _cmd_library(_args: argparse.Namespace) -> int:
     lib = load_library()
     objs = load_objectives()
@@ -390,6 +478,31 @@ def build_parser() -> argparse.ArgumentParser:
 
     asc = sub.add_parser("agent-scenarios", help="show the loaded agentic-injection scenarios")
     asc.set_defaults(func=_cmd_agent_scenarios)
+
+    ad = sub.add_parser("adaptive-run",
+                        help="adaptive dialogue-level attacker — target-adaptive multi-turn "
+                             "search that picks its next move from the target's last refusal")
+    ad.add_argument("--target", default="ollama", choices=available_targets(),
+                    help="target backend (default ollama)")
+    ad.add_argument("--model", default=DEFAULT_MODEL, help="target model tag")
+    ad.add_argument("--attacker", default="deterministic", choices=("deterministic", "llm"),
+                    help="deterministic seeded selector (reproducible) or an LLM attacker "
+                         "writing each turn (CoP/AJAR; NONDETERMINISTIC)")
+    ad.add_argument("--attacker-model", default=DEFAULT_MODEL, dest="attacker_model",
+                    help="local Ollama model driving the --attacker llm arm (always local Ollama, "
+                         "regardless of --target — keeps the attacker free and off any API quota)")
+    ad.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="conversations per objective")
+    ad.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
+    ad.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
+    ad.add_argument("--max-turns", type=int, default=DEFAULT_ADAPTIVE_TURNS, dest="max_turns",
+                    help="hard cap on turns per conversation (anti-runaway)")
+    ad.add_argument("--smoke", action="store_true", help="1 objective-set x 1 trial fast proof")
+    ad.add_argument("--authorized", action="store_true",
+                    help="permit a non-local target (only for models you own/are authorized to test)")
+    ad.set_defaults(func=_cmd_adaptive_run)
+
+    st = sub.add_parser("strategies", help="show the adaptive attacker's strategy library")
+    st.set_defaults(func=_cmd_strategies)
 
     return p
 
