@@ -32,7 +32,7 @@ from .attacks import (
 )
 from .config import ARTIFACTS_DIR, BASE_SEED, DEFAULT_TEMPERATURE, DEFAULT_TRIALS
 from .decode import decode_recovered, is_decode_gated
-from .judge import _trust_arm_signal, judge, judge_leak, judge_trust
+from .judge import _trust_arm_signal, judge, judge_leak, judge_trust, judge_unsafe_output
 from .objectives import Objective, load_objectives
 from .target import Target
 
@@ -79,6 +79,9 @@ class TrialResult:
     # OWASP Agentic (ASI) Top-10 tag, carried from the technique (agentic techniques
     # only). None for the single-turn jailbreak library.
     asi: str | None = None
+    # unsafe-output (LLM05): the downstream sink this objective targeted (html | markdown |
+    # shell), carried so the report can group emission rates per sink. None for other kinds.
+    sink: str | None = None
 
 
 class AuthorizationError(RuntimeError):
@@ -256,9 +259,16 @@ def run(
                         system = obj.system_prompt if obj.is_prompt_leak else None
                         prompt, response = _execute_arm(target, tech, turns, opts, system)
                         latency = time.monotonic() - started
-                        # prompt-leak → deterministic canary match; everything else → the
-                        # harmful-content heuristic (the Claude judge confirms a bypass later).
-                        v = judge_leak(obj.canary, response) if obj.is_prompt_leak else judge(response)
+                        # Oracle dispatch by objective kind:
+                        #   prompt-leak   → deterministic canary match
+                        #   unsafe-output → deterministic live-construct-targeting-marker match (LLM05)
+                        #   everything else → the harmful-content heuristic (the Claude judge confirms later)
+                        if obj.is_prompt_leak:
+                            v = judge_leak(obj.canary, response)
+                        elif obj.is_unsafe_output:
+                            v = judge_unsafe_output(response, obj.sink, obj.marker)
+                        else:
+                            v = judge(response)
                     # Decode-gating: for cipher / low-resource techniques, record whether the
                     # model actually recovered the objective — a refusal after a decode failure
                     # is a false-safe, and the report reads it as "not a valid probe".
@@ -272,6 +282,7 @@ def run(
                         asi=tech.asi,
                         objective_id=obj.id,
                         objective_kind=obj.kind,
+                        sink=obj.sink,
                         model=target.name,
                         seed=seed,
                         temperature=temperature,
