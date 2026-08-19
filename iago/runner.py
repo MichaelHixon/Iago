@@ -76,6 +76,9 @@ class TrialResult:
     placebo_response: str | None = None
     placebo_signal: str | None = None    # granted | held (neutral-placebo arm — the null floor)
     prov_signal: str | None = None       # granted | held (provenance arm)
+    # OWASP Agentic (ASI) Top-10 tag, carried from the technique (agentic techniques
+    # only). None for the single-turn jailbreak library.
+    asi: str | None = None
 
 
 class AuthorizationError(RuntimeError):
@@ -266,6 +269,7 @@ def run(
                         technique_name=tech.name,
                         category=tech.category,
                         owasp=tech.owasp,
+                        asi=tech.asi,
                         objective_id=obj.id,
                         objective_kind=obj.kind,
                         model=target.name,
