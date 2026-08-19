@@ -151,18 +151,32 @@ def run_agent(
     *,
     options: dict | None = None,
     max_steps: int = DEFAULT_AGENT_STEPS,
+    system_prompt: str | None = None,
+    tool_schemas: list[dict] | None = None,
+    execute_tool=None,
 ) -> AgentTrace:
     """Drive the agent through one scenario and return the full trace.
 
     `chat_fn(messages, tools, options) -> LLMMessage` is the injectable model seam.
     The loop feeds tool results back until the model stops requesting tools or the
     step budget is exhausted (a hijacked loop can't run forever).
+
+    The tool surface is injectable so a different attack class can reuse this exact loop
+    without duplicating it: `system_prompt`, `tool_schemas`, and `execute_tool(name, args) ->
+    result` all default to the indirect-injection exfil surface (backward-compatible), and the
+    tool-abuse surface (RCE/SSRF) passes its own SANDBOXED catalog + executor.
     """
     if max_steps < 1:
         raise ValueError(f"max_steps must be >= 1, got {max_steps}")
 
+    sys_prompt = system_prompt if system_prompt is not None else AGENT_SYSTEM_PROMPT
+    schemas = tool_schemas if tool_schemas is not None else TOOL_SCHEMAS
+    if execute_tool is None:
+        def execute_tool(name, args):  # default: the exfil-surface tools
+            return _execute_tool(name, args, scenario)
+
     messages: list[dict] = [
-        {"role": "system", "content": AGENT_SYSTEM_PROMPT},
+        {"role": "system", "content": sys_prompt},
         {"role": "user", "content": scenario.task},
     ]
     calls: list[ToolCall] = []
@@ -170,7 +184,7 @@ def run_agent(
     hit_limit = True
 
     for step in range(1, max_steps + 1):
-        msg = chat_fn(messages, TOOL_SCHEMAS, options or {})
+        msg = chat_fn(messages, schemas, options or {})
 
         if not msg.tool_calls:
             final_text = msg.content
@@ -190,7 +204,7 @@ def run_agent(
         )
         for name, arguments in msg.tool_calls:
             args = arguments if isinstance(arguments, dict) else {}
-            result = _execute_tool(name, args, scenario)
+            result = execute_tool(name, args)
             calls.append(ToolCall(name=name, arguments=args, result=result))
             messages.append({"role": "tool", "name": name, "content": result})
     else:

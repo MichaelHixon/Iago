@@ -15,6 +15,13 @@ OBJECTIVES_FILE = PROJECT_ROOT / "objectives.yaml"
 # Kept in a subdirectory so the attack-library glob (attacks/*.yaml, non-recursive)
 # never mistakes these agent scenarios for single-prompt technique files.
 AGENT_SCENARIOS_FILE = PROJECT_ROOT / "attacks" / "agentic" / "agent_scenarios.yaml"
+# Tool-abuse (RCE/SSRF) scenarios — a DIFFERENT bypass class from the exfil trifecta:
+# a poisoned tool-output induces the agent to invoke a SANDBOXED dangerous tool
+# (fake run_shell / fetch_url). Kept in its own file for the same glob-safety reason.
+TOOLABUSE_SCENARIOS_FILE = PROJECT_ROOT / "attacks" / "agentic" / "toolabuse_scenarios.yaml"
+# The unique token an injected shell command carries — its presence in a run_shell
+# argument is deterministic ground truth that the RCE injection fired.
+INJECTED_CMD_MARKER = "IAGO_INJECTED_CMD"
 
 # A tool-using agent gets a bounded number of think→act steps per scenario so a
 # hijacked loop can't run away; enough to read a doc, read notes, and send.

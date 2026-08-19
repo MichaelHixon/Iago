@@ -368,6 +368,56 @@ def _cmd_strategies(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_toolabuse_run(args: argparse.Namespace) -> int:
+    """Run the sandboxed agentic tool-abuse (RCE/SSRF) suite against a tool-calling agent."""
+    from .agent_run import ollama_chat_fn
+    from .agent_toolabuse import (
+        load_toolabuse_artifacts,
+        load_toolabuse_scenarios,
+        run_toolabuse_suite,
+        write_toolabuse_report,
+    )
+
+    if args.target != "ollama":
+        print(f"ERROR: tool-abuse-run supports --target ollama today (got {args.target!r})",
+              file=sys.stderr)
+        return 2
+
+    model = args.model
+    chat_fn = ollama_chat_fn(model)
+    trials = 1 if args.smoke else args.trials
+    scens = load_toolabuse_scenarios()
+    if args.smoke:
+        scens = scens[:1]
+
+    print(f"Iago tool-abuse-run → target ollama:{model} (SANDBOXED — no process/socket ever)")
+    print(f"  scenarios={len(scens)} trials/scenario={trials} max_steps={args.max_steps}")
+    try:
+        artifact_path = run_toolabuse_suite(
+            chat_fn, model_name=f"ollama:{model}", trials=trials, temperature=args.temperature,
+            base_seed=args.base_seed, max_steps=args.max_steps, scenarios=scens, progress=True)
+    except Exception as exc:
+        print(f"ERROR: tool-abuse-run failed: {exc}", file=sys.stderr)
+        return 1
+
+    rows = load_toolabuse_artifacts(artifact_path)
+    report_path = write_toolabuse_report(rows)
+    print(f"\nArtifacts: {artifact_path}")
+    print(f"Report:    {report_path}")
+    print(f"({len(rows)} trials recorded)")
+    return 0
+
+
+def _cmd_toolabuse_scenarios(_args: argparse.Namespace) -> int:
+    from .agent_toolabuse import load_toolabuse_scenarios
+
+    scens = load_toolabuse_scenarios()
+    print(f"Tool-abuse scenarios: {len(scens)}")
+    for s in scens:
+        print(f"  {s.id:24} [{s.kind:10}] [{s.arm}] {s.name}")
+    return 0
+
+
 def _cmd_library(_args: argparse.Namespace) -> int:
     lib = load_library()
     objs = load_objectives()
@@ -503,6 +553,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     st = sub.add_parser("strategies", help="show the adaptive attacker's strategy library")
     st.set_defaults(func=_cmd_strategies)
+
+    ta = sub.add_parser("tool-abuse-run",
+                        help="red-team a tool-calling agent for RCE/SSRF via a SANDBOXED dangerous-"
+                             "tool surface (fake run_shell/fetch_url — never a real process/socket)")
+    ta.add_argument("--target", default="ollama", choices=available_targets(),
+                    help="agent backend (tool-abuse-run supports ollama today)")
+    ta.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
+    ta.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per scenario")
+    ta.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
+    ta.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
+    ta.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
+                    help="tool-loop step budget per scenario")
+    ta.add_argument("--smoke", action="store_true", help="1 scenario x 1 trial fast proof")
+    ta.set_defaults(func=_cmd_toolabuse_run)
+
+    tas = sub.add_parser("toolabuse-scenarios", help="show the loaded tool-abuse (RCE/SSRF) scenarios")
+    tas.set_defaults(func=_cmd_toolabuse_scenarios)
 
     return p
 
