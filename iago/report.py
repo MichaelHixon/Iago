@@ -270,6 +270,7 @@ def build_report(rows: list[dict]) -> str:
                 "name": trs[0]["technique_name"],
                 "category": trs[0]["category"],
                 "owasp": trs[0].get("owasp", "—"),
+                "asi": trs[0].get("asi") or "—",
                 "hits": hits,
                 "total": len(trs),
                 "rate": bypass_rate(hits, len(trs)),
@@ -452,11 +453,17 @@ def build_report(rows: list[dict]) -> str:
 
         a("## Bypass Rate by Technique")
         a("")
-        a("| Rank | Technique | Category | OWASP | Bypassed | Trials | Rate | 95% CI | Mean conf |")
-        a("|------|-----------|----------|-------|----------|--------|------|--------|-----------|")
+        # ASI is folded INTO the OWASP cell (a "Framework" column) rather than a
+        # column of its own — a separate ASI column is >80% empty on the main table
+        # (only agentic techniques carry it), which reads as padding and pushes the
+        # rate/CI columns off-screen. Every row stays populated; agentic rows append
+        # the short ASI id (e.g. "LLM06: Excessive Agency · ASI02").
+        a("| Rank | Technique | Category | Framework | Bypassed | Trials | Rate | 95% CI | Mean conf |")
+        a("|------|-----------|----------|-----------|----------|--------|------|--------|-----------|")
         for i, s in enumerate(tech_stats, 1):
             conf_disp = "—" if s["hits"] == 0 else f"{s['mean_conf']:.2f}"  # — = no hits to average
-            a(f"| {i} | {s['name']} (`{s['id']}`) | {s['category']} | {s['owasp']} | {s['hits']} | "
+            fw = s["owasp"] if s["asi"] == "—" else f"{s['owasp']} · {s['asi'].split(':')[0]}"
+            a(f"| {i} | {s['name']} (`{s['id']}`) | {s['category']} | {fw} | {s['hits']} | "
               f"{s['total']} | {pct(s['rate'])} | {s['ci']} | {conf_disp} |")
         a("")
 

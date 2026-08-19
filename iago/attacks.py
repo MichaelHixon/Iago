@@ -15,7 +15,7 @@ from pathlib import Path
 
 import yaml
 
-from .config import ATTACKS_DIR, CATEGORIES
+from .config import ATTACKS_DIR, CATEGORIES, validate_asi
 from .objectives import VALID_KINDS as OBJECTIVE_KINDS
 
 REQUIRED_FIELDS = ("id", "name", "category", "description", "template")
@@ -412,6 +412,10 @@ class Technique:
     # which is the umbrella for jailbreaks. Override per technique in YAML when a
     # sharper mapping applies (e.g. LLM07 System-Prompt Leakage).
     owasp: str = "LLM01: Prompt Injection"
+    # OWASP Agentic (ASI) Top-10 tag — the agentic analogue of `owasp`. Set only on
+    # agentic techniques (agent-abuse / mcp-injection / rag-injection); None for the
+    # single-turn jailbreak library, which is model-level, not agent-level.
+    asi: str | None = None
     # Multi-turn: priming user turns sent BEFORE the final `template` turn. The attack
     # builds across the conversation (crescendo / context-priming) so no single prompt
     # trips detection. None = single-shot. Priming turns may omit {objective}.
@@ -612,6 +616,7 @@ def load_library(attacks_dir: Path | None = None) -> list[Technique]:
                     reference=rec.get("reference"),
                     transform=rec.get("transform"),
                     owasp=rec.get("owasp", "LLM01: Prompt Injection"),
+                    asi=validate_asi(rec.get("asi"), where=f"{path.name} {rec['id']}"),
                     turns=tuple(rec["turns"]) if rec.get("turns") else None,
                     shots=rec.get("shots"),
                     applies_to=tuple(applies_to) if applies_to else None,

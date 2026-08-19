@@ -57,3 +57,43 @@ CATEGORIES = [
     "agent-abuse",
     "mcp-injection",
 ]
+
+# OWASP Top 10 for Agentic Applications 2026 (verified 2026-08-19, announced
+# 2025-12-09). The agentic analogue of the LLM0x tags: agentic techniques and
+# scenarios carry an optional `asi` tag against these so findings map to the
+# framework. Non-agentic techniques leave it unset.
+VALID_ASI = (
+    "ASI01",  # Agent Goal Hijack
+    "ASI02",  # Tool Misuse & Exploitation
+    "ASI03",  # Agent Identity & Privilege Abuse
+    "ASI04",  # Agentic Supply Chain Compromise
+    "ASI05",  # Unexpected Code Execution
+    "ASI06",  # Memory & Context Poisoning
+    "ASI07",  # Insecure Inter-Agent Communication
+    "ASI08",  # Cascading Failures
+    "ASI09",  # Human-Agent Trust Exploitation
+    "ASI10",  # Rogue Agents
+)
+
+
+def validate_asi(value: str | None, *, where: str) -> str | None:
+    """Return the asi tag unchanged, or raise loudly if it is off-list.
+
+    None (or empty) is allowed — most techniques are not agentic. A present
+    value must START with a known ASI id; the remainder may be a human label,
+    e.g. "ASI09: Human-Agent Trust Exploitation".
+    """
+    if value is None or not str(value).strip():
+        return None
+    # Leading segment before the first colon; an empty/whitespace segment (e.g. a
+    # leading-colon tag like ": ASI01") funnels into the ValueError below, not a
+    # bare IndexError — the whole point is a loud, located error.
+    head_seg = str(value).split(":", 1)[0].strip()
+    parts = head_seg.split()
+    head = parts[0] if parts else ""
+    if head not in VALID_ASI:
+        raise ValueError(
+            f"{where}: invalid asi tag {value!r} — the leading id must be one of "
+            f"{VALID_ASI} (OWASP Top 10 for Agentic Applications 2026)"
+        )
+    return value

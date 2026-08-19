@@ -18,7 +18,7 @@ from pathlib import Path
 
 import yaml
 
-from .config import AGENT_SCENARIOS_FILE
+from .config import AGENT_SCENARIOS_FILE, validate_asi
 
 REQUIRED_FIELDS = ("id", "name", "kind", "task", "documents", "private_notes", "canary")
 # attack     — a poisoned document/tool-result carries the injection.
@@ -43,6 +43,8 @@ class Scenario:
     private_notes: str
     canary: str
     owasp: str | None = None
+    # OWASP Agentic (ASI) Top-10 tag — the agentic framework this scenario maps to.
+    asi: str | None = None
     attacker_recipient: str | None = None
 
     @property
@@ -102,6 +104,7 @@ def load_scenarios(scenarios_file: Path | None = None) -> list[Scenario]:
                 private_notes=rec["private_notes"],
                 canary=rec["canary"],
                 owasp=rec.get("owasp"),
+                asi=validate_asi(rec.get("asi"), where=f"{path.name} {rec['id']}"),
                 attacker_recipient=rec.get("attacker_recipient"),
             )
         )

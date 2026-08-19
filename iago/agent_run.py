@@ -129,6 +129,7 @@ def run_agent_suite(
                     "scenario_name": scen.name,
                     "kind": scen.kind,
                     "owasp": scen.owasp,
+                    "asi": scen.asi,
                     "model": model_name,
                     "trial": trial,
                     "seed": seed,
