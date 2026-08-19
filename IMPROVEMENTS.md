@@ -49,6 +49,25 @@
 
 ## Roadmap
 
+### Next build-out — prioritized 2026-08-19 (agreed order, not yet built)
+
+Ranked by value × effort × fit with current red-team research. Details for each live in the
+Tier sections of "Attack Library — Candidate Additions" below.
+
+1. **Extraction depth — multi-turn + encoded extractors** (LLM07). Unanimous Council #1 gap: the
+   shipped extractors are single-turn / plaintext, and the hardened config's own blocklist ("encode,
+   translate") has nothing testing it. Strengthens the strongest shipped finding. ~afternoon.
+2. **Semantic-similarity leak band** (LLM07). ROUGE / embedding score beside the verbatim canary rate,
+   turning the documented false-negative into a measured band (verbatim floor → semantic ceiling). ~half day.
+3. **Adaptive dialogue-level attacker** (Tier 3; sharpens Best-of-N, per CoP / AJAR). Move from a fixed
+   library to target-adaptive multi-turn search — the current standard in automated red-teaming. ~1–2 days.
+4. **Unsafe output handling** (LLM05). New objective + a "dangerous-when-rendered?" judge criterion. ~1 day.
+5. **Agentic tool-abuse → RCE / SSRF** (ASI05 + ASI02). Highest-signal agentic goal now that ASI tagging
+   landed; needs a sandboxed tool surface (never a live host), so it carries real effort. ~2–3 days.
+
+Deferred: cross-modal / multimodal injection (needs a multimodal target), adversarial-suffix GCG
+(white-box only), `--force-all` cross-product override, named hardening recommendations.
+
 ### Shipped
 - [x] **Multi-turn attacks** → crescendo + context-priming; `Technique.turns` + `Target.chat()`,
   the runner carries the conversation and judges the final reply. The strongest real jailbreaks
