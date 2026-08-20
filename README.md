@@ -45,6 +45,25 @@ Iago applies a classic offensive-security loop to a new target class — an LLM 
 - **Not** a model trainer or fine-tuner. It attacks a stock model as-is.
 - **Not** a web app, dashboard, or service. Command-line, single-purpose, on purpose.
 
+## OWASP LLM Top-10 coverage
+
+Iago maps its surfaces to the [OWASP Top 10 for LLM Applications](https://owasp.org/www-project-top-10-for-large-language-model-applications/). It is a **runtime guardrail attacker**, so it covers the items that are runtime prompt/behavioral attacks and deliberately marks the three that are not — documenting that boundary honestly rather than claiming ten-for-ten.
+
+| # | Risk | Coverage |
+|---|------|----------|
+| LLM01 | Prompt Injection | ✅ core attack library + agentic indirect injection |
+| LLM02 | Sensitive Information Disclosure | ✅ `disclosure-run` — cross-subject leak, incl. the output channel |
+| LLM03 | Supply Chain | ⛔ out of scope — a build/provenance concern, not a runtime prompt attack |
+| LLM04 | Data & Model Poisoning | ◑ runtime analogues covered (`memory-run`, `rag-run`); training-time poisoning is out of scope |
+| LLM05 | Improper Output Handling | ✅ deterministic unsafe-output oracle (dangerous-when-rendered constructs) |
+| LLM06 | Excessive Agency | ✅ `privilege-run` — confused-deputy unauthorized privileged actions |
+| LLM07 | System Prompt Leakage | ✅ prompt-extraction family + deterministic canary judge |
+| LLM08 | Vector & Embedding Weaknesses | ◑ partial via `rag-run` retrieval poisoning |
+| LLM09 | Misinformation | ✅ `misinfo-run` — deterministic fabricated-identifier oracle |
+| LLM10 | Unbounded Consumption | ⛔ out of scope — resource-exhaustion / denial-of-service, deliberately excluded |
+
+The out-of-scope items (LLM03, LLM04 training-time, LLM10) are not runtime guardrail attacks a tool like this can measure by driving a model — supply-chain and training-time poisoning live in the build/data pipeline, and unbounded-consumption is a load/DoS concern. Naming that boundary is the honest form of "complete."
+
 ## How Iago relates to the general red-team tools
 
 Several mature open-source tools cover broad AI red teaming — NVIDIA [Garak](https://github.com/NVIDIA/garak) (automated vulnerability scanning), Microsoft [PyRIT](https://github.com/microsoft/PyRIT) (attack-campaign orchestration), and [DeepTeam](https://github.com/confident-ai/deepteam) (multi-class automated red team) among them. Iago is deliberately narrower and complements rather than competes with them. Its focus is **measurement**: multi-trial **bypass rates** with 95% Wilson confidence intervals — honest sampling uncertainty under a fixed attack set, not a claim of wider coverage than the general tools — instead of pass/fail, a **deterministic canary judge** for system-prompt leakage (ground truth, not a judge guess), decode-gating so a failed decode isn't miscounted as a held guardrail, and an **attack-vs-defense delta** that quantifies what a given guardrail actually neutralizes. If you want breadth of coverage, reach for the general frameworks; if you want a reproducible, statistically honest number for how often a specific control holds, that's Iago.
@@ -109,6 +128,9 @@ uv run iago tool-abuse-run --smoke   # sandboxed tool abuse → RCE / SSRF (ASI0
 uv run iago memory-run --smoke       # memory / context poisoning (ASI06)
 uv run iago rag-run --smoke          # RAG retrieval / knowledge-base poisoning
 uv run iago a2a-run --smoke          # insecure inter-agent communication (ASI07)
+uv run iago privilege-run --smoke    # excessive agency / confused deputy (LLM06/ASI03)
+uv run iago disclosure-run --smoke   # sensitive-information disclosure (LLM02)
+uv run iago misinfo-run --smoke      # misinformation / fabricated authority (LLM09)
 ```
 
 The agentic surfaces drive an LLM through a tool loop and score a BEHAVIORAL bypass deterministically from the tool-call trace (an unauthorized action taken), not a text judgment. Their dangerous tools are pure in-memory fakes — a sandboxed `run_shell`/`fetch_url` never spawns a process or opens a socket, and the RAG retriever is a pure in-memory ranker — so the RCE/SSRF and retrieval attacks are simulated end to end.
