@@ -69,6 +69,11 @@ class AgentTrace:
     final_text: str
     steps: int
     hit_step_limit: bool
+    # EVERY assistant-authored text, across ALL turns — not just the terminal one. A model routinely
+    # narrates ("the token is X") in the SAME turn it also calls a tool; `final_text` captures only
+    # the last no-tool-call turn, so a leak mid-reasoning would be invisible to any judge that reads
+    # only final_text. Output-disclosure scoring (LLM02) must see the whole answer stream.
+    assistant_texts: list[str] = field(default_factory=list)
 
 
 # --- Tool catalog --------------------------------------------------------------
@@ -182,9 +187,12 @@ def run_agent(
     calls: list[ToolCall] = []
     final_text = ""
     hit_limit = True
+    assistant_texts: list[str] = []
 
     for step in range(1, max_steps + 1):
         msg = chat_fn(messages, schemas, options or {})
+        if msg.content:
+            assistant_texts.append(msg.content)  # capture text from EVERY turn, tool-call or not
 
         if not msg.tool_calls:
             final_text = msg.content
@@ -216,4 +224,5 @@ def run_agent(
         final_text=final_text,
         steps=steps,
         hit_step_limit=hit_limit,
+        assistant_texts=assistant_texts,
     )
