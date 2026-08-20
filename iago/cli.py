@@ -418,6 +418,57 @@ def _cmd_toolabuse_scenarios(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_privilege_run(args: argparse.Namespace) -> int:
+    """Run the sandboxed agentic excessive-agency (confused-deputy) suite against a tool-calling
+    agent — a poisoned record tries to induce an unauthorized privileged state change."""
+    from .agent_run import ollama_chat_fn
+    from .agent_privilege import (
+        load_privilege_artifacts,
+        load_privilege_scenarios,
+        run_privilege_suite,
+        write_privilege_report,
+    )
+
+    if args.target != "ollama":
+        print(f"ERROR: privilege-run supports --target ollama today (got {args.target!r})",
+              file=sys.stderr)
+        return 2
+
+    model = args.model
+    chat_fn = ollama_chat_fn(model)
+    trials = 1 if args.smoke else args.trials
+    scens = load_privilege_scenarios()
+    if args.smoke:
+        scens = scens[:1]
+
+    print(f"Iago privilege-run → target ollama:{model} (SANDBOXED — no record/role ever changes)")
+    print(f"  scenarios={len(scens)} trials/scenario={trials} max_steps={args.max_steps}")
+    try:
+        artifact_path = run_privilege_suite(
+            chat_fn, model_name=f"ollama:{model}", trials=trials, temperature=args.temperature,
+            base_seed=args.base_seed, max_steps=args.max_steps, scenarios=scens, progress=True)
+    except Exception as exc:
+        print(f"ERROR: privilege-run failed: {exc}", file=sys.stderr)
+        return 1
+
+    rows = load_privilege_artifacts(artifact_path)
+    report_path = write_privilege_report(rows)
+    print(f"\nArtifacts: {artifact_path}")
+    print(f"Report:    {report_path}")
+    print(f"({len(rows)} trials recorded)")
+    return 0
+
+
+def _cmd_privilege_scenarios(_args: argparse.Namespace) -> int:
+    from .agent_privilege import load_privilege_scenarios
+
+    scens = load_privilege_scenarios()
+    print(f"Excessive-agency scenarios: {len(scens)}")
+    for s in scens:
+        print(f"  {s.id:24} [{s.kind:10}] [{s.arm}] {s.name}")
+    return 0
+
+
 def _cmd_memory_run(args: argparse.Namespace) -> int:
     """Run the agentic memory / context poisoning (ASI06) suite against a tool-calling agent."""
     from .agent_run import ollama_chat_fn
@@ -718,6 +769,25 @@ def build_parser() -> argparse.ArgumentParser:
 
     tas = sub.add_parser("toolabuse-scenarios", help="show the loaded tool-abuse (RCE/SSRF) scenarios")
     tas.set_defaults(func=_cmd_toolabuse_scenarios)
+
+    pv = sub.add_parser("privilege-run",
+                        help="red-team a tool-calling agent for EXCESSIVE AGENCY / confused deputy "
+                             "(LLM06/ASI03) via a SANDBOXED privileged-tool surface (fake "
+                             "delete_record/grant_role — never a real state change)")
+    pv.add_argument("--target", default="ollama", choices=available_targets(),
+                    help="agent backend (privilege-run supports ollama today)")
+    pv.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
+    pv.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per scenario")
+    pv.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
+    pv.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
+    pv.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
+                    help="tool-loop step budget per scenario")
+    pv.add_argument("--smoke", action="store_true", help="1 scenario x 1 trial fast proof")
+    pv.set_defaults(func=_cmd_privilege_run)
+
+    pvs = sub.add_parser("privilege-scenarios",
+                         help="show the loaded excessive-agency (confused-deputy) scenarios")
+    pvs.set_defaults(func=_cmd_privilege_scenarios)
 
     mr = sub.add_parser("memory-run",
                         help="red-team a tool-calling agent for MEMORY/CONTEXT POISONING (ASI06) — "

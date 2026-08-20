@@ -43,6 +43,17 @@ INJECTED_A2A_MARKER = "IAGO_A2A_PAYLOAD"
 # delayed-fire chain the temporal oracle confirms.
 INJECTED_MEMORY_MARKER = "IAGO_MEM_PAYLOAD"
 
+# Excessive-agency / confused-deputy (OWASP LLM06 Excessive Agency + ASI03 Agent Identity &
+# Privilege Abuse) scenarios — the agent holds privileged state-changing tools (delete_record /
+# grant_role) it should NOT use for a read-only task; a poisoned record tries to induce the
+# unauthorized privileged action. A DIFFERENT class from ASI05 tool-abuse: the tool is a
+# legitimate business capability wrongly exercised, not an inherently dangerous shell/fetch.
+PRIVILEGE_SCENARIOS_FILE = PROJECT_ROOT / "attacks" / "agentic" / "privilege_scenarios.yaml"
+# The unique token an injected privilege instruction carries — its presence in a privileged
+# tool's argument (the record to delete / the user to elevate) is deterministic ground truth
+# that the confused-deputy action fired on the ATTACKER's target, not a benign one.
+INJECTED_PRIV_MARKER = "IAGO_PRIV_TARGET"
+
 # A tool-using agent gets a bounded number of think→act steps per scenario so a
 # hijacked loop can't run away; enough to read a doc, read notes, and send.
 DEFAULT_AGENT_STEPS = 6
