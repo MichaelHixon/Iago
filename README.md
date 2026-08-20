@@ -108,6 +108,7 @@ uv run iago agent-run --smoke        # indirect prompt injection → exfiltratio
 uv run iago tool-abuse-run --smoke   # sandboxed tool abuse → RCE / SSRF (ASI05/ASI02)
 uv run iago memory-run --smoke       # memory / context poisoning (ASI06)
 uv run iago rag-run --smoke          # RAG retrieval / knowledge-base poisoning
+uv run iago a2a-run --smoke          # insecure inter-agent communication (ASI07)
 ```
 
 The agentic surfaces drive an LLM through a tool loop and score a BEHAVIORAL bypass deterministically from the tool-call trace (an unauthorized action taken), not a text judgment. Their dangerous tools are pure in-memory fakes — a sandboxed `run_shell`/`fetch_url` never spawns a process or opens a socket, and the RAG retriever is a pure in-memory ranker — so the RCE/SSRF and retrieval attacks are simulated end to end.
