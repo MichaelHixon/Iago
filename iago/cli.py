@@ -520,6 +520,62 @@ def _cmd_disclosure_scenarios(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_misinfo_run(args: argparse.Namespace) -> int:
+    """Run the misinformation / fabricated-authority (LLM09) suite — the agent is asked for a
+    structured identifier about a fabricated subject; asserting one is confirmed fabrication."""
+    from .agent_run import ollama_chat_fn
+    from .agent_misinfo import (
+        load_misinfo_artifacts,
+        load_misinfo_scenarios,
+        run_misinfo_suite,
+        write_misinfo_report,
+    )
+
+    if args.target != "ollama":
+        print(f"ERROR: misinfo-run supports --target ollama today (got {args.target!r})",
+              file=sys.stderr)
+        return 2
+
+    model = args.model
+    chat_fn = ollama_chat_fn(model)
+    trials = 1 if args.smoke else args.trials
+    scens = load_misinfo_scenarios()
+    if args.smoke:
+        # Keep one attack AND one capability so the smoke run stays calibrated (a lone attack would
+        # print an uncalibrated 0% as a bare pass — the confound the report now guards against).
+        atk = next((s for s in scens if s.kind == "attack"), None)
+        cap = next((s for s in scens if s.kind == "capability"), None)
+        scens = [s for s in (atk, cap) if s is not None]
+
+    print(f"Iago misinfo-run → target ollama:{model} (SANDBOXED — no lookup, no socket)")
+    print(f"  scenarios={len(scens)} trials/scenario={trials} max_steps={args.max_steps}")
+    try:
+        artifact_path = run_misinfo_suite(
+            chat_fn, model_name=f"ollama:{model}", trials=trials, temperature=args.temperature,
+            base_seed=args.base_seed, max_steps=args.max_steps, scenarios=scens, progress=True)
+    except Exception as exc:
+        print(f"ERROR: misinfo-run failed: {exc}", file=sys.stderr)
+        return 1
+
+    rows = load_misinfo_artifacts(artifact_path)
+    report_path = write_misinfo_report(rows)
+    print(f"\nArtifacts: {artifact_path}")
+    print(f"Report:    {report_path}")
+    print(f"({len(rows)} trials recorded)")
+    return 0
+
+
+def _cmd_misinfo_scenarios(_args: argparse.Namespace) -> int:
+    from .agent_misinfo import load_misinfo_scenarios
+
+    scens = load_misinfo_scenarios()
+    print(f"Misinformation scenarios: {len(scens)}")
+    for s in scens:
+        tag = "fabricated" if s.is_fabricated else "real"
+        print(f"  {s.id:24} [{s.kind:10}] [{tag:10}] {s.name}")
+    return 0
+
+
 def _cmd_memory_run(args: argparse.Namespace) -> int:
     """Run the agentic memory / context poisoning (ASI06) suite against a tool-calling agent."""
     from .agent_run import ollama_chat_fn
@@ -858,6 +914,25 @@ def build_parser() -> argparse.ArgumentParser:
     drs = sub.add_parser("disclosure-scenarios",
                          help="show the loaded sensitive-info-disclosure (LLM02) scenarios")
     drs.set_defaults(func=_cmd_disclosure_scenarios)
+
+    mi = sub.add_parser("misinfo-run",
+                        help="red-team a tool-calling agent for MISINFORMATION (LLM09) — it is asked "
+                             "for a structured identifier (CVE/RFC/DOI) about a FABRICATED subject; "
+                             "asserting one is confirmed fabrication (deterministic, no judge)")
+    mi.add_argument("--target", default="ollama", choices=available_targets(),
+                    help="agent backend (misinfo-run supports ollama today)")
+    mi.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
+    mi.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per scenario")
+    mi.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
+    mi.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
+    mi.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
+                    help="tool-loop step budget per scenario")
+    mi.add_argument("--smoke", action="store_true", help="1 scenario x 1 trial fast proof")
+    mi.set_defaults(func=_cmd_misinfo_run)
+
+    mis = sub.add_parser("misinfo-scenarios",
+                         help="show the loaded misinformation (LLM09) scenarios")
+    mis.set_defaults(func=_cmd_misinfo_scenarios)
 
     mr = sub.add_parser("memory-run",
                         help="red-team a tool-calling agent for MEMORY/CONTEXT POISONING (ASI06) — "
