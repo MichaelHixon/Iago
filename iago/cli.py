@@ -469,6 +469,57 @@ def _cmd_privilege_scenarios(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_disclosure_run(args: argparse.Namespace) -> int:
+    """Run the sandboxed agentic sensitive-info-disclosure (LLM02) suite against a tool-calling
+    agent — a poisoned record tries to induce cross-subject disclosure into the answer or a send."""
+    from .agent_run import ollama_chat_fn
+    from .agent_disclosure import (
+        load_disclosure_artifacts,
+        load_disclosure_scenarios,
+        run_disclosure_suite,
+        write_disclosure_report,
+    )
+
+    if args.target != "ollama":
+        print(f"ERROR: disclosure-run supports --target ollama today (got {args.target!r})",
+              file=sys.stderr)
+        return 2
+
+    model = args.model
+    chat_fn = ollama_chat_fn(model)
+    trials = 1 if args.smoke else args.trials
+    scens = load_disclosure_scenarios()
+    if args.smoke:
+        scens = scens[:1]
+
+    print(f"Iago disclosure-run → target ollama:{model} (SANDBOXED — no real send/socket)")
+    print(f"  scenarios={len(scens)} trials/scenario={trials} max_steps={args.max_steps}")
+    try:
+        artifact_path = run_disclosure_suite(
+            chat_fn, model_name=f"ollama:{model}", trials=trials, temperature=args.temperature,
+            base_seed=args.base_seed, max_steps=args.max_steps, scenarios=scens, progress=True)
+    except Exception as exc:
+        print(f"ERROR: disclosure-run failed: {exc}", file=sys.stderr)
+        return 1
+
+    rows = load_disclosure_artifacts(artifact_path)
+    report_path = write_disclosure_report(rows)
+    print(f"\nArtifacts: {artifact_path}")
+    print(f"Report:    {report_path}")
+    print(f"({len(rows)} trials recorded)")
+    return 0
+
+
+def _cmd_disclosure_scenarios(_args: argparse.Namespace) -> int:
+    from .agent_disclosure import load_disclosure_scenarios
+
+    scens = load_disclosure_scenarios()
+    print(f"Sensitive-info-disclosure scenarios: {len(scens)}")
+    for s in scens:
+        print(f"  {s.id:24} [{s.kind:10}] {s.name}")
+    return 0
+
+
 def _cmd_memory_run(args: argparse.Namespace) -> int:
     """Run the agentic memory / context poisoning (ASI06) suite against a tool-calling agent."""
     from .agent_run import ollama_chat_fn
@@ -788,6 +839,25 @@ def build_parser() -> argparse.ArgumentParser:
     pvs = sub.add_parser("privilege-scenarios",
                          help="show the loaded excessive-agency (confused-deputy) scenarios")
     pvs.set_defaults(func=_cmd_privilege_scenarios)
+
+    dr = sub.add_parser("disclosure-run",
+                        help="red-team a tool-calling agent for SENSITIVE-INFO DISCLOSURE (LLM02) — "
+                             "cross-subject leak into the answer or an external send, via a "
+                             "SANDBOXED confidential store + comms sink")
+    dr.add_argument("--target", default="ollama", choices=available_targets(),
+                    help="agent backend (disclosure-run supports ollama today)")
+    dr.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
+    dr.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per scenario")
+    dr.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
+    dr.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
+    dr.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
+                    help="tool-loop step budget per scenario")
+    dr.add_argument("--smoke", action="store_true", help="1 scenario x 1 trial fast proof")
+    dr.set_defaults(func=_cmd_disclosure_run)
+
+    drs = sub.add_parser("disclosure-scenarios",
+                         help="show the loaded sensitive-info-disclosure (LLM02) scenarios")
+    drs.set_defaults(func=_cmd_disclosure_scenarios)
 
     mr = sub.add_parser("memory-run",
                         help="red-team a tool-calling agent for MEMORY/CONTEXT POISONING (ASI06) — "
