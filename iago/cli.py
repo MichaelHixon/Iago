@@ -468,6 +468,55 @@ def _cmd_memory_scenarios(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_rag_run(args: argparse.Namespace) -> int:
+    """Run the agentic RAG retrieval-poisoning suite against a tool-calling agent."""
+    from .agent_run import ollama_chat_fn
+    from .agent_rag import (
+        load_rag_artifacts,
+        load_rag_scenarios,
+        run_rag_suite,
+        write_rag_report,
+    )
+
+    if args.target != "ollama":
+        print(f"ERROR: rag-run supports --target ollama today (got {args.target!r})", file=sys.stderr)
+        return 2
+
+    model = args.model
+    chat_fn = ollama_chat_fn(model)
+    trials = 1 if args.smoke else args.trials
+    scens = load_rag_scenarios()
+    if args.smoke:
+        scens = scens[:1]
+
+    print(f"Iago rag-run → target ollama:{model} (pure in-memory retriever; no network)")
+    print(f"  scenarios={len(scens)} trials/scenario={trials} max_steps={args.max_steps}")
+    try:
+        artifact_path = run_rag_suite(
+            chat_fn, model_name=f"ollama:{model}", trials=trials, temperature=args.temperature,
+            base_seed=args.base_seed, max_steps=args.max_steps, scenarios=scens, progress=True)
+    except Exception as exc:
+        print(f"ERROR: rag-run failed: {exc}", file=sys.stderr)
+        return 1
+
+    rows = load_rag_artifacts(artifact_path)
+    report_path = write_rag_report(rows)
+    print(f"\nArtifacts: {artifact_path}")
+    print(f"Report:    {report_path}")
+    print(f"({len(rows)} trials recorded)")
+    return 0
+
+
+def _cmd_rag_scenarios(_args: argparse.Namespace) -> int:
+    from .agent_rag import load_rag_scenarios
+
+    scens = load_rag_scenarios()
+    print(f"RAG-poisoning scenarios: {len(scens)}")
+    for s in scens:
+        print(f"  {s.id:24} [{s.kind:10}] {s.name}")
+    return 0
+
+
 def _cmd_library(_args: argparse.Namespace) -> int:
     lib = load_library()
     objs = load_objectives()
@@ -637,6 +686,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     ms = sub.add_parser("memory-scenarios", help="show the loaded memory-poisoning (ASI06) scenarios")
     ms.set_defaults(func=_cmd_memory_scenarios)
+
+    rr = sub.add_parser("rag-run",
+                        help="red-team a tool-calling agent for RAG RETRIEVAL POISONING — a poisoned "
+                             "knowledge-base passage, surfaced by a benign query, drives an action")
+    rr.add_argument("--target", default="ollama", choices=available_targets(),
+                    help="agent backend (rag-run supports ollama today)")
+    rr.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
+    rr.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per scenario")
+    rr.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
+    rr.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
+    rr.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
+                    help="tool-loop step budget per scenario")
+    rr.add_argument("--smoke", action="store_true", help="1 scenario x 1 trial fast proof")
+    rr.set_defaults(func=_cmd_rag_run)
+
+    rs = sub.add_parser("rag-scenarios", help="show the loaded RAG retrieval-poisoning scenarios")
+    rs.set_defaults(func=_cmd_rag_scenarios)
 
     return p
 

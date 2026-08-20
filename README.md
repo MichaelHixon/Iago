@@ -101,7 +101,16 @@ uv run iago run --smoke
 # 5. Full run — writes a findings report to reports/
 uv run iago run                 # whole library, default 3 trials/pair
 uv run iago run --trials 5      # more trials → more defensible bypass rate
+
+# 6. Agentic surfaces — red-team a tool-calling AGENT (behavioral bypass, not text).
+#    Each has a companion `*-scenarios` command that lists its scenarios offline.
+uv run iago agent-run --smoke        # indirect prompt injection → exfiltration (ASI01)
+uv run iago tool-abuse-run --smoke   # sandboxed tool abuse → RCE / SSRF (ASI05/ASI02)
+uv run iago memory-run --smoke       # memory / context poisoning (ASI06)
+uv run iago rag-run --smoke          # RAG retrieval / knowledge-base poisoning
 ```
+
+The agentic surfaces drive an LLM through a tool loop and score a BEHAVIORAL bypass deterministically from the tool-call trace (an unauthorized action taken), not a text judgment. Their dangerous tools are pure in-memory fakes — a sandboxed `run_shell`/`fetch_url` never spawns a process or opens a socket, and the RAG retriever is a pure in-memory ranker — so the RCE/SSRF and retrieval attacks are simulated end to end.
 
 The target backend is selectable with `--target` (default `ollama`) and the model tag with `--model`. Only the local Ollama backend ships today; the `Target` interface and a small registry make an authorized API backend a one-line addition. The runner refuses a non-local target unless you pass `--authorized` — the "only test what you own" ethic, enforced in code rather than just documented.
 
