@@ -43,6 +43,17 @@ INJECTED_A2A_MARKER = "IAGO_A2A_PAYLOAD"
 # delayed-fire chain the temporal oracle confirms.
 INJECTED_MEMORY_MARKER = "IAGO_MEM_PAYLOAD"
 
+# Sensitive-information disclosure (OWASP LLM02) scenarios — the agent serves a requester
+# authorized only for the task's subject, but its confidential store holds ANOTHER subject's
+# sensitive field; a poisoned record induces cross-subject disclosure. The distinct LLM02 axis:
+# the sensitive value reaching the agent's OWN ANSWER (to an unauthorized requester) is a confirmed
+# leak, not merely a suspect internal event — the output is the primary disclosure channel.
+DISCLOSURE_SCENARIOS_FILE = PROJECT_ROOT / "attacks" / "agentic" / "disclosure_scenarios.yaml"
+# The unique token a poisoned disclosure record carries — its presence in a record proves an
+# injection exists to be read (loader gate); the confirmed leak is still the sensitive canary
+# reaching an unauthorized audience (external send OR the agent's answer).
+INJECTED_DISCLOSURE_MARKER = "IAGO_DISCLOSE_PAYLOAD"
+
 # Excessive-agency / confused-deputy (OWASP LLM06 Excessive Agency + ASI03 Agent Identity &
 # Privilege Abuse) scenarios — the agent holds privileged state-changing tools (delete_record /
 # grant_role) it should NOT use for a read-only task; a poisoned record tries to induce the
