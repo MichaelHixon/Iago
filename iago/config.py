@@ -32,6 +32,12 @@ RAG_SCENARIOS_FILE = PROJECT_ROOT / "attacks" / "agentic" / "rag_scenarios.yaml"
 # The unique token an injected RAG chunk carries — its presence in a corpus chunk proves an
 # injection exists to be retrieved (loader gate); the confirmed bypass is still the canary exfil.
 INJECTED_RAG_MARKER = "IAGO_RAG_PAYLOAD"
+# Inter-agent (ASI07) scenarios — a compromised/rogue PEER agent's message carries an injection
+# the agent under test over-trusts and acts on.
+A2A_SCENARIOS_FILE = PROJECT_ROOT / "attacks" / "agentic" / "a2a_scenarios.yaml"
+# The unique token a poisoned peer-agent message carries — its presence in a peer message proves
+# an injection exists in the inbox (loader gate); the confirmed bypass is still the canary exfil.
+INJECTED_A2A_MARKER = "IAGO_A2A_PAYLOAD"
 # The unique token a poisoned memory instruction carries — its presence in a `remember`
 # argument proves the agent stored the POISON (not a benign note), the first half of the
 # delayed-fire chain the temporal oracle confirms.

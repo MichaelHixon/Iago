@@ -517,6 +517,55 @@ def _cmd_rag_scenarios(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_a2a_run(args: argparse.Namespace) -> int:
+    """Run the agentic insecure inter-agent (ASI07) suite against a tool-calling agent."""
+    from .agent_run import ollama_chat_fn
+    from .agent_a2a import (
+        load_a2a_artifacts,
+        load_a2a_scenarios,
+        run_a2a_suite,
+        write_a2a_report,
+    )
+
+    if args.target != "ollama":
+        print(f"ERROR: a2a-run supports --target ollama today (got {args.target!r})", file=sys.stderr)
+        return 2
+
+    model = args.model
+    chat_fn = ollama_chat_fn(model)
+    trials = 1 if args.smoke else args.trials
+    scens = load_a2a_scenarios()
+    if args.smoke:
+        scens = scens[:1]
+
+    print(f"Iago a2a-run → target ollama:{model} (pure in-memory peer inbox; no network)")
+    print(f"  scenarios={len(scens)} trials/scenario={trials} max_steps={args.max_steps}")
+    try:
+        artifact_path = run_a2a_suite(
+            chat_fn, model_name=f"ollama:{model}", trials=trials, temperature=args.temperature,
+            base_seed=args.base_seed, max_steps=args.max_steps, scenarios=scens, progress=True)
+    except Exception as exc:
+        print(f"ERROR: a2a-run failed: {exc}", file=sys.stderr)
+        return 1
+
+    rows = load_a2a_artifacts(artifact_path)
+    report_path = write_a2a_report(rows)
+    print(f"\nArtifacts: {artifact_path}")
+    print(f"Report:    {report_path}")
+    print(f"({len(rows)} trials recorded)")
+    return 0
+
+
+def _cmd_a2a_scenarios(_args: argparse.Namespace) -> int:
+    from .agent_a2a import load_a2a_scenarios
+
+    scens = load_a2a_scenarios()
+    print(f"Inter-agent scenarios: {len(scens)}")
+    for s in scens:
+        print(f"  {s.id:24} [{s.kind:10}] {s.name}")
+    return 0
+
+
 def _cmd_library(_args: argparse.Namespace) -> int:
     lib = load_library()
     objs = load_objectives()
@@ -703,6 +752,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     rs = sub.add_parser("rag-scenarios", help="show the loaded RAG retrieval-poisoning scenarios")
     rs.set_defaults(func=_cmd_rag_scenarios)
+
+    aa = sub.add_parser("a2a-run",
+                        help="red-team a tool-calling agent for INSECURE INTER-AGENT COMMS (ASI07) — "
+                             "a poisoned message from a rogue peer agent drives an action")
+    aa.add_argument("--target", default="ollama", choices=available_targets(),
+                    help="agent backend (a2a-run supports ollama today)")
+    aa.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
+    aa.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per scenario")
+    aa.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
+    aa.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
+    aa.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
+                    help="tool-loop step budget per scenario")
+    aa.add_argument("--smoke", action="store_true", help="1 scenario x 1 trial fast proof")
+    aa.set_defaults(func=_cmd_a2a_run)
+
+    aas = sub.add_parser("a2a-scenarios", help="show the loaded inter-agent (ASI07) scenarios")
+    aas.set_defaults(func=_cmd_a2a_scenarios)
 
     return p
 
