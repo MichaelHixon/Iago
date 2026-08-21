@@ -108,6 +108,29 @@ def _cmd_delta(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_compare(args: argparse.Namespace) -> int:
+    """Multi-model differential evaluation (ISC-29): >=2 same-surface artifacts -> one
+    comparison report. The delta between models is the finding."""
+    from pathlib import Path
+    from .compare import build_comparison, write_comparison_report
+
+    paths = [Path(p) for p in args.artifacts]
+    for p in paths:
+        if not p.exists():
+            print(f"ERROR: artifact not found: {p}", file=sys.stderr)
+            return 2
+    comp = build_comparison(paths)
+    if len(comp.models) < 2:
+        print(f"ERROR: compare needs >=2 models across the given artifacts (found "
+              f"{len(comp.models)}: {[m.model for m in comp.models]}). Run the same surface "
+              "against another model first.", file=sys.stderr)
+        return 2
+    out = write_comparison_report(comp)
+    print(f"Models: {', '.join(m.model for m in comp.models)}")
+    print(f"Comparison report: {out}")
+    return 0
+
+
 def _cmd_compose_delta(args: argparse.Namespace) -> int:
     """Composition-lift report from ONE artifact that fired the composed techniques and their
     constituent primitives: how much stacking evasions beat the best single layer."""
@@ -781,6 +804,13 @@ def build_parser() -> argparse.ArgumentParser:
     dl.add_argument("raw", help="path to the RAW-model reports/artifacts/*.jsonl")
     dl.add_argument("guarded", help="path to the GUARDED-model reports/artifacts/*.jsonl")
     dl.set_defaults(func=_cmd_delta)
+
+    cmp = sub.add_parser("compare",
+                         help="multi-model differential: >=2 same-surface artifacts (different models) "
+                              "-> one comparison report; the delta between models is the finding")
+    cmp.add_argument("artifacts", nargs="+",
+                     help="paths to >=2 same-surface reports/artifacts/*.jsonl, one per model")
+    cmp.set_defaults(func=_cmd_compare)
 
     cd = sub.add_parser("compose-delta",
                         help="composition-lift report: does stacking evasions beat the best single layer?")
