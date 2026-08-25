@@ -175,22 +175,21 @@ here duplicates an existing technique.
   still leaked ~43%, while the soft dev-tool config leaked ~79% — the guardrail depth, not the attack, is
   what moves the number.
 
-- [ ] **Semantic-similarity leak band** (LLM07 depth; from the 2026-07-31 Council). The canary oracle is
-  verbatim-only — precise but it misses paraphrased / structural leakage, which the LLM07 literature
-  treats as the *majority* of real extraction. Add a second-tier score (ROUGE / embedding overlap
-  between the reply and the planted prompt) reported *alongside* the canary rate, turning the documented
-  false-negative into a measured band (verbatim floor → semantic ceiling) instead of a disclaimer.
+- [x] **Semantic-similarity leak band** (LLM07 depth; from the 2026-07-31 Council). ✅ **Delivered** as
+  `iago/lexical_leak.py` — an advisory lexical-overlap (containment) band reported *alongside* the
+  verbatim canary rate (a pure-Python measure, honestly labeled NOT embedding-grade), turning the
+  documented verbatim-only false-negative into a measured band. `iago lexical-leak <artifact>`.
 
-- [ ] **Extraction depth — multi-turn + encoded extractors** (LLM07; the 2026-07-31 Council's #1 Q3 gap,
-  flagged by all four members). The 5 shipped extraction-native payloads are single-turn / single-language
-  / plaintext — the "2023 starter pack." The known stronger vectors are missing as *extraction-scoped*
-  techniques: (a) **multi-turn / crescendo extraction** (prime over 2–3 turns, then "continue from where
-  you stopped") — the biggest omission, though the general `multi-turn` category already transfers onto
-  leak objectives; (b) **encoded / obfuscated extractors** (base64 / ROT13 / "spell it backwards") — note
-  the hardened medical config's own blocklist enumerates "encode, translate," and we have no encoded
-  extractor to test that blocklist against; (c) **few-shot / forged-transcript** extraction. Add these as
-  `prompt-extraction` techniques (or scope existing multi-turn/encoding variants). Invariant still holds:
-  no canary in any template.
+- [x] **Extraction depth — multi-turn + encoded extractors** (LLM07; the 2026-07-31 Council's #1 Q3 gap,
+  flagged by all four members). ✅ **All three sub-vectors shipped as `prompt-extraction` techniques,
+  scoped `applies_to: [prompt-leak]`, no canary in any template:** (a) **multi-turn / crescendo**
+  extraction — `pe-mt-001/002` (commit `1aebe8c`); (b) **encoded / obfuscated** extractors — base64 /
+  ROT13 / reversed output channel `pe-enc-001/002/003` (commit `1aebe8c`), giving the hardened medical
+  config's "encode, translate" blocklist something to test against; (c) **few-shot / forged-transcript**
+  extraction — `pe-fs-001` (few-shot disclosure transcript) + `pe-fs-002` (forged prior-session
+  continuity) (2026-08-25). Library now carries 12 extraction techniques. Live-exercised vs llama3.2:3b:
+  pe-fs-002 induced a canary leak on ONE soft config; hardened configs held (N=1, a demonstration, not a
+  general-effectiveness claim).
 
 - [ ] **`--force-all` cross-product override** (from the 2026-07-31 Council, Voss). Objective-kind scoping
   correctly hides incoherent pairs by default, but a `--force-all` flag that fires every technique at every

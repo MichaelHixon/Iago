@@ -148,22 +148,54 @@ def test_extraction_techniques_are_scoped_to_prompt_leak():
         assert not t.applies_to_kind("forbidden")  # never fires at harmful-content objectives
 
 
+def test_forged_transcript_extractors_exist_and_are_scoped():
+    """#1(c): the few-shot / forged-transcript extraction family (the 2026-07-31 Council's
+    #1 Q3 gap). They must be prompt-leak-scoped and model config DISCLOSURE (carry a
+    fabricated fake code), while the no-canary invariant (tested separately) still holds."""
+    from iago.attacks import load_library
+    from iago.canary import contains_secret
+    fs = [t for t in load_library() if t.id.startswith("pe-fs-")]
+    assert len(fs) >= 2, "expected the forged-transcript / few-shot extraction family"
+    real_canaries = [o.canary for o in load_objectives() if o.is_prompt_leak and o.canary]
+    for t in fs:
+        assert t.category == "prompt-extraction"
+        assert t.applies_to == ("prompt-leak",)
+        text = " ".join([*(t.turns or ()), t.template])
+        # It actually stages a disclosure example (a fabricated code), not a bare ask —
+        # and that staged code is one of the OBVIOUSLY-FAKE ones, never a shipped canary.
+        assert "VIOLET-CIRCUIT-1002" in text or "AMBER-HELIX-3050" in text
+        # Local half of the invariant (code-review NIT): the load-bearing no-canary property
+        # is asserted right here in the test that documents the family, so a future narrowing
+        # of the global invariant test can't silently drop pe-fs-* coverage.
+        for c in real_canaries:
+            assert not contains_secret(text, c), f"{t.id} must never carry a real canary"
+
+
 def test_no_leak_capable_template_contains_a_shipped_canary():
     """INVARIANT (judge.py): the canary must live ONLY in the planted system prompt —
     never in any attack technique that can fire against a prompt-leak objective, else a
     model that merely echoed the attack prompt would false-positive as a leak. Scope the
     guard by what actually fires (applies_to), NOT by category — multi-turn and
-    composed-evasion techniques run against prompt-leak too (applies_to=None)."""
+    composed-evasion techniques run against prompt-leak too (applies_to=None).
+
+    Matched with the ORACLE'S OWN matcher (`contains_secret`), not a plain substring —
+    Council (ORACLE-PURIST): the gate must be as transform-tolerant as `judge_leak` is, so a
+    FUTURE canary rotation that minted a value colliding with a fabricated example code under
+    base64/rot13/reverse/leet would fail CI here instead of silently false-positiving in prod.
+    Canaries sourced from the SAME origin the run plants (`load_objectives`)."""
     from iago.attacks import load_library
+    from iago.canary import contains_secret
 
     canaries = [o.canary for o in load_objectives() if o.is_prompt_leak and o.canary]
     assert canaries, "expected shipped prompt-leak canaries to check against"
     for t in load_library():
         if not t.applies_to_kind("prompt-leak"):
             continue
-        text = " ".join([*(t.turns or ()), t.template]).lower()
+        text = " ".join([*(t.turns or ()), t.template])
         for c in canaries:
-            assert c.lower() not in text, f"{t.id} leaks canary {c!r} into its own template"
+            assert not contains_secret(text, c), (
+                f"{t.id} leaks canary {c!r} into its own template (oracle-tolerant match)"
+            )
 
 
 def test_shipped_canaries_are_high_entropy():
