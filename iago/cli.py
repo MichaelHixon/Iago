@@ -12,6 +12,7 @@ import argparse
 import sys
 
 from .attacks import load_library, summarize
+from .campaign import DEFAULT_SURFACES
 from .config import (
     BASE_SEED,
     DEFAULT_ADAPTIVE_TURNS,
@@ -128,6 +129,48 @@ def _cmd_compare(args: argparse.Namespace) -> int:
     out = write_comparison_report(comp)
     print(f"Models: {', '.join(m.model for m in comp.models)}")
     print(f"Comparison report: {out}")
+    return 0
+
+
+def _cmd_campaign(args: argparse.Namespace) -> int:
+    """Cross-surface multi-model differential campaign (ISC-30): fire every requested surface x
+    model (LOCAL/Ollama) and roll every per-surface differential into ONE consolidated report —
+    the whole-picture cross-surface artifact."""
+    from .campaign import build_campaign, run_campaign, write_campaign_report, SURFACE_REGISTRY
+
+    models = [m.strip() for m in args.models.split(",") if m.strip()]
+    surfaces = [s.strip() for s in args.surfaces.split(",") if s.strip()]
+    if len(models) < 2:
+        print(f"ERROR: campaign needs >=2 models to compare (got {models}). "
+              "e.g. --models llama3.1,llama3.2:3b", file=sys.stderr)
+        return 2
+    unknown = [s for s in surfaces if s not in SURFACE_REGISTRY]
+    if unknown:
+        print(f"ERROR: unknown surface(s) {unknown}; known: {', '.join(SURFACE_REGISTRY)}",
+              file=sys.stderr)
+        return 2
+
+    print(f"Iago campaign → models={models} surfaces={surfaces} "
+          f"trials={1 if args.smoke else args.trials}{' (smoke)' if args.smoke else ''}")
+    print("  LOCAL only; every surface is sandboxed (no real state change, no network).")
+    surface_paths, errors = run_campaign(
+        surfaces, models, trials=1 if args.smoke else args.trials, temperature=args.temperature,
+        base_seed=args.base_seed, max_steps=args.max_steps, smoke=args.smoke,
+        on_event=lambda msg: print(f"  {msg}"))
+    for err in errors:
+        print(f"  ⚠️ {err}", file=sys.stderr)
+    if not surface_paths:
+        print("ERROR: no surface produced an artifact; nothing to compare.", file=sys.stderr)
+        return 1
+
+    labels = {k: SURFACE_REGISTRY[k].label for k in surface_paths}
+    # run_campaign stamps artifact model names as "ollama:<tag>", so the absent-model check must
+    # compare against the SAME canonical form or it falsely flags every present model as absent.
+    requested = [f"ollama:{m}" for m in models]
+    campaign = build_campaign(surface_paths, labels=labels, requested_models=requested, errors=errors)
+    out = write_campaign_report(campaign)
+    print(f"\nSurfaces run: {', '.join(surface_paths)}")
+    print(f"Campaign report: {out}")
     return 0
 
 
@@ -811,6 +854,24 @@ def build_parser() -> argparse.ArgumentParser:
     cmp.add_argument("artifacts", nargs="+",
                      help="paths to >=2 same-surface reports/artifacts/*.jsonl, one per model")
     cmp.set_defaults(func=_cmd_compare)
+
+    cam = sub.add_parser("campaign",
+                         help="cross-surface differential: run every surface x every model (LOCAL) -> "
+                              "ONE consolidated report — the 'what did you find' artifact")
+    cam.add_argument("--models", default=DEFAULT_MODEL,
+                     help="comma-separated ollama model tags, one per model to compare "
+                          f"(default: {DEFAULT_MODEL})")
+    cam.add_argument("--surfaces", default=",".join(DEFAULT_SURFACES),
+                     help=f"comma-separated surfaces to run (default: all — {', '.join(DEFAULT_SURFACES)})")
+    cam.add_argument("--trials", type=int, default=2,
+                     help="trials per scenario per model (>=2 lets a floor certify; default: 2)")
+    cam.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
+    cam.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
+    cam.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
+                     help="tool-loop step budget per scenario")
+    cam.add_argument("--smoke", action="store_true",
+                     help="1 attack + 1 capability scenario per surface, fast pipeline proof")
+    cam.set_defaults(func=_cmd_campaign)
 
     cd = sub.add_parser("compose-delta",
                         help="composition-lift report: does stacking evasions beat the best single layer?")

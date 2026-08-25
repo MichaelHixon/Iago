@@ -26,6 +26,8 @@ from .config import (
     ALLOWED_RECIPIENT_DOMAIN,
     ARTIFACTS_DIR,
     BASE_SEED,
+    DEFAULT_AGENT_GEN_TIMEOUT,
+    DEFAULT_AGENT_NUM_PREDICT,
     DEFAULT_AGENT_STEPS,
     DEFAULT_MODEL,
     DEFAULT_TEMPERATURE,
@@ -34,22 +36,61 @@ from .config import (
 )
 
 
-def ollama_chat_fn(model: str = DEFAULT_MODEL):
+def ollama_chat_fn(
+    model: str = DEFAULT_MODEL,
+    *,
+    timeout: float = DEFAULT_AGENT_GEN_TIMEOUT,
+    num_predict: int = DEFAULT_AGENT_NUM_PREDICT,
+):
     """Build a chat_fn backed by a local Ollama model with tool-calling enabled.
 
     Normalizes Ollama's response (a ChatResponse object; tool_calls carry
     .function.name / .function.arguments) into the harness's LLMMessage. Fails
     loudly if the daemon/model is unreachable rather than nulling the turn.
+
+    Anti-runaway (ISC-30): a single generation is bounded two ways so one wedged
+    turn can't silently stall a whole campaign. `timeout` is an httpx read timeout
+    on the ollama client — it fires when the daemon streams nothing (the observed
+    failure: llama-server pegged at 250% CPU, zero output for hours) and surfaces
+    as a loud RuntimeError, not a hang. `num_predict` caps tokens per generation
+    for the run-on case (producing but never stopping); a caller's explicit
+    `options["num_predict"]` wins so a scenario can override. Both are ceilings the
+    healthy path never reaches. `timeout <= 0` disables the wall-clock bound.
     """
+    client_kwargs = {} if timeout is None or timeout <= 0 else {"timeout": timeout}
+
     def fn(messages: list[dict], tools: list[dict], options: dict) -> LLMMessage:
         import ollama
 
+        opts = dict(options or {})
+        opts.setdefault("num_predict", num_predict)  # caller override wins
         try:
-            resp = ollama.chat(model=model, messages=messages, tools=tools, options=options or {})
+            client = ollama.Client(**client_kwargs)
+            resp = client.chat(model=model, messages=messages, tools=tools, options=opts)
         except Exception as exc:
             raise RuntimeError(
-                f"Ollama agent chat failed (daemon running and '{model}' pulled?): {exc}"
+                f"Ollama agent chat failed (daemon running and '{model}' pulled? "
+                f"gen timeout={timeout}s): {exc}"
             ) from exc
+
+        # Council (Voss + Marchetti): a token-cap TRUNCATION is a SILENT false-negative and
+        # must be made loud. A turn cut off at `num_predict` returns HTTP-200 with no closed
+        # tool-call JSON, so downstream it is indistinguishable from "the model declined the
+        # tool" — a truncated capability probe would read as a DEAD floor and a truncated attack
+        # as the guardrail HOLDING. That corrupts the exact differential the honesty framing
+        # protects, and the bias is capability-correlated (verbose models truncate first). So we
+        # raise here (the same loud path the timeout takes): the campaign records the leg
+        # INCOMPLETE / ⚠️ fail, excluded from BOTH alive and dead, never a quiet resistance win.
+        done_reason = getattr(resp, "done_reason", None)
+        if done_reason is None and isinstance(resp, dict):
+            done_reason = resp.get("done_reason")
+        if done_reason == "length":
+            raise RuntimeError(
+                f"Ollama generation truncated at the {opts['num_predict']}-token cap "
+                f"(done_reason=length) — the turn is unmeasurable; raising loud so the run is "
+                f"recorded INCOMPLETE, not read as a dead floor / held guardrail. Raise "
+                f"num_predict if this surface legitimately needs longer turns."
+            )
         return _normalize_ollama(resp)
 
     return fn

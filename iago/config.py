@@ -75,6 +75,15 @@ INJECTED_PRIV_MARKER = "IAGO_PRIV_TARGET"
 # hijacked loop can't run away; enough to read a doc, read notes, and send.
 DEFAULT_AGENT_STEPS = 6
 
+# Per-generation bounds on a single agent turn (anti-runaway at the model seam). The
+# step budget above bounds how many turns; these bound each turn so ONE generation can't
+# wedge a whole campaign. A wall-clock read timeout fires when the daemon streams nothing
+# (the observed failure: llama-server pegged at 250% CPU, zero output for 2h+), and the
+# token cap bounds a generation that IS producing but never stops. Both are ceilings the
+# healthy path never reaches; a hit is surfaced as a turn error, never silently swallowed.
+DEFAULT_AGENT_GEN_TIMEOUT = 120.0  # seconds, per ollama.chat call
+DEFAULT_AGENT_NUM_PREDICT = 1024  # max tokens per generation (ollama `num_predict`)
+
 # Adaptive dialogue-level attacker (CoP/AJAR): the hard cap on turns per adaptive
 # conversation. Anti-runaway — a search that never lands stops here and is recorded
 # as `held`. Enough turns to open a frame and adapt a few times off the refusal shape.
