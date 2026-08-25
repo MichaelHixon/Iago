@@ -415,3 +415,103 @@ def test_send_message_never_egresses(monkeypatch):
     agent = _exfil_agent("Revenue up.", recipient="team@corp.local")
     trace = run_agent(scen, agent)  # must not raise
     assert any(c.name == "send_message" for c in trace.calls)
+
+
+# --- ISC-30 anti-runaway: per-generation timeout + token cap at the ollama seam -----
+
+class _FakeOllamaClient:
+    """Records the init kwargs and the last chat options, returns a valid empty turn.
+    A campaign-wedging runaway lived inside a single ollama.chat call; the fix bounds it
+    with a wall-clock timeout (Client kwarg) + a num_predict token cap (chat option)."""
+
+    last_init: dict = {}
+    last_options: dict = {}
+    done_reason: str = "stop"  # override to "length" to simulate a token-cap truncation
+
+    def __init__(self, **kwargs):
+        _FakeOllamaClient.last_init = kwargs
+
+    def chat(self, *, model, messages, tools, options):
+        _FakeOllamaClient.last_options = options
+        return {"message": {"content": "ok", "tool_calls": []},
+                "done_reason": _FakeOllamaClient.done_reason}
+
+
+def test_ollama_chat_fn_applies_default_timeout_and_num_predict(monkeypatch):
+    import ollama
+    from iago.agent_run import ollama_chat_fn
+    from iago.config import DEFAULT_AGENT_GEN_TIMEOUT, DEFAULT_AGENT_NUM_PREDICT
+
+    monkeypatch.setattr(ollama, "Client", _FakeOllamaClient)
+    fn = ollama_chat_fn("m")
+    fn([{"role": "user", "content": "hi"}], [], {})
+    assert _FakeOllamaClient.last_init.get("timeout") == DEFAULT_AGENT_GEN_TIMEOUT
+    assert _FakeOllamaClient.last_options.get("num_predict") == DEFAULT_AGENT_NUM_PREDICT
+
+
+def test_ollama_chat_fn_caller_num_predict_overrides_default(monkeypatch):
+    import ollama
+    from iago.agent_run import ollama_chat_fn
+
+    monkeypatch.setattr(ollama, "Client", _FakeOllamaClient)
+    fn = ollama_chat_fn("m", num_predict=99)
+    fn([], [], {"num_predict": 7})  # a caller's explicit cap wins over the builder default
+    assert _FakeOllamaClient.last_options["num_predict"] == 7
+
+
+def test_ollama_chat_fn_nonpositive_timeout_disables_wall_clock(monkeypatch):
+    import ollama
+    from iago.agent_run import ollama_chat_fn
+
+    _FakeOllamaClient.last_init = {}
+    monkeypatch.setattr(ollama, "Client", _FakeOllamaClient)
+    fn = ollama_chat_fn("m", timeout=0)
+    fn([], [], {})
+    assert "timeout" not in _FakeOllamaClient.last_init  # opt-out honored
+
+
+def test_ollama_chat_fn_wraps_generation_error_loudly(monkeypatch):
+    import ollama
+    from iago.agent_run import ollama_chat_fn
+
+    class _Boom:
+        def __init__(self, **kwargs):
+            pass
+
+        def chat(self, **kwargs):
+            raise TimeoutError("read timed out")
+
+    monkeypatch.setattr(ollama, "Client", _Boom)
+    fn = ollama_chat_fn("m")
+    with pytest.raises(RuntimeError, match="gen timeout"):
+        fn([], [], {})
+
+
+def test_ollama_chat_fn_raises_loudly_on_token_cap_truncation(monkeypatch):
+    """Council (Voss+Marchetti): a `done_reason=length` truncation must be LOUD, not a quiet
+    tool-less turn that reads downstream as a dead floor / held guardrail. It raises like the
+    timeout so the campaign records the leg INCOMPLETE, excluded from both alive and dead."""
+    import ollama
+    from iago.agent_run import ollama_chat_fn
+
+    monkeypatch.setattr(ollama, "Client", _FakeOllamaClient)
+    _FakeOllamaClient.done_reason = "length"
+    try:
+        fn = ollama_chat_fn("m")
+        with pytest.raises(RuntimeError, match="truncated"):
+            fn([], [], {})
+    finally:
+        _FakeOllamaClient.done_reason = "stop"  # restore for other tests
+
+
+def test_ollama_chat_fn_normal_stop_is_not_truncation(monkeypatch):
+    """The complement: a clean `done_reason=stop` turn returns normally — the truncation guard
+    must not fire on the healthy path (no false INCOMPLETE)."""
+    import ollama
+    from iago.agent_run import ollama_chat_fn
+
+    monkeypatch.setattr(ollama, "Client", _FakeOllamaClient)
+    _FakeOllamaClient.done_reason = "stop"
+    fn = ollama_chat_fn("m")
+    msg = fn([], [], {})
+    assert msg.content == "ok"
