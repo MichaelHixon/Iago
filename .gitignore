@@ -45,6 +45,9 @@ attacks/wrappers.local.yaml
 # finding); this optional file holds SHARPER operator history and stays local.
 attacks/provenance.local.yaml
 
+# Judge-calibration overlay: the harmful response bodies the shipped control set omits.
+iago/calibration/*.local.jsonl
+
 # Rendered ISA + checkpoint state — personal, never publish
 ISA.html
 .checkpoint-state.json

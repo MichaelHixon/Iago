@@ -1,0 +1,123 @@
+{
+  "claude-claude-haiku-4-5-20251001-0145f33e1d68": {
+    "claude": {
+      "agreement": {
+        "hi": 0.796939174012664,
+        "k": 65,
+        "lo": 0.6142727836093079,
+        "n": 91,
+        "value": 0.7142857142857143
+      },
+      "fnr": {
+        "hi": 0.3433684249770991,
+        "k": 2,
+        "lo": 0.03287908001292092,
+        "n": 17,
+        "value": 0.11764705882352941
+      },
+      "fpr": {
+        "hi": 0.049351503566216516,
+        "k": 0,
+        "lo": 0.0,
+        "n": 74,
+        "value": 0.0
+      },
+      "judge": "claude",
+      "judge_id": "claude-claude-haiku-4-5-20251001-0145f33e1d68",
+      "measured": "2026-09-11T19:48:56.768685+00:00",
+      "n_missing_text": 0,
+      "n_scored": 91,
+      "negatives": 74,
+      "positives": 17,
+      "set": "judge_control_set.jsonl",
+      "set_sha256": "1ced2a074cfc249c85a3fdb3256fa9f4db0eff9a3cf07fa32c78602504a4614c",
+      "unresolved_rate": {
+        "hi": 0.04050543221539915,
+        "k": 0,
+        "lo": 0.0,
+        "n": 91,
+        "value": 0.0
+      }
+    }
+  },
+  "judge-d0a246fc0ed5": {
+    "canary": {
+      "agreement": {
+        "hi": 0.9532862902656388,
+        "k": 30,
+        "lo": 0.7337882520370121,
+        "n": 34,
+        "value": 0.8823529411764706
+      },
+      "fnr": {
+        "hi": 0.4521502645230549,
+        "k": 4,
+        "lo": 0.09000781913382,
+        "n": 18,
+        "value": 0.2222222222222222
+      },
+      "fpr": {
+        "hi": 0.19361341827271994,
+        "k": 0,
+        "lo": 0.0,
+        "n": 16,
+        "value": 0.0
+      },
+      "judge": "canary",
+      "judge_id": "judge-d0a246fc0ed5",
+      "measured": "2026-09-11T19:46:38.680090+00:00",
+      "n_missing_text": 0,
+      "n_scored": 34,
+      "negatives": 16,
+      "positives": 18,
+      "set": "judge_control_set.jsonl",
+      "set_sha256": "1ced2a074cfc249c85a3fdb3256fa9f4db0eff9a3cf07fa32c78602504a4614c",
+      "unresolved_rate": {
+        "hi": 0.10151790621961015,
+        "k": 0,
+        "lo": 0.0,
+        "n": 34,
+        "value": 0.0
+      }
+    },
+    "heuristic": {
+      "agreement": {
+        "hi": 0.4651189869690325,
+        "k": 33,
+        "lo": 0.27128360429893433,
+        "n": 91,
+        "value": 0.3626373626373626
+      },
+      "fnr": {
+        "hi": 1.0,
+        "k": 17,
+        "lo": 0.8156763396284354,
+        "n": 17,
+        "value": 1.0
+      },
+      "fpr": {
+        "hi": 0.049351503566216516,
+        "k": 0,
+        "lo": 0.0,
+        "n": 74,
+        "value": 0.0
+      },
+      "judge": "heuristic",
+      "judge_id": "judge-d0a246fc0ed5",
+      "measured": "2026-09-11T19:46:38.678102+00:00",
+      "n_missing_text": 0,
+      "n_scored": 91,
+      "negatives": 74,
+      "positives": 17,
+      "set": "judge_control_set.jsonl",
+      "set_sha256": "1ced2a074cfc249c85a3fdb3256fa9f4db0eff9a3cf07fa32c78602504a4614c",
+      "unresolved_rate": {
+        "hi": 0.5634401011556289,
+        "k": 42,
+        "lo": 0.3627526243994019,
+        "n": 91,
+        "value": 0.46153846153846156
+      }
+    }
+  }
+}
