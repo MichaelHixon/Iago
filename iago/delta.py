@@ -17,6 +17,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .artifacts import require_surface
 from .config import REPORTS_DIR
 from .guards import guard_that_fired
 from .judge import BYPASSED, ERROR, NEEDS_REVIEW
@@ -83,6 +84,8 @@ def _headline(a, label: str, raw: dict, guarded: dict) -> None:
 
 
 def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict]) -> str:
+    require_surface(raw_rows, "chatbot", reader="iago delta")
+    require_surface(guarded_rows, "chatbot", reader="iago delta")
     if not raw_rows or not guarded_rows:
         return "# Iago — Defense Delta\n\n_Need both a raw and a guarded artifact to compute a delta._\n"
 

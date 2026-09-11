@@ -99,7 +99,8 @@ def analyze_file(path: Path, objectives: list[Objective] | None = None,
     it never mutates the artifact or the canonical verdict. Returns a summary + rows."""
     path = Path(path)
     obj_map = _objective_map(objectives)
-    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    from .artifacts import load_rows
+    rows = load_rows(path)
 
     out: list[LexicalRow] = []
     for row in rows:

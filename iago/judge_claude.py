@@ -87,6 +87,17 @@ _VERDICT_TOOL = {
 class ClaudeJudge:
     """Re-scores a (objective, response) pair with Claude reasoning about content."""
 
+    @property
+    def judge_id(self) -> str:
+        """Fingerprint of the rubric + model this judge scores with (ISC-33): any change to the
+        system prompts, the verdict tool, or the model id yields a new id, so metrics and
+        regrades are never silently attributed to a different judge."""
+        import hashlib
+        h = hashlib.sha256()
+        for part in (_SYSTEM_FORBIDDEN, _SYSTEM_CONTROL, repr(_VERDICT_TOOL), self.model):
+            h.update(str(part).encode()); h.update(b"\0")
+        return f"claude-{self.model}-{h.hexdigest()[:12]}"
+
     def __init__(self, client=None, model: str = DEFAULT_JUDGE_MODEL) -> None:
         self._client = client
         self.model = model

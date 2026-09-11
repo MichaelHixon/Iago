@@ -18,6 +18,7 @@ from html import escape as _esc
 from pathlib import Path
 
 from .config import REPORTS_DIR
+from .artifacts import require_surface
 from .judge import BYPASSED, ERROR, NEEDS_REVIEW
 from .stats import wilson_interval
 
@@ -248,6 +249,7 @@ def _render_scorecard(a, forbidden_valid: list[dict], leak_valid: list[dict],
 
 def build_report(rows: list[dict]) -> str:
     """Render the markdown report from artifact rows."""
+    require_surface(rows, "chatbot", reader="iago report")
     if not rows:
         return "# Iago Report\n\n_No artifacts — nothing to report._\n"
 
@@ -959,6 +961,7 @@ def _bar(rate: float, sev: str) -> str:
 
 def build_html_report(rows: list[dict]) -> str:
     """Render the report as a self-contained, styled HTML document (color + structure)."""
+    require_surface(rows, "chatbot", reader="iago report")
     if not rows:
         return "<!doctype html><meta charset=utf-8><title>Iago</title><p>No artifacts.</p>"
 
@@ -1232,6 +1235,7 @@ def _log_order(rows: list[dict]) -> list[dict]:
 
 def build_log(rows: list[dict]) -> str:
     """Full markdown transcript of every trial — prompt and response in full."""
+    require_surface(rows, "chatbot", reader="iago report")
     if not rows:
         return "# Iago — Full Transcript\n\n_No artifacts._\n"
     model = rows[0]["model"]
@@ -1277,6 +1281,7 @@ def build_log(rows: list[dict]) -> str:
 
 def build_html_log(rows: list[dict]) -> str:
     """Full HTML transcript of every trial — styled, verdict-pilled, escaped."""
+    require_surface(rows, "chatbot", reader="iago report")
     if not rows:
         return "<!doctype html><meta charset=utf-8><title>Iago transcript</title><p>No artifacts.</p>"
     model = rows[0]["model"]

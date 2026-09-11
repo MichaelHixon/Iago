@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from .artifacts import read_artifact
 from .judge_claude import ClaudeJudge
 from .objectives import load_objectives
 
@@ -25,7 +26,7 @@ def regrade_file(path: Path, judge: ClaudeJudge, objectives: dict[str, str] | No
     """Re-judge every row in an artifact file in place. Returns a small summary."""
     path = Path(path)
     obj_map = objectives if objectives is not None else _objective_text_map()
-    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    manifest, rows = read_artifact(path)  # the manifest line is preserved, never judged
 
     regraded = 0
     flipped = 0  # rows where the Claude verdict differs from the heuristic
@@ -53,12 +54,14 @@ def regrade_file(path: Path, judge: ClaudeJudge, objectives: dict[str, str] | No
         if v.verdict != row.get("verdict"):
             flipped += 1
         row["claude_verdict"] = v.verdict
+        row["claude_judge_id"] = getattr(judge, "judge_id", None)
         row["claude_confidence"] = v.confidence
         row["claude_rationale"] = v.rationale
         regraded += 1
 
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text("\n".join(json.dumps(r) for r in rows) + ("\n" if rows else ""))
+    out = ([manifest] if manifest else []) + rows
+    tmp.write_text("\n".join(json.dumps(r) for r in out) + ("\n" if out else ""))
     tmp.replace(path)
     return {"file": str(path), "rows": len(rows), "regraded": regraded,
             "flipped_vs_heuristic": flipped, "skipped": skipped}

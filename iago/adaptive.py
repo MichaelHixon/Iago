@@ -45,6 +45,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .artifacts import build_manifest, load_rows, module_fingerprint, stamp, write_manifest
 from .config import (
     ARTIFACTS_DIR,
     BASE_SEED,
@@ -544,6 +545,12 @@ def run_adaptive_suite(
     total = len(objs) * trials
     done = 0
     with out_path.open("w") as fh:
+        write_manifest(fh, build_manifest(
+            surface="adaptive", model=model_name,
+            sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
+                      "seed_rule": "base_seed + trial", "max_turns": max_turns,
+                      "attacker": attacker_kind, "deterministic": deterministic},
+            judge_id=module_fingerprint("adaptive", "judge", "canary")))
         for trial in range(trials):
             seed = base_seed + trial
             options = {"temperature": temperature, "seed": seed}
@@ -569,7 +576,7 @@ def run_adaptive_suite(
                     "trace": [asdict(t) for t in tr.trace],
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
-                fh.write(json.dumps(row) + "\n")
+                fh.write(json.dumps(stamp(row, "adaptive")) + "\n")
                 fh.flush()
                 done += 1
                 if progress:
@@ -580,7 +587,7 @@ def run_adaptive_suite(
 
 
 def load_adaptive_artifacts(path: Path) -> list[dict]:
-    return [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
+    return load_rows(path)
 
 
 def write_adaptive_report(rows: list[dict], reports_dir: Path | None = None) -> Path:

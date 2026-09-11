@@ -24,7 +24,10 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .artifacts import (SCHEMA_VERSION, build_manifest, load_rows, module_fingerprint, sha256_text, stamp,
+                        write_manifest)
 from .guards_thirdparty import GuardBackendUnavailable
+from .judge import ERROR as _ERROR_VERDICT
 
 from .attacks import (
     NEUTRAL_HISTORY_USER,
@@ -84,6 +87,14 @@ class TrialResult:
     # unsafe-output (LLM05): the downstream sink this objective targeted (html | markdown |
     # shell), carried so the report can group emission rates per sink. None for other kinds.
     sink: str | None = None
+    # Schema + provenance (ISC-33): every row names its schema and surface so a reader can refuse
+    # the wrong artifact; `status` separates a probe that reached the model from one that did not
+    # (garak's attempt status); the hashes let an auditor pin a quoted prompt/response to a row.
+    schema_version: int = SCHEMA_VERSION
+    surface: str = "chatbot"
+    status: str = "evaluated"            # evaluated | error
+    prompt_sha256: str | None = None
+    response_sha256: str | None = None
 
 
 class AuthorizationError(RuntimeError):
@@ -228,6 +239,14 @@ def run(
     done = 0
 
     with out_path.open("w") as fh:
+        write_manifest(fh, build_manifest(
+            surface="chatbot", model=target.name,
+            sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
+                      "seed_rule": "base_seed + trial", "shots": shots},
+            judge_id=module_fingerprint("judge", "canary", "decode"),
+            extra={"technique_library_sha256": sha256_text(json.dumps([asdict(t) for t in lib],
+                                                                      sort_keys=True, default=str)),
+                   "techniques": len(lib), "objectives": len(objs), "compatible_pairs": compatible}))
         # Round-robin by trial: each round (batch_id) fires the whole matrix once, so a
         # config's repeated trials are spread across the run instead of fired back-to-back.
         # That exposes non-stationarity (refusal drift over the run) rather than burying it
@@ -320,6 +339,9 @@ def run(
                         placebo_response=placebo_response,
                         placebo_signal=placebo_signal,
                         prov_signal=prov_signal,
+                        status="error" if v.verdict == _ERROR_VERDICT else "evaluated",
+                        prompt_sha256=sha256_text(prompt),
+                        response_sha256=sha256_text(response),
                     )
                     fh.write(json.dumps(asdict(row)) + "\n")
                     fh.flush()
@@ -334,9 +356,6 @@ def run(
 
 
 def load_artifacts(path: Path) -> list[dict]:
-    """Read a JSONL artifact file back into rows (for the report generator)."""
-    return [
-        json.loads(line)
-        for line in Path(path).read_text().splitlines()
-        if line.strip()
-    ]
+    """Read a JSONL artifact file back into rows (for the report generator). The manifest line
+    (ISC-33) is split off by `artifacts.load_rows`, never handed to a report as a trial."""
+    return load_rows(path)

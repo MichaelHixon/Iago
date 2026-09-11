@@ -25,6 +25,7 @@ from pathlib import Path
 import yaml
 
 from .agent_harness import AgentTrace
+from .artifacts import build_manifest, load_rows, module_fingerprint, stamp, write_manifest
 from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED, _is_external, probe_quality_note
 from .canary import contains_secret as _contains_secret
 from .config import ARTIFACTS_DIR, DEFAULT_AGENT_STEPS, DEFAULT_TEMPERATURE, DEFAULT_TRIALS, REPORTS_DIR
@@ -173,6 +174,11 @@ def run_exfil_suite(
     total = len(scenarios) * trials
     done = 0
     with out_path.open("w") as fh:
+        write_manifest(fh, build_manifest(
+            surface=run_id_prefix, model=model_name,
+            sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
+                      "seed_rule": "base_seed + trial", "max_steps": max_steps},
+            judge_id=module_fingerprint("agent_oracle", "agentic_exfil", f"agent_{run_id_prefix}", "agent_harness")))
         for trial in range(trials):
             seed = base_seed + trial
             options = {"temperature": temperature, "seed": seed}
@@ -193,7 +199,7 @@ def run_exfil_suite(
                         if (scen.kind == "capability" and capability_chain) else None),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
-                fh.write(json.dumps(row) + "\n")
+                fh.write(json.dumps(stamp(row, run_id_prefix)) + "\n")
                 fh.flush()
                 done += 1
                 if progress:
@@ -202,7 +208,7 @@ def run_exfil_suite(
 
 
 def load_artifacts(path: Path) -> list[dict]:
-    return [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
+    return load_rows(path)
 
 
 def write_exfil_report(
