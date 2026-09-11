@@ -37,7 +37,8 @@ from pathlib import Path
 import yaml
 
 from .agent_harness import AgentTrace, run_agent
-from .artifacts import build_manifest, load_rows, module_fingerprint, stamp, write_manifest
+from .artifacts import (build_manifest, load_rows, module_fingerprint, scenario_fingerprint,
+                        stamp, write_manifest)
 from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED, probe_quality_note
 from .config import (
     ARTIFACTS_DIR,
@@ -326,7 +327,9 @@ def run_misinfo_suite(
             surface="misinfo", model=model_name,
             sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
                       "seed_rule": "base_seed + trial", "max_steps": max_steps},
-            judge_id=module_fingerprint("agent_oracle", "agent_misinfo", "agent_harness")))
+            judge_id=module_fingerprint("agent_oracle", "agent_misinfo", "agent_harness"),
+            extra={"scenario_library_sha256": scenario_fingerprint(scens),
+                   "scenarios": len(scens)}))
         for trial in range(trials):
             seed = base_seed + trial
             options = {"temperature": temperature, "seed": seed}

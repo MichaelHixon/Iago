@@ -25,7 +25,8 @@ from pathlib import Path
 import yaml
 
 from .agent_harness import AgentTrace
-from .artifacts import build_manifest, load_rows, module_fingerprint, stamp, write_manifest
+from .artifacts import (build_manifest, load_rows, module_fingerprint, scenario_fingerprint,
+                        stamp, write_manifest)
 from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED, _is_external, probe_quality_note
 from .canary import contains_secret as _contains_secret
 from .config import ARTIFACTS_DIR, DEFAULT_AGENT_STEPS, DEFAULT_TEMPERATURE, DEFAULT_TRIALS, REPORTS_DIR
@@ -190,7 +191,9 @@ def run_exfil_suite(
             surface=run_id_prefix, model=model_name,
             sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
                       "seed_rule": "base_seed + trial", "max_steps": max_steps},
-            judge_id=module_fingerprint("agent_oracle", "agentic_exfil", f"agent_{run_id_prefix}", "agent_harness")))
+            judge_id=module_fingerprint("agent_oracle", "agentic_exfil", f"agent_{run_id_prefix}", "agent_harness"),
+            extra={"scenario_library_sha256": scenario_fingerprint(scenarios),
+                   "scenarios": len(scenarios)}))
         for trial in range(trials):
             seed = base_seed + trial
             options = {"temperature": temperature, "seed": seed}
