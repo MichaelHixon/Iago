@@ -113,11 +113,15 @@ def _cmd_report(args: argparse.Namespace) -> int:
     rows = load_artifacts(path)
     if not rows:
         return _nothing_measured(rows) or 2
-    if args.log:
-        print(f"Transcript: {write_log(rows, html=args.html)}  ({len(rows)} trials)")
-    else:
-        out = write_html_report(rows) if args.html else write_report(rows)
-        print(f"Report: {out}  ({len(rows)} trials; {_valid_count(rows)} valid)")
+    try:
+        if args.log:
+            print(f"Transcript: {write_log(rows, html=args.html)}  ({len(rows)} trials)")
+        else:
+            out = write_html_report(rows) if args.html else write_report(rows)
+            print(f"Report: {out}  ({len(rows)} trials; {_valid_count(rows)} valid)")
+    except ValueError as exc:  # wrong-surface artifact (ISC-33)
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     rc = _nothing_measured(rows)
     return 0 if rc is None else rc
 
@@ -134,7 +138,11 @@ def _cmd_delta(args: argparse.Namespace) -> int:
             return 2
     raw_rows = load_artifacts(raw_path)
     guarded_rows = load_artifacts(guarded_path)
-    out = write_delta_report(raw_rows, guarded_rows)
+    try:
+        out = write_delta_report(raw_rows, guarded_rows)
+    except ValueError as exc:  # wrong-surface artifact (ISC-33)
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     print(f"Delta report: {out}")
     return 0
 
@@ -150,7 +158,11 @@ def _cmd_compare(args: argparse.Namespace) -> int:
         if not p.exists():
             print(f"ERROR: artifact not found: {p}", file=sys.stderr)
             return 2
-    comp = build_comparison(paths)
+    try:
+        comp = build_comparison(paths, allow_judge_mismatch=getattr(args, "allow_judge_mismatch", False))
+    except ValueError as exc:  # wrong surface, or oracle code differs between runs (ISC-33)
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     if not comp.scenario_ids:
         # Rows without `kind` (chatbot `run` artifacts), empty files, or a surface whose verdict
         # vocabulary compare does not adjudicate all yield an EMPTY matrix — which used to render
@@ -861,6 +873,8 @@ def _cmd_library(_args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="iago", description="Authorized LLM guardrail red-team harness.")
+    from . import __version__
+    p.add_argument("--version", action="version", version=f"iago {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
 
     r = sub.add_parser("run", help="run the attack matrix and write a report")
@@ -909,6 +923,9 @@ def build_parser() -> argparse.ArgumentParser:
                               "-> one comparison report; the delta between models is the finding")
     cmp.add_argument("artifacts", nargs="+",
                      help="paths to >=2 same-surface reports/artifacts/*.jsonl, one per model")
+    cmp.add_argument("--allow-judge-mismatch", action="store_true",
+                     help="compare artifacts even when their manifests name different oracle code "
+                          "(judge_id) — the delta may then be the oracle change, not the model")
     cmp.set_defaults(func=_cmd_compare)
 
     cam = sub.add_parser("campaign",

@@ -112,7 +112,7 @@ def test_cmd_compare_with_no_scenarios_exits_2(tmp_path, monkeypatch, capsys):
     a.write_text("{}\n"); b.write_text("{}\n")
     fake = types.SimpleNamespace(models=[types.SimpleNamespace(model="x"),
                                          types.SimpleNamespace(model="y")], scenario_ids=[])
-    monkeypatch.setattr(compare_mod, "build_comparison", lambda paths: fake)
+    monkeypatch.setattr(compare_mod, "build_comparison", lambda paths, **kw: fake)
     monkeypatch.setattr(compare_mod, "write_comparison_report",
                         lambda comp: pytest.fail("must not write a report for an empty matrix"))
     rc = cli._cmd_compare(types.SimpleNamespace(artifacts=[str(a), str(b)]))

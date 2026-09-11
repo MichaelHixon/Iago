@@ -55,6 +55,7 @@ from pathlib import Path
 import yaml
 
 from .agent_harness import AgentTrace, run_agent, marker_delivered
+from .artifacts import build_manifest, load_rows, module_fingerprint, stamp, write_manifest
 from .agent_oracle import ATTEMPTED, RESISTED, _is_external, probe_quality_note
 from .agent_scenarios import Scenario
 from .canary import contains_secret as _contains_secret
@@ -389,6 +390,11 @@ def run_memory_suite(
     total = len(scens) * trials
     done = 0
     with out_path.open("w") as fh:
+        write_manifest(fh, build_manifest(
+            surface="memory", model=model_name,
+            sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
+                      "seed_rule": "base_seed + trial", "max_steps": max_steps},
+            judge_id=module_fingerprint("agent_oracle", "agent_memory", "agent_harness")))
         for trial in range(trials):
             seed = base_seed + trial
             options = {"temperature": temperature, "seed": seed}
@@ -413,7 +419,7 @@ def run_memory_suite(
                                     if scen.kind == "capability" else None),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
-                fh.write(json.dumps(row) + "\n")
+                fh.write(json.dumps(stamp(row, "memory")) + "\n")
                 fh.flush()
                 done += 1
                 if progress:
@@ -433,7 +439,7 @@ def _recall_before_send(tool_calls: list[dict]) -> bool:
 
 
 def load_memory_artifacts(path: Path) -> list[dict]:
-    return [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
+    return load_rows(path)
 
 
 def write_memory_report(rows: list[dict], reports_dir: Path | None = None) -> Path:

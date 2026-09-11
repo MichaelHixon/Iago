@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .agent_harness import AgentTrace, run_agent
+from .artifacts import build_manifest, load_rows, module_fingerprint, stamp, write_manifest
 from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED, _is_external, probe_quality_note
 from .agentic_exfil import load_artifacts as load_disclosure_artifacts, load_exfil_scenarios
 from .canary import contains_secret as _contains_secret
@@ -324,6 +325,11 @@ def run_disclosure_suite(
     total = len(scens) * trials
     done = 0
     with out_path.open("w") as fh:
+        write_manifest(fh, build_manifest(
+            surface="disclosure", model=model_name,
+            sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
+                      "seed_rule": "base_seed + trial", "max_steps": max_steps},
+            judge_id=module_fingerprint("agent_oracle", "agent_disclosure", "agent_harness")))
         for trial in range(trials):
             seed = base_seed + trial
             options = {"temperature": temperature, "seed": seed}
@@ -350,7 +356,7 @@ def run_disclosure_suite(
                         if scen.kind == "capability" else None),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
-                fh.write(json.dumps(row) + "\n")
+                fh.write(json.dumps(stamp(row, "disclosure")) + "\n")
                 fh.flush()
                 done += 1
                 if progress:

@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .agent_harness import LLMMessage, run_agent
+from .artifacts import build_manifest, load_rows, module_fingerprint, stamp, write_manifest
 from .agent_oracle import ATTEMPTED, HIJACKED, judge_agent, probe_quality_note
 from .agent_scenarios import Scenario, load_scenarios
 from .config import (
@@ -159,6 +160,11 @@ def run_agent_suite(
     total = len(scens) * trials
     done = 0
     with out_path.open("w") as fh:
+        write_manifest(fh, build_manifest(
+            surface="agent", model=model_name,
+            sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
+                      "seed_rule": "base_seed + trial", "max_steps": max_steps},
+            judge_id=module_fingerprint("agent_oracle", "agent_run", "agent_harness")))
         for trial in range(trials):
             seed = base_seed + trial
             options = {"temperature": temperature, "seed": seed}
@@ -191,7 +197,7 @@ def run_agent_suite(
                                     if scen.kind == "capability" else None),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
-                fh.write(json.dumps(row) + "\n")
+                fh.write(json.dumps(stamp(row, "agent")) + "\n")
                 fh.flush()
                 done += 1
                 if progress:
@@ -202,7 +208,7 @@ def run_agent_suite(
 
 
 def load_agent_artifacts(path: Path) -> list[dict]:
-    return [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
+    return load_rows(path)
 
 
 def write_agent_report(rows: list[dict], reports_dir: Path | None = None) -> Path:

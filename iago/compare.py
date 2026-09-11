@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED
+from .artifacts import load_rows, read_artifact, require_surface
 from .config import GROUNDING_FLOOR_MIN_CORRECT, REPORTS_DIR
 from .stats import wilson_interval
 
@@ -35,11 +36,6 @@ from .stats import wilson_interval
 # counted as a non-hijack: counting it would bias the rate DOWNWARD and make a model look safer
 # than the evidence supports — the worst-direction error for a red-team tool (Council/Raman).
 ADJUDICATED = frozenset({HIJACKED, ATTEMPTED, RESISTED})
-
-
-def load_rows(path: Path | str) -> list[dict]:
-    """Load one artifact JSONL file into a list of row dicts."""
-    return [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
 
 
 @dataclass
@@ -88,9 +84,10 @@ class Comparison:
     models: list[ModelStats]
     scenario_ids: list[str]                    # union of attack scenario ids, stable order
     scenario_names: dict[str, str]
+    judge_ids: dict[str, str | None] = field(default_factory=dict)  # artifact -> oracle fingerprint (None = legacy)
 
 
-def build_comparison(artifact_paths: list[Path | str]) -> Comparison:
+def build_comparison(artifact_paths: list[Path | str], *, allow_judge_mismatch: bool = False) -> Comparison:
     """Read >=1 single-model artifacts and aggregate per model.
 
     Each file is expected to carry rows for ONE model (the ``model`` field); if a
@@ -104,8 +101,12 @@ def build_comparison(artifact_paths: list[Path | str]) -> Comparison:
     model_order: list[str] = []                # models in first-seen order (stable report)
     order: list[str] = []                      # attack scenarios in first-seen order
     names: dict[str, str] = {}
+    judge_ids: dict[str, str | None] = {}
     for path in artifact_paths:
-        for r in load_rows(path):
+        manifest, rows = read_artifact(path)
+        require_surface(rows, "agent", reader="iago compare")
+        judge_ids[str(path)] = manifest.get("judge_id") if manifest else None
+        for r in rows:
             model = r.get("model", "unknown")
             ms = by_model.get(model)
             if ms is None:
@@ -143,8 +144,18 @@ def build_comparison(artifact_paths: list[Path | str]) -> Comparison:
                     continue
                 hj, n = ms.scen.get(sid, (0, 0))
                 ms.scen[sid] = (hj + (1 if verdict == HIJACKED else 0), n + 1)
+    distinct = {j for j in judge_ids.values() if j}
+    if len(distinct) > 1 and not allow_judge_mismatch:
+        # Two runs scored by DIFFERENT oracle code are not comparable: a rate delta could be the
+        # oracle change, not the model. Legacy artifacts (no manifest) carry None and are not
+        # checked — they cannot be, which the report says. (ISC-33)
+        raise ValueError(
+            "artifacts were scored by different oracle code (judge_id differs: "
+            + ", ".join(f"{Path(p).name}={j}" for p, j in judge_ids.items())
+            + "); re-run the older one, or pass --allow-judge-mismatch to compare anyway"
+        )
     return Comparison(models=[by_model[m] for m in model_order],
-                      scenario_ids=order, scenario_names=names)
+                      scenario_ids=order, scenario_names=names, judge_ids=judge_ids)
 
 
 @dataclass
