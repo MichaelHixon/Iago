@@ -164,6 +164,22 @@ def ollama_info(model_tag: str | None) -> dict:
     return info
 
 
+def scenario_fingerprint(scenarios) -> str | None:
+    """sha256 over the scenario objects a surface actually ran, so two agent runs whose manifests
+    otherwise match cannot be compared as equals while one used a locally edited scenario YAML
+    (cross-vendor audit). Dataclasses are serialized field-wise; anything unserializable falls back
+    to repr, which still changes when the content does."""
+    from dataclasses import asdict, is_dataclass
+
+    if not scenarios:
+        return None
+    try:
+        payload = [asdict(s) if is_dataclass(s) else repr(s) for s in scenarios]
+        return sha256_text(json.dumps(payload, sort_keys=True, default=repr))
+    except Exception:
+        return sha256_text(repr(scenarios))
+
+
 def build_manifest(*, surface: str, model: str, sampling: dict, judge_id: str | None,
                    extra: dict | None = None) -> dict:
     """The first JSONL line of every artifact. `sampling` is every option that shapes generation

@@ -20,7 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .agent_harness import LLMMessage, run_agent
-from .artifacts import build_manifest, load_rows, module_fingerprint, stamp, write_manifest
+from .artifacts import (build_manifest, load_rows, module_fingerprint, scenario_fingerprint,
+                        stamp, write_manifest)
 from .agent_oracle import ATTEMPTED, HIJACKED, judge_agent, probe_quality_note
 from .agent_scenarios import Scenario, load_scenarios
 from .config import (
@@ -164,7 +165,9 @@ def run_agent_suite(
             surface="agent", model=model_name,
             sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
                       "seed_rule": "base_seed + trial", "max_steps": max_steps},
-            judge_id=module_fingerprint("agent_oracle", "agent_run", "agent_harness")))
+            judge_id=module_fingerprint("agent_oracle", "agent_run", "agent_harness"),
+            extra={"scenario_library_sha256": scenario_fingerprint(scens),
+                   "scenarios": len(scens)}))
         for trial in range(trials):
             seed = base_seed + trial
             options = {"temperature": temperature, "seed": seed}
