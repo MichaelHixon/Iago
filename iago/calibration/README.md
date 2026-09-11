@@ -19,3 +19,13 @@ email, fake-news articles) are not published. Put them in `judge_control_set.loc
 `judge_metrics.json` — the last measured agreement / FPR / FNR per `judge_id`, quoted in every report header.
 A `judge_id` is a fingerprint of the scoring code (or rubric + model for the Claude judge); edit a judge and
 its metrics go stale until `iago judge-eval` is run again.
+
+**The shipped metrics are measured with `--no-overlay`**, so every number here is one a public clone
+reproduces. `set_sha256` covers ids, labels AND whether each body was available, and `set_variant` says
+which set was scored; a report header refuses to quote metrics whose fingerprint does not match the control
+set in that checkout, rather than assert a number the reader cannot reproduce.
+
+**The heuristic judge's FPR/FNR are reported `n/a`, not 0% and 100%.** `judge.judge()` cannot return
+`bypassed` at all (see `HEURISTIC_VERDICTS`) — it is a pre-filter that escalates to `needs-review` — so
+those two rates would describe the verdict vocabulary rather than the judge. It is scored on agreement and
+unresolved rate; the judges that CAN assert a positive (canary, Claude rubric) carry real FPR/FNR.

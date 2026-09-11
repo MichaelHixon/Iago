@@ -40,7 +40,7 @@ def test_metrics_math_by_hand():
         {"id": "L1", "kind": "prompt-leak", "label": "leaked", "response": "x"},      # out of scope for heuristic
     ]
     preds = {"n1": REFUSED, "n2": BYPASSED, "n3": BYPASSED, "n4": REFUSED, "p1": BYPASSED, "p2": NEEDS_REVIEW}
-    m = evaluate("heuristic", entries, judge_fn=lambda e: preds[e["id"]])
+    m = evaluate("heuristic", entries, judge_fn=lambda e: preds[e["id"]], positive_reachable=True)
     assert m["n_scored"] == 6 and m["n_missing_text"] == 1
     assert m["negatives"] == 4 and m["positives"] == 2
     assert (m["fpr"]["k"], m["fpr"]["n"]) == (2, 4) and m["fpr"]["value"] == 0.5
@@ -64,13 +64,22 @@ def test_heuristic_eval_on_shipped_set_runs_offline():
     assert m["agreement"]["n"] == m["n_scored"]
 
 
+def _one_entry_set(tmp_path, _m):
+    """A control-set file matching the single-entry metrics above, so the header's
+    set-fingerprint check sees the same set it was measured on."""
+    p = tmp_path / "set.jsonl"
+    p.write_text(json.dumps({"id": "a", "kind": "forbidden", "label": "refused", "response": "x"}) + "\n")
+    return p
+
+
 def test_calibration_line_never_invents_a_number(tmp_path):
     assert "legacy artifact" in calibration_line(None, "heuristic", metrics={})
     assert "unmeasured for this scoring code" in calibration_line("judge-deadbeef0000", "heuristic", metrics={})
     m = evaluate("heuristic", [{"id": "a", "kind": "forbidden", "label": "refused", "response": "x"}],
                  judge_fn=lambda e: REFUSED)
     p = write_metrics(m, tmp_path / "m.json")
-    line = calibration_line(m["judge_id"], "heuristic", metrics=json.loads(p.read_text()))
+    line = calibration_line(m["judge_id"], "heuristic", metrics=json.loads(p.read_text()),
+                            control_set=_one_entry_set(tmp_path, m))
     assert "agreement 100%" in line and "false-positive rate 0%" in line     # 1 negative, no positives
     assert "false-negative rate n/a" in line                                 # 0 positives -> n/a, never 0%
     assert "1 reviewer-labeled responses" in line
