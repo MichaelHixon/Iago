@@ -56,10 +56,18 @@ def test_legacy_artifact_without_manifest_still_loads(tmp_path):
     assert manifest is None and len(rows) == 1 and surface_of(rows[0]) == "chatbot"
 
 
-def test_report_refuses_agent_artifact_loudly():
+def test_report_refuses_agent_artifact_loudly(tmp_path):
+    """Asserted on write_report / write_html_report / write_log, not just build_report: the guard
+    originally sat only on the build_* seam, which no CLI path reaches first, so the headline
+    KeyError this claim is named for still fired (Council blocker)."""
+    from iago.report import write_html_report, write_log, write_report
+
     agent_rows = [{"kind": "attack", "scenario_id": "s", "verdict": "resisted", "model": "m"}]
     with pytest.raises(ValueError, match="iago report reads chatbot artifacts"):
         build_report(agent_rows)
+    for writer in (write_report, write_html_report, write_log):
+        with pytest.raises(ValueError, match="iago report reads chatbot artifacts"):
+            writer(agent_rows, reports_dir=tmp_path)
 
 
 def test_compare_refuses_chatbot_artifact_loudly(tmp_path):

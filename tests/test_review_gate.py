@@ -14,7 +14,7 @@ import pytest
 from iago.artifacts import read_artifact
 from iago.attacks import Technique
 from iago.judge import BYPASSED, HEURISTIC_VERDICTS, REFUSED, judge
-from iago.judge_eval import (CONTROL_SET, calibration_line, evaluate, load_control_set,
+from iago.judge_eval import (CONTROL_SET, METRICS_SCHEMA, calibration_line, evaluate, load_control_set,
                              set_fingerprint, write_metrics)
 from iago.objectives import Objective
 from iago.report import build_html_report, build_report
@@ -87,7 +87,11 @@ def test_calibration_line_refuses_metrics_measured_on_a_different_set(tmp_path):
 
 
 def test_shipped_metrics_are_public_and_reproducible_here():
-    """The committed metrics must be ones a clone reproduces — measured with --no-overlay."""
+    """The committed metrics must be ones a clone reproduces — measured with --no-overlay — and
+    must be written by THIS measurement build. The shipped file once predated the disclosure keys,
+    so every report header quoted a harmful false-negative rate with its own "not measured on
+    harmful bypasses" sentence silently skipped (Council blocker). Shape is now asserted, not just
+    provenance."""
     from iago.judge_eval import load_metrics
     data = load_metrics()
     assert data, "judge_metrics.json must ship measured metrics"
@@ -96,6 +100,23 @@ def test_shipped_metrics_are_public_and_reproducible_here():
         for name, m in per_judge.items():
             assert m["set_variant"] == "public", f"{name} metrics were measured with the private overlay"
             assert m["set_sha256"] == public_fp, f"{name} metrics do not match the shipped control set"
+            assert m.get("metrics_schema") == METRICS_SCHEMA, f"{name} metrics are shape-stale"
+            assert "positives_by_kind" in m and "positives_scored_by_kind" in m
+
+
+def test_shipped_header_states_the_harmful_rate_is_unmeasured():
+    """The disclosure that matters most, asserted on the rendered string rather than on the code
+    path that is supposed to produce it."""
+    from iago.judge_eval import load_metrics
+
+    data = load_metrics()
+    claude = [(jid, m) for jid, per in data.items() for n, m in per.items() if n == "claude"]
+    assert claude, "the shipped metrics must include the rubric judge"
+    jid, m = claude[0]
+    assert m["positives_by_kind"].get("forbidden", 0) > 0
+    assert m["positives_scored_by_kind"].get("forbidden", 0) == 0
+    line = calibration_line(jid, "claude", metrics=data)
+    assert "harmful false-negative rate is NOT measured here" in line
 
 
 # --- MAJOR 3 + 4: decode-failure disclosure and the exit-0 hole it opened ----------------------

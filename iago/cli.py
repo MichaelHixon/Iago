@@ -274,7 +274,11 @@ def _cmd_compose_delta(args: argparse.Namespace) -> int:
         print(f"ERROR: artifact not found: {path}", file=sys.stderr)
         return 2
     rows = load_artifacts(path)
-    out = write_compose_report(rows)
+    try:
+        out = write_compose_report(rows)
+    except ValueError as exc:          # wrong-surface artifact: same contract as its siblings
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     print(f"Composition-lift report: {out}")
     rc = _nothing_measured(rows)
     return 0 if rc is None else rc
@@ -372,6 +376,11 @@ def _cmd_judge_eval(args: argparse.Namespace) -> int:
 
     entries = load_control_set(args.set, overlay=Path("/nonexistent") if args.no_overlay else None)
     names = [n.strip() for n in args.judge.split(",") if n.strip()]
+    if not names:
+        # `--judge ""` (an unset CI variable) used to run no judge and exit 0 — the ISC-31 class
+        # inside the very command that measures it (Council major).
+        print(f"ERROR: --judge named no judge ({args.judge!r}); nothing was measured.", file=sys.stderr)
+        return 2
     rc = 0
     for name in names:
         try:
@@ -392,7 +401,7 @@ def _cmd_judge_eval(args: argparse.Namespace) -> int:
             continue
         from .judge_eval import _pct
         print(f"\n{name} judge  [{m['judge_id']}]  n={m['n_scored']} (positives {m['positives']}, "
-              f"negatives {m['negatives']}, {m['n_missing_text']} positive bodies unavailable) "
+              f"negatives {m['negatives']}, {m['n_missing_text']} bodies unavailable) "
               f"set={m['set_variant']}")
         print(f"  agreement           {_pct(m['agreement'])}")
         print(f"  false-positive rate {_pct(m['fpr'])}")
@@ -415,12 +424,18 @@ def _cmd_lexical_leak(args: argparse.Namespace) -> int:
     from .lexical_leak import analyze_file, PROVENANCE
 
     any_found = False
+    analyzed = 0
     for spec in args.artifacts:
         path = Path(spec)
         if not path.exists():
             print(f"ERROR: artifact not found: {path}", file=sys.stderr)
             return 2
-        summary = analyze_file(path, elevated=args.elevated, high=args.high)
+        try:
+            summary = analyze_file(path, elevated=args.elevated, high=args.high)
+        except ValueError as exc:      # wrong-surface artifact: same contract as its siblings
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        analyzed += summary["prompt_leak_rows"]
         print(f"\n{path.name}: {summary['prompt_leak_rows']} prompt-leak rows "
               f"(bands: low <{args.elevated} | elevated <{args.high} | high) — ADVISORY, NOT a verdict")
         print(f"  [{PROVENANCE}]")
@@ -431,9 +446,16 @@ def _cmd_lexical_leak(args: argparse.Namespace) -> int:
         n = summary["paraphrase_suspects"]
         any_found = any_found or n > 0
         print(f"  → {n} paraphrase suspect(s): canary HELD but content overlap HIGH — inspect the reply.")
+    if analyzed == 0:
+        # Zero prompt-leak rows is not a clean result, it is no result. The advisory band must not
+        # gate a pipeline on suspects FOUND; that never justified reassurance about rows that do not
+        # exist (Council major).
+        print("\nERROR: no prompt-leak rows in the given artifact(s) — nothing was analyzed.",
+              file=sys.stderr)
+        return 2
     if not any_found:
         print("\nNo paraphrase suspects — no row disclosed prompt content the canary oracle missed.")
-    return 0  # always 0: an ADVISORY band must never gate a pipeline; the canary oracle owns pass/fail
+    return 0  # an ADVISORY band must never gate a pipeline on suspects found; the canary owns pass/fail
 
 
 def _cmd_agent_run(args: argparse.Namespace) -> int:
