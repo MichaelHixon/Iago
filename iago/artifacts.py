@@ -34,6 +34,28 @@ MANIFEST_RECORD = "manifest"
 OLLAMA_ENV_KEYS = ("OLLAMA_HOST", "OLLAMA_NUM_PARALLEL", "OLLAMA_KV_CACHE_TYPE",
                    "OLLAMA_FLASH_ATTENTION", "OLLAMA_NUM_GPU", "OLLAMA_MAX_LOADED_MODELS")
 
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0", ""})
+
+
+def redact_host(value: str | None) -> str | None:
+    """Sanitize OLLAMA_HOST for publication. Artifacts are shared, so the manifest must never carry
+    a URL-embedded credential or an internal hostname (cross-vendor audit): userinfo is always
+    dropped, a loopback host is kept verbatim because it is the documented target, and anything
+    else is recorded as non-local without naming it."""
+    if not value:
+        return value
+    raw = value.strip()
+    scheme, sep, rest = raw.partition("://")
+    if not sep:
+        scheme, rest = "", raw
+    rest = rest.split("/", 1)[0]
+    if "@" in rest:                       # user:password@host — never published
+        rest = rest.rsplit("@", 1)[1]
+    host = rest.rsplit(":", 1)[0] if rest.count(":") == 1 else rest
+    if host.strip("[]").lower() in _LOCAL_HOSTS:
+        return f"{scheme}://{rest}" if scheme else rest
+    return "<non-local host redacted>"
+
 _PKG_DIR = Path(__file__).resolve().parent
 
 
@@ -160,7 +182,8 @@ def build_manifest(*, surface: str, model: str, sampling: dict, judge_id: str | 
         # model` is true for `gpt-4o`), so an Anthropic run opened three calls to the local daemon
         # and wrote an `ollama` block naming a model Ollama never served (code-review major).
         "ollama": ollama_info(model) if (model or "").startswith("ollama:") else None,
-        "ollama_env": {k: os.environ.get(k) for k in OLLAMA_ENV_KEYS},
+        "ollama_env": {k: (redact_host(os.environ.get(k)) if k == "OLLAMA_HOST" else os.environ.get(k))
+                       for k in OLLAMA_ENV_KEYS},
         "host": {"platform": platform.platform(), "machine": platform.machine(),
                  "python": platform.python_version()},
     }
@@ -234,8 +257,12 @@ def require_surface(rows: list[dict], expected: str, *, reader: str) -> None:
     else:
         bad = {s for s in seen if s != expected}
     if bad:
+        # The remedy is chosen by what the reader FOUND, not by what it wanted: keying it on
+        # `expected == "chatbot"` handed chatbot advice to every other surface (cross-vendor audit).
+        if "chatbot" in bad:
+            remedy = "chatbot `run` artifacts are reported by `iago report`, not by this command"
+        else:
+            remedy = "agent-surface artifacts are reported by their own `<surface>-run` command or `iago compare`"
         raise ValueError(
-            f"{reader} reads {expected} artifacts, but this artifact holds {sorted(seen)} rows — "
-            + ("use the surface's own `<surface>-run` report or `iago compare`" if expected == "chatbot"
-               else "chatbot `run` artifacts are reported by `iago report`, not compared")
+            f"{reader} reads {expected} artifacts, but this artifact holds {sorted(seen)} rows — {remedy}"
         )

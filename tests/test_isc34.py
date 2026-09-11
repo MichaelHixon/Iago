@@ -34,10 +34,12 @@ class _T(Target):
 
 def test_deterministic_target_records_exact_match_and_probe_is_not_a_row(tmp_path):
     t = _T()
-    path = run(t, techniques=TECHS, objectives=OBJS, trials=2, artifacts_dir=tmp_path)
+    path = run(t, techniques=TECHS, objectives=OBJS, trials=2, base_seed=777, artifacts_dir=tmp_path)
     manifest, rows = read_artifact(path)
     d = manifest["determinism"]
-    assert d["exact_match"] is True and d["options"]["seed"] == manifest["sampling"]["base_seed"]
+    # A literal, not the value the code also wrote to the other field it is compared against.
+    assert d["exact_match"] is True and d["options"]["seed"] == 777
+    assert manifest["sampling"]["base_seed"] == 777
     assert len(rows) == 2                       # 1 pair x 2 trials; the two probe calls are not rows
     assert len(t.calls) == 4                    # 2 probe + 2 trials
     assert t.calls[0][1]["num_predict"] == 24   # probe is capped, cheap

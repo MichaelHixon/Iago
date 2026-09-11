@@ -99,8 +99,9 @@ def analyze_file(path: Path, objectives: list[Objective] | None = None,
     it never mutates the artifact or the canonical verdict. Returns a summary + rows."""
     path = Path(path)
     obj_map = _objective_map(objectives)
-    from .artifacts import load_rows
+    from .artifacts import load_rows, require_surface
     rows = load_rows(path)
+    require_surface(rows, "chatbot", reader="iago lexical-leak")
 
     out: list[LexicalRow] = []
     for row in rows:

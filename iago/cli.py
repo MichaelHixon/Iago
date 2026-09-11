@@ -14,6 +14,7 @@ import sys
 from .attacks import load_library, summarize
 from .campaign import DEFAULT_SURFACES
 from .config import (
+    ARTIFACTS_DIR,
     BASE_SEED,
     DEFAULT_ADAPTIVE_TURNS,
     DEFAULT_AGENT_STEPS,
@@ -103,8 +104,17 @@ def _cmd_run(args: argparse.Namespace) -> int:
     except AuthorizationError as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 2
-    except (ValueError, GuardBackendUnavailable) as exc:
-        # Zero fireable pairs, or a guard backend that died mid-run: nothing was measured.
+    except GuardBackendUnavailable as exc:
+        # A guard backend that died MID-MATRIX takes the whole run down (by design: a silently
+        # passing guard would fabricate a "held" verdict). Name the partial artifact so the trials
+        # already written are not lost (cross-vendor audit).
+        print(f"ERROR: guard backend failed mid-run: {exc}", file=sys.stderr)
+        partial = sorted(ARTIFACTS_DIR.glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
+        if partial:
+            print(f"Partial artifact (trials completed before the failure): {partial[-1]}",
+                  file=sys.stderr)
+        return 2
+    except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
