@@ -31,8 +31,12 @@ from .guards_thirdparty import GuardBackendUnavailable
 
 
 def _valid_count(rows: list[dict]) -> int:
-    """Rows that actually probed the model — a <<RUN-ERROR>> row measured nothing."""
-    return sum(1 for r in rows if verdict_of(r) != ERROR)
+    """Rows that actually PROBED the guardrail. A <<RUN-ERROR>> row never reached the model; a
+    decode-failed cipher row reached it but never exercised the guardrail (decode.py), and since
+    ISC-32 the report excludes those from every harmful denominator — so counting them here would
+    let an all-decode-failed run exit 0 with an empty report (code-review major)."""
+    return sum(1 for r in rows
+               if verdict_of(r) != ERROR and not (r.get("gated") and r.get("decoded") is False))
 
 
 def _nothing_measured(rows: list[dict], what: str = "trials") -> int | None:
@@ -44,8 +48,13 @@ def _nothing_measured(rows: list[dict], what: str = "trials") -> int | None:
         print(f"ERROR: artifact holds 0 {what} — nothing was measured.", file=sys.stderr)
         return 2
     if _valid_count(rows) == 0:
-        print(f"ERROR: all {len(rows)} {what} are RUN-ERROR rows — the harness never reached the "
-              "model, so nothing was measured (this is NOT a hold).", file=sys.stderr)
+        n_err = sum(1 for r in rows if verdict_of(r) == ERROR)
+        n_dec = sum(1 for r in rows if r.get("gated") and r.get("decoded") is False)
+        why = (f"{n_err} RUN-ERROR (never reached the model)" if n_err else "")
+        why += (" and " if n_err and n_dec else "") + (f"{n_dec} decode-failure (the model never "
+                                                       "recovered the objective)" if n_dec else "")
+        print(f"ERROR: 0 of {len(rows)} {what} probed a guardrail — {why}. Nothing was measured "
+              "(this is NOT a hold).", file=sys.stderr)
         return 1
     return None
 
@@ -326,9 +335,11 @@ def _cmd_regrade(args: argparse.Namespace) -> int:
 
 def _cmd_judge_eval(args: argparse.Namespace) -> int:
     """Measure the judges against the labeled control set (ISC-35)."""
+    from pathlib import Path
+
     from .judge_eval import evaluate, load_control_set, write_metrics
 
-    entries = load_control_set(args.set)
+    entries = load_control_set(args.set, overlay=Path("/nonexistent") if args.no_overlay else None)
     names = [n.strip() for n in args.judge.split(",") if n.strip()]
     rc = 0
     for name in names:
@@ -348,11 +359,15 @@ def _cmd_judge_eval(args: argparse.Namespace) -> int:
             continue
         from .judge_eval import _pct
         print(f"\n{name} judge  [{m['judge_id']}]  n={m['n_scored']} (positives {m['positives']}, "
-              f"negatives {m['negatives']}, {m['n_missing_text']} positive bodies unavailable)")
+              f"negatives {m['negatives']}, {m['n_missing_text']} positive bodies unavailable) "
+              f"set={m['set_variant']}")
         print(f"  agreement           {_pct(m['agreement'])}")
         print(f"  false-positive rate {_pct(m['fpr'])}")
         print(f"  false-negative rate {_pct(m['fnr'])}")
         print(f"  unresolved          {_pct(m['unresolved_rate'])}")
+        if m.get("positive_class_reachable") is False:
+            from .judge_eval import UNREACHABLE_NOTE
+            print(f"  NOTE: FPR/FNR are n/a — {UNREACHABLE_NOTE}.")
         if args.show_disagreements:
             for d in m["disagreements"]:
                 print(f"    {d['id']}: label={d['label']} predicted={d['predicted']}")
@@ -975,6 +990,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="comma list of heuristic,canary,claude (claude needs ANTHROPIC_API_KEY; default: the "
                          "two offline judges)")
     je.add_argument("--set", default=None, help="alternative control-set JSONL (default: the shipped set)")
+    je.add_argument("--no-overlay", action="store_true",
+                    help="ignore the local overlay of withheld harmful bodies and measure ONLY what a "
+                         "public clone can reproduce — the shipped metrics are measured this way")
     je.add_argument("--judge-model", default=None, help="Claude judge model id (claude only)")
     je.add_argument("--no-write", action="store_false", dest="write",
                     help="print metrics without updating iago/calibration/judge_metrics.json")

@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .artifacts import module_fingerprint, sha256_text
-from .judge import BYPASSED, NEEDS_REVIEW, judge, judge_leak
+from .judge import BYPASSED, HEURISTIC_VERDICTS, NEEDS_REVIEW, judge, judge_leak
 from .stats import wilson_interval
 
 CALIBRATION_DIR = Path(__file__).resolve().parent / "calibration"
@@ -34,6 +34,16 @@ METRICS_PATH = CALIBRATION_DIR / "judge_metrics.json"
 POSITIVE_LABELS = frozenset({"bypassed", "leaked"})
 KINDS_FOR = {"heuristic": ("forbidden", "control"), "canary": ("prompt-leak",), "claude": ("forbidden", "control")}
 
+#: Can this judge ever PREDICT the positive class? The heuristic cannot (BYPASSED is not in
+#: HEURISTIC_VERDICTS), so its false-positive rate is structurally 0 and its false-negative rate
+#: structurally 100% — numbers that describe the verdict vocabulary, not the judge's accuracy.
+#: Publishing them as measurements is the failure ISC-35 exists to prevent, so they are reported
+#: `n/a` with the reason and the judge is scored on agreement + unresolved rate instead.
+POSITIVE_REACHABLE = {"heuristic": BYPASSED in HEURISTIC_VERDICTS, "canary": True, "claude": True}
+UNREACHABLE_NOTE = ("this judge never assigns the positive class by design (it is a pre-filter that "
+                    "escalates to needs-review), so a false-positive/false-negative rate would "
+                    "describe its verdict vocabulary, not its accuracy")
+
 
 def offline_judge_id() -> str:
     """The id the runner stamps on chatbot rows — heuristic + canary + decode are one scoring stack."""
@@ -41,7 +51,9 @@ def offline_judge_id() -> str:
 
 
 def load_control_set(path: Path | str | None = None, overlay: Path | str | None = None) -> list[dict]:
-    """The labeled set, with any local overlay bodies merged in by id (never raises on a missing overlay)."""
+    """The labeled set, with any local overlay bodies merged in by id (never raises on a missing overlay).
+    An entry filled from the overlay is tagged `_overlay` so the fingerprint and the report header can
+    tell a private measurement from one a clone can reproduce."""
     p = Path(path) if path else CONTROL_SET
     entries = [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
     op = Path(overlay) if overlay else (p.with_name(p.stem + ".local.jsonl") if path else OVERLAY)
@@ -50,7 +62,19 @@ def load_control_set(path: Path | str | None = None, overlay: Path | str | None 
         for e in entries:
             if e.get("response") is None and e["id"] in bodies:
                 e["response"] = bodies[e["id"]]
+                e["_overlay"] = True
     return entries
+
+
+def set_fingerprint(entries: list[dict]) -> str:
+    """Identity of the set AS SCORED — ids, labels, AND whether each body was available.
+
+    The first version hashed ids and labels only, so the public set and the same set plus the
+    gitignored overlay produced the SAME fingerprint while yielding different numbers (91 scored /
+    17 positives vs 87 / 13, with every remaining positive benign). The one field whose job is to
+    say which set produced a number was blind to the only difference that changes it
+    (code-review blocker, ISC-35)."""
+    return sha256_text(json.dumps([[e["id"], e["label"], e.get("response") is not None] for e in entries]))
 
 
 def _rate(k: int, n: int) -> dict:
@@ -59,10 +83,14 @@ def _rate(k: int, n: int) -> dict:
 
 
 def evaluate(judge_name: str, entries: list[dict], *, judge_fn: Callable[[dict], str] | None = None,
-             objectives: dict[str, str] | None = None, claude_judge=None) -> dict:
+             objectives: dict[str, str] | None = None, claude_judge=None,
+             positive_reachable: bool | None = None) -> dict:
     """Score one judge over the entries of its kinds. `judge_fn(entry) -> verdict` overrides the
-    built-in judge (tests). Returns the metrics dict (also what `write_metrics` stores)."""
+    built-in judge (tests) and, unless `positive_reachable` says otherwise, is assumed able to
+    predict the positive class — reachability describes the BUILT-IN judge's vocabulary, and an
+    injected fake has its own. Returns the metrics dict (also what `write_metrics` stores)."""
     kinds = KINDS_FOR[judge_name]
+    injected = judge_fn is not None   # capture BEFORE the built-in judge is assigned below
     if judge_fn is None:
         if judge_name == "heuristic":
             judge_fn = lambda e: judge(e["response"]).verdict
@@ -101,11 +129,26 @@ def evaluate(judge_name: str, entries: list[dict], *, judge_fn: Callable[[dict],
         if label_pos and not pred_pos:
             fn += 1
     judge_id = claude_judge.judge_id if judge_name == "claude" and claude_judge is not None else offline_judge_id()
+    if positive_reachable is not None:
+        reachable = positive_reachable
+    elif injected:
+        reachable = True          # an injected judge's vocabulary is the caller's, not the built-in's
+    else:
+        reachable = POSITIVE_REACHABLE.get(judge_name, True)
+    if not reachable and (fp or fn != positives):
+        # The structural claim is also checked empirically, so a judge that CAN assert the positive
+        # class is never silently reported as n/a.
+        raise ValueError(f"{judge_name} is declared unable to assign the positive class, but it "
+                         f"predicted one ({fp} false positives over {negatives} negatives)")
     return {
         "judge": judge_name, "judge_id": judge_id, "measured": datetime.now(timezone.utc).isoformat(),
-        "set": CONTROL_SET.name, "set_sha256": sha256_text(json.dumps([e["id"] + e["label"] for e in entries])),
+        "set": CONTROL_SET.name, "set_sha256": set_fingerprint(entries),
+        "set_variant": "with-local-overlay" if any(e.get("_overlay") for e in entries) else "public",
         "n_scored": len(scored), "n_missing_text": len(missing), "positives": positives, "negatives": negatives,
-        "agreement": _rate(agree, len(scored)), "fpr": _rate(fp, negatives), "fnr": _rate(fn, positives),
+        "positive_class_reachable": reachable,
+        "agreement": _rate(agree, len(scored)),
+        "fpr": _rate(fp, negatives) if reachable else None,
+        "fnr": _rate(fn, positives) if reachable else None,
         "unresolved_rate": _rate(unresolved, len(scored)), "disagreements": disagreements,
     }
 
@@ -129,15 +172,17 @@ def write_metrics(result: dict, path: Path | str | None = None) -> Path:
     return p
 
 
-def _pct(r: dict) -> str:
-    if r["value"] is None:
+def _pct(r: dict | None) -> str:
+    if r is None or r["value"] is None:
         return "n/a"
     return f"{r['value']:.0%} (95% CI {r['lo']:.0%}–{r['hi']:.0%}, {r['k']}/{r['n']})"
 
 
-def calibration_line(judge_id: str | None, judge_name: str, metrics: dict | None = None) -> str:
+def calibration_line(judge_id: str | None, judge_name: str, metrics: dict | None = None,
+                     control_set: Path | str | None = None) -> str:
     """The one-line report-header statement of the judge's measured error rate — or the honest
-    absence of one. Never invents a number."""
+    absence of one. Never invents a number, and never quotes a number the reader's own copy of the
+    control set could not reproduce."""
     data = load_metrics() if metrics is None else metrics
     if not judge_id:
         return (f"**Judge calibration ({judge_name}):** unmeasured — legacy artifact without a `judge_id`; "
@@ -146,7 +191,30 @@ def calibration_line(judge_id: str | None, judge_name: str, metrics: dict | None
     if not m:
         return (f"**Judge calibration ({judge_name} `{judge_id}`):** unmeasured for this scoring code — "
                 "run `iago judge-eval` to measure agreement / FPR / FNR on the labeled control set.")
+    try:
+        # Compare against the set AS THE METRICS WERE SCOPED: a row measured with `--no-overlay`
+        # must be checked against the public set even on a machine that happens to hold the private
+        # overlay, or a correct public measurement would be refused here for the wrong reason.
+        overlay = None if m.get("set_variant") == "with-local-overlay" else Path("/nonexistent-overlay")
+        here = set_fingerprint(load_control_set(control_set, overlay=overlay))
+    except Exception:
+        here = None
+    if here and m.get("set_sha256") and here != m["set_sha256"]:
+        # The stored metrics were measured on a DIFFERENT set than the one on this disk — most often
+        # the private overlay of withheld harmful bodies. Quoting them would assert a number the
+        # reader cannot reproduce (code-review blocker, ISC-35).
+        return (f"**Judge calibration ({judge_name} `{judge_id}`):** stored metrics were measured on a "
+                f"different control set than the one in this checkout "
+                f"(`{m.get('set_variant', 'unknown')}`); not quoted. Run `iago judge-eval` here to "
+                "measure agreement / FPR / FNR on your own copy.")
     missing = f"; {m['n_missing_text']} positive(s) had no body available" if m.get("n_missing_text") else ""
+    if m.get("positive_class_reachable") is False:
+        return (f"**Judge calibration ({judge_name} `{judge_id}`):** agreement {_pct(m['agreement'])}, "
+                f"unresolved {_pct(m['unresolved_rate'])} on {m['n_scored']} reviewer-labeled responses "
+                f"({m['positives']} positives{missing}); measured {m['measured'][:10]}. "
+                f"False-positive / false-negative rates are **n/a** — {UNREACHABLE_NOTE}. Confirmed "
+                "bypasses come from the Claude rubric judge and the deterministic canary oracle, whose "
+                "own rates are measured.")
     return (f"**Judge calibration ({judge_name} `{judge_id}`):** agreement {_pct(m['agreement'])}, "
             f"false-positive rate {_pct(m['fpr'])}, false-negative rate {_pct(m['fnr'])}, "
             f"unresolved {_pct(m['unresolved_rate'])} on {m['n_scored']} reviewer-labeled responses "
