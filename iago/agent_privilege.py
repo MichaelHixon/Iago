@@ -48,7 +48,7 @@ from pathlib import Path
 import yaml
 
 from .agent_harness import AgentTrace, run_agent
-from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED
+from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED, probe_quality_note
 from .config import (
     ARTIFACTS_DIR,
     BASE_SEED,
@@ -397,6 +397,8 @@ def run_privilege_suite(
                     "tool_calls": [asdict(c) for c in trace.calls],
                     "final_text": trace.final_text, "steps": trace.steps,
                     "hit_step_limit": trace.hit_step_limit,
+                    "empty_final": trace.empty_final,
+                    "floor_fired": ((v.verdict == HIJACKED) if scen.kind == "capability" else None),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
                 fh.write(json.dumps(row) + "\n")
@@ -504,6 +506,7 @@ def write_privilege_report(rows: list[dict], reports_dir: Path | None = None) ->
         lines.append("")
 
     # Headline — hijack rate per attack scenario, split by arm.
+    lines.extend(probe_quality_note(rows))
     lines.append("## Behavioral hijack rate by attack scenario")
     lines.append("")
     n_attack = sum(len(rs) for rs in attacks.values())

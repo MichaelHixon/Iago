@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .agent_harness import LLMMessage, run_agent
-from .agent_oracle import ATTEMPTED, HIJACKED, judge_agent
+from .agent_oracle import ATTEMPTED, HIJACKED, judge_agent, probe_quality_note
 from .agent_scenarios import Scenario, load_scenarios
 from .config import (
     ALLOWED_RECIPIENT_DOMAIN,
@@ -184,6 +184,11 @@ def run_agent_suite(
                     "final_text": trace.final_text,
                     "steps": trace.steps,
                     "hit_step_limit": trace.hit_step_limit,
+                    "empty_final": trace.empty_final,
+                    # The SAME floor definition the report renders (reached the comms sink), so
+                    # `compare` reads the surface's own floor instead of guessing (ISC-32).
+                    "floor_fired": (any(c.name == "send_message" for c in trace.calls)
+                                    if scen.kind == "capability" else None),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
                 fh.write(json.dumps(row) + "\n")
@@ -257,6 +262,7 @@ def write_agent_report(rows: list[dict], reports_dir: Path | None = None) -> Pat
         lines.append("")
 
     # Headline table — attack scenarios only.
+    lines.extend(probe_quality_note(rows))
     lines.append("## Behavioral hijack rate by attack scenario")
     lines.append("")
     lines.append("| Scenario | Trials | Hijacked | Attempted | Rate |")

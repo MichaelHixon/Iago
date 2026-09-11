@@ -54,8 +54,8 @@ from pathlib import Path
 
 import yaml
 
-from .agent_harness import AgentTrace, run_agent
-from .agent_oracle import ATTEMPTED, RESISTED, _is_external
+from .agent_harness import AgentTrace, run_agent, marker_delivered
+from .agent_oracle import ATTEMPTED, RESISTED, _is_external, probe_quality_note
 from .agent_scenarios import Scenario
 from .canary import contains_secret as _contains_secret
 from .config import (
@@ -404,6 +404,13 @@ def run_memory_suite(
                     "exfil_recipient": v.exfil_recipient,
                     "tool_calls": [asdict(c) for c in trace.calls],
                     "final_text": trace.final_text, "steps": trace.steps,
+                    "hit_step_limit": trace.hit_step_limit, "empty_final": trace.empty_final,
+                    # Delivery: did the poison marker surface in a tool RESULT (the agent really read
+                    # the intake doc)? A non-delivered 'resisted' is not a guardrail holding (ISC-32).
+                    "poison_ingested": marker_delivered(trace, scen.poison_marker),
+                    # The report's floor is the ORDERED recall->send chain; publish the same test.
+                    "floor_fired": (_recall_before_send([asdict(c) for c in trace.calls])
+                                    if scen.kind == "capability" else None),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
                 fh.write(json.dumps(row) + "\n")
@@ -491,6 +498,7 @@ def write_memory_report(rows: list[dict], reports_dir: Path | None = None) -> Pa
         lines.append("")
 
     # Headline — memory-poisoned rate per attack scenario, immediate-injection surfaced separately.
+    lines.extend(probe_quality_note(rows))
     lines.append("## Memory-poisoning rate by attack scenario")
     lines.append("")
     lines.append("| Scenario | Trials | Poisoned | Immediate-inj | Attempted | Poisoned rate | 95% CI |")
