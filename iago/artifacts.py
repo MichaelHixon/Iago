@@ -21,7 +21,6 @@ import hashlib
 import json
 import os
 import platform
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO
@@ -54,20 +53,50 @@ def module_fingerprint(*modules: str) -> str:
 
 
 def git_info(root: Path | None = None) -> dict:
-    """Commit + dirty flag of the checkout iago runs from; every field None when unavailable.
-    Argument-array subprocess only (no shell); never raises."""
-    root = root or _PKG_DIR.parent
-    out: dict = {"commit": None, "dirty": None}
+    """Commit of the checkout iago runs from, read by PURE FILE READS — never a subprocess.
+
+    Provenance is collected by every agent surface, and those modules carry a first-class
+    anti-claim that they spawn no process and open no socket. Shelling out to `git` here put a
+    `subprocess.run` on that path behind an import the anti-claim's source scans could not see
+    (code-review major), so the commit is resolved from `.git` directly: HEAD -> a ref file or a
+    packed-refs entry. `dirty` needs a full index comparison and is NOT available without git, so
+    it is reported None rather than guessed — a null says "unknown", never "clean".
+
+    Also refuses to report an unrelated ancestor repository's commit: the discovered root must be
+    the checkout that actually contains this package's `pyproject.toml`.
+    """
+    out: dict = {"commit": None, "dirty": None, "root": None}
+    start = Path(root) if root else _PKG_DIR.parent
     try:
-        r = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True,
-                           text=True, timeout=5)
-        if r.returncode == 0:
-            out["commit"] = r.stdout.strip()
-            s = subprocess.run(["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"],
-                               capture_output=True, text=True, timeout=5)
-            if s.returncode == 0:
-                out["dirty"] = bool(s.stdout.strip())
-    except Exception:  # git missing, not a repo, timeout — provenance is best-effort, never fatal
+        for candidate in [start, *start.parents]:
+            git_dir = candidate / ".git"
+            if not git_dir.exists():
+                continue
+            if not (candidate / "pyproject.toml").exists():
+                break  # a containing repo that is not this package's checkout: not our provenance
+            if git_dir.is_file():  # worktree: ".git" is a file pointing at the real dir
+                pointer = git_dir.read_text().strip()
+                if not pointer.startswith("gitdir: "):
+                    break
+                git_dir = Path(pointer[len("gitdir: "):])
+            head = (git_dir / "HEAD").read_text().strip()
+            if head.startswith("ref: "):
+                ref = head[len("ref: "):].strip()
+                ref_file = git_dir / ref
+                if ref_file.exists():
+                    out["commit"] = ref_file.read_text().strip()
+                else:  # packed refs
+                    packed = git_dir / "packed-refs"
+                    if packed.exists():
+                        for line in packed.read_text().splitlines():
+                            if line.endswith(" " + ref):
+                                out["commit"] = line.split(" ", 1)[0]
+                                break
+            elif len(head) == 40:  # detached HEAD
+                out["commit"] = head
+            out["root"] = str(candidate)
+            break
+    except Exception:  # unreadable .git — provenance is best-effort, never fatal
         pass
     return out
 
@@ -127,7 +156,10 @@ def build_manifest(*, surface: str, model: str, sampling: dict, judge_id: str | 
         "model": model,
         "sampling": sampling,
         "judge_id": judge_id,
-        "ollama": ollama_info(model) if model and (model.startswith("ollama:") or ":" not in model or "/" not in model) else None,
+        # ONLY for an Ollama target. The first gate also matched every non-Ollama tag (`"/" not in
+        # model` is true for `gpt-4o`), so an Anthropic run opened three calls to the local daemon
+        # and wrote an `ollama` block naming a model Ollama never served (code-review major).
+        "ollama": ollama_info(model) if (model or "").startswith("ollama:") else None,
         "ollama_env": {k: os.environ.get(k) for k in OLLAMA_ENV_KEYS},
         "host": {"platform": platform.platform(), "machine": platform.machine(),
                  "python": platform.python_version()},

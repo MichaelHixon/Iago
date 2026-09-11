@@ -145,6 +145,9 @@ def build_comparison(artifact_paths: list[Path | str], *, allow_judge_mismatch: 
                 hj, n = ms.scen.get(sid, (0, 0))
                 ms.scen[sid] = (hj + (1 if verdict == HIJACKED else 0), n + 1)
     distinct = {j for j in judge_ids.values() if j}
+    # A legacy artifact carries no manifest and so no judge_id. It is NOT checkable against the
+    # others, and silently treating that as agreement is the failure the guard exists to prevent
+    # (code-review major) — the report says so instead.
     if len(distinct) > 1 and not allow_judge_mismatch:
         # Two runs scored by DIFFERENT oracle code are not comparable: a rate delta could be the
         # oracle change, not the model. Legacy artifacts (no manifest) carry None and are not
@@ -299,6 +302,13 @@ def write_comparison_report(comp: Comparison, reports_dir: Path | None = None) -
                      "that produced no valid hijacked/resisted verdict (e.g. an error). They are dropped "
                      "from the denominator, never counted as a non-hijack, so the rate is not biased "
                      "downward._")
+        lines.append("")
+    unknown = [Path(p).name for p, j in (comp.judge_ids or {}).items() if not j]
+    if unknown:
+        lines.append(f"_⚠️ No oracle fingerprint for {', '.join(unknown)} — these artifacts predate the "
+                     "run manifest, so it cannot be verified that every artifact here was scored by the "
+                     "SAME oracle code. A rate delta may be an oracle change rather than a model "
+                     "difference; re-run those surfaces to compare on equal footing._")
         lines.append("")
     limited = [(m.model, m.step_limited) for m in models if m.step_limited]
     if limited:

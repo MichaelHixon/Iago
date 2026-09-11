@@ -30,6 +30,15 @@ from .guards import GuardedTarget, available_guards, build_guards
 from .guards_thirdparty import GuardBackendUnavailable
 
 
+def _positive_int(value: str) -> int:
+    """argparse type for every trial/step/turn count: a run of 0 trials measures nothing, writes a
+    manifest-only artifact, and used to exit 0 with a report (cross-vendor audit, critical)."""
+    n = int(value)
+    if n < 1:
+        raise argparse.ArgumentTypeError(f"must be >= 1 (got {n})")
+    return n
+
+
 def _valid_count(rows: list[dict]) -> int:
     """Rows that actually PROBED the guardrail. A <<RUN-ERROR>> row never reached the model; a
     decode-failed cipher row reached it but never exercised the guardrail (decode.py), and since
@@ -154,6 +163,10 @@ def _cmd_delta(args: argparse.Namespace) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     print(f"Delta report: {out}")
+    for label, rws in (("raw", raw_rows), ("guarded", guarded_rows)):
+        rc = _nothing_measured(rws, f"{label} trials")
+        if rc is not None:
+            return rc
     return 0
 
 
@@ -253,7 +266,8 @@ def _cmd_compose_delta(args: argparse.Namespace) -> int:
     rows = load_artifacts(path)
     out = write_compose_report(rows)
     print(f"Composition-lift report: {out}")
-    return 0
+    rc = _nothing_measured(rows)
+    return 0 if rc is None else rc
 
 
 def _cmd_defense_delta(args: argparse.Namespace) -> int:
@@ -299,6 +313,10 @@ def _cmd_defense_delta(args: argparse.Namespace) -> int:
     print(f"\nRaw artifacts:     {raw_path}")
     print(f"Guarded artifacts: {guarded_path}")
     print(f"Delta report:      {delta_path}")
+    for label, rws in (("raw", raw_rows), ("guarded", guarded_rows)):
+        rc = _nothing_measured(rws, f"{label} trials")
+        if rc is not None:
+            return rc
     return 0
 
 
@@ -446,7 +464,8 @@ def _cmd_agent_run(args: argparse.Namespace) -> int:
     print(f"\nArtifacts: {artifact_path}")
     print(f"Report:    {report_path}")
     print(f"({len(rows)} trials recorded)")
-    return 0
+    rc = _nothing_measured(rows)
+    return 0 if rc is None else rc
 
 
 def _cmd_agent_scenarios(_args: argparse.Namespace) -> int:
@@ -592,7 +611,8 @@ def _cmd_toolabuse_run(args: argparse.Namespace) -> int:
     print(f"\nArtifacts: {artifact_path}")
     print(f"Report:    {report_path}")
     print(f"({len(rows)} trials recorded)")
-    return 0
+    rc = _nothing_measured(rows)
+    return 0 if rc is None else rc
 
 
 def _cmd_toolabuse_scenarios(_args: argparse.Namespace) -> int:
@@ -643,7 +663,8 @@ def _cmd_privilege_run(args: argparse.Namespace) -> int:
     print(f"\nArtifacts: {artifact_path}")
     print(f"Report:    {report_path}")
     print(f"({len(rows)} trials recorded)")
-    return 0
+    rc = _nothing_measured(rows)
+    return 0 if rc is None else rc
 
 
 def _cmd_privilege_scenarios(_args: argparse.Namespace) -> int:
@@ -694,7 +715,8 @@ def _cmd_disclosure_run(args: argparse.Namespace) -> int:
     print(f"\nArtifacts: {artifact_path}")
     print(f"Report:    {report_path}")
     print(f"({len(rows)} trials recorded)")
-    return 0
+    rc = _nothing_measured(rows)
+    return 0 if rc is None else rc
 
 
 def _cmd_disclosure_scenarios(_args: argparse.Namespace) -> int:
@@ -749,7 +771,8 @@ def _cmd_misinfo_run(args: argparse.Namespace) -> int:
     print(f"\nArtifacts: {artifact_path}")
     print(f"Report:    {report_path}")
     print(f"({len(rows)} trials recorded)")
-    return 0
+    rc = _nothing_measured(rows)
+    return 0 if rc is None else rc
 
 
 def _cmd_misinfo_scenarios(_args: argparse.Namespace) -> int:
@@ -800,7 +823,8 @@ def _cmd_memory_run(args: argparse.Namespace) -> int:
     print(f"\nArtifacts: {artifact_path}")
     print(f"Report:    {report_path}")
     print(f"({len(rows)} trials recorded)")
-    return 0
+    rc = _nothing_measured(rows)
+    return 0 if rc is None else rc
 
 
 def _cmd_memory_scenarios(_args: argparse.Namespace) -> int:
@@ -849,7 +873,8 @@ def _cmd_rag_run(args: argparse.Namespace) -> int:
     print(f"\nArtifacts: {artifact_path}")
     print(f"Report:    {report_path}")
     print(f"({len(rows)} trials recorded)")
-    return 0
+    rc = _nothing_measured(rows)
+    return 0 if rc is None else rc
 
 
 def _cmd_rag_scenarios(_args: argparse.Namespace) -> int:
@@ -898,7 +923,8 @@ def _cmd_a2a_run(args: argparse.Namespace) -> int:
     print(f"\nArtifacts: {artifact_path}")
     print(f"Report:    {report_path}")
     print(f"({len(rows)} trials recorded)")
-    return 0
+    rc = _nothing_measured(rows)
+    return 0 if rc is None else rc
 
 
 def _cmd_a2a_scenarios(_args: argparse.Namespace) -> int:
@@ -934,7 +960,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--target", default="ollama", choices=available_targets(),
                    help="target backend (default: ollama)")
     r.add_argument("--model", default=DEFAULT_MODEL, help="model tag within the target backend")
-    r.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per (technique, objective)")
+    r.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per (technique, objective)")
     r.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     r.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
     r.add_argument("--limit-techniques", type=int, default=None, dest="limit_techniques")
@@ -1007,7 +1033,7 @@ def build_parser() -> argparse.ArgumentParser:
                           f"(default: {DEFAULT_MODEL})")
     cam.add_argument("--surfaces", default=",".join(DEFAULT_SURFACES),
                      help=f"comma-separated surfaces to run (default: all — {', '.join(DEFAULT_SURFACES)})")
-    cam.add_argument("--trials", type=int, default=2,
+    cam.add_argument("--trials", type=_positive_int, default=2,
                      help="trials per scenario per model (>=2 lets a floor certify; default: 2)")
     cam.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     cam.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
@@ -1029,7 +1055,7 @@ def build_parser() -> argparse.ArgumentParser:
     dd.add_argument("--model", default=DEFAULT_MODEL, help="model tag within the target backend")
     dd.add_argument("--guard", default="all",
                     help=f"defense to measure: '{','.join(available_guards())}' or 'all' (default: all)")
-    dd.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per (technique, objective)")
+    dd.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per (technique, objective)")
     dd.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     dd.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
     dd.add_argument("--limit-techniques", type=int, default=None, dest="limit_techniques")
@@ -1059,7 +1085,7 @@ def build_parser() -> argparse.ArgumentParser:
     ar.add_argument("--target", default="ollama", choices=available_targets(),
                     help="agent backend (agent-run supports ollama today)")
     ar.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
-    ar.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per scenario")
+    ar.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per scenario")
     ar.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     ar.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
     ar.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
@@ -1082,7 +1108,7 @@ def build_parser() -> argparse.ArgumentParser:
     ad.add_argument("--attacker-model", default=DEFAULT_MODEL, dest="attacker_model",
                     help="local Ollama model driving the --attacker llm arm (always local Ollama, "
                          "regardless of --target — keeps the attacker free and off any API quota)")
-    ad.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="conversations per objective")
+    ad.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="conversations per objective")
     ad.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     ad.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
     ad.add_argument("--max-turns", type=int, default=DEFAULT_ADAPTIVE_TURNS, dest="max_turns",
@@ -1101,7 +1127,7 @@ def build_parser() -> argparse.ArgumentParser:
     ta.add_argument("--target", default="ollama", choices=available_targets(),
                     help="agent backend (tool-abuse-run supports ollama today)")
     ta.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
-    ta.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per scenario")
+    ta.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per scenario")
     ta.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     ta.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
     ta.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
@@ -1119,7 +1145,7 @@ def build_parser() -> argparse.ArgumentParser:
     pv.add_argument("--target", default="ollama", choices=available_targets(),
                     help="agent backend (privilege-run supports ollama today)")
     pv.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
-    pv.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per scenario")
+    pv.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per scenario")
     pv.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     pv.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
     pv.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
@@ -1138,7 +1164,7 @@ def build_parser() -> argparse.ArgumentParser:
     dr.add_argument("--target", default="ollama", choices=available_targets(),
                     help="agent backend (disclosure-run supports ollama today)")
     dr.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
-    dr.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per scenario")
+    dr.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per scenario")
     dr.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     dr.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
     dr.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
@@ -1157,7 +1183,7 @@ def build_parser() -> argparse.ArgumentParser:
     mi.add_argument("--target", default="ollama", choices=available_targets(),
                     help="agent backend (misinfo-run supports ollama today)")
     mi.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
-    mi.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per scenario")
+    mi.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per scenario")
     mi.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     mi.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
     mi.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
@@ -1175,7 +1201,7 @@ def build_parser() -> argparse.ArgumentParser:
     mr.add_argument("--target", default="ollama", choices=available_targets(),
                     help="agent backend (memory-run supports ollama today)")
     mr.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
-    mr.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per scenario")
+    mr.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per scenario")
     mr.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     mr.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
     mr.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
@@ -1192,7 +1218,7 @@ def build_parser() -> argparse.ArgumentParser:
     rr.add_argument("--target", default="ollama", choices=available_targets(),
                     help="agent backend (rag-run supports ollama today)")
     rr.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
-    rr.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per scenario")
+    rr.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per scenario")
     rr.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     rr.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
     rr.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
@@ -1209,7 +1235,7 @@ def build_parser() -> argparse.ArgumentParser:
     aa.add_argument("--target", default="ollama", choices=available_targets(),
                     help="agent backend (a2a-run supports ollama today)")
     aa.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
-    aa.add_argument("--trials", type=int, default=DEFAULT_TRIALS, help="trials per scenario")
+    aa.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per scenario")
     aa.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     aa.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
     aa.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
