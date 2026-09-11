@@ -67,7 +67,7 @@ def test_writes_one_row_per_trial(tmp_path):
 
 def test_seed_is_pinned_per_trial(tmp_path):
     t = FakeTarget()
-    run(t, trials=3, base_seed=1000, artifacts_dir=tmp_path, techniques=TECHS, objectives=OBJS[:1])
+    run(t, trials=3, base_seed=1000, artifacts_dir=tmp_path, determinism_check=False, techniques=TECHS, objectives=OBJS[:1])
     seeds = [c["options"]["seed"] for c in t.calls]
     assert seeds == [1000, 1001, 1002]  # base + trial index, reproducible
 
