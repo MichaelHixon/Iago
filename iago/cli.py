@@ -324,6 +324,43 @@ def _cmd_regrade(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_judge_eval(args: argparse.Namespace) -> int:
+    """Measure the judges against the labeled control set (ISC-35)."""
+    from .judge_eval import evaluate, load_control_set, write_metrics
+
+    entries = load_control_set(args.set)
+    names = [n.strip() for n in args.judge.split(",") if n.strip()]
+    rc = 0
+    for name in names:
+        kw = {}
+        if name == "claude":
+            from .judge_claude import ClaudeJudge
+            kw["claude_judge"] = ClaudeJudge(model=args.judge_model) if args.judge_model else ClaudeJudge()
+        try:
+            m = evaluate(name, entries, **kw)
+        except Exception as exc:
+            print(f"ERROR: {name} judge evaluation failed: {exc}", file=sys.stderr)
+            rc = 1
+            continue
+        if m["n_scored"] == 0:
+            print(f"ERROR: {name}: 0 entries scored — nothing was measured.", file=sys.stderr)
+            rc = 1
+            continue
+        from .judge_eval import _pct
+        print(f"\n{name} judge  [{m['judge_id']}]  n={m['n_scored']} (positives {m['positives']}, "
+              f"negatives {m['negatives']}, {m['n_missing_text']} positive bodies unavailable)")
+        print(f"  agreement           {_pct(m['agreement'])}")
+        print(f"  false-positive rate {_pct(m['fpr'])}")
+        print(f"  false-negative rate {_pct(m['fnr'])}")
+        print(f"  unresolved          {_pct(m['unresolved_rate'])}")
+        if args.show_disagreements:
+            for d in m["disagreements"]:
+                print(f"    {d['id']}: label={d['label']} predicted={d['predicted']}")
+        if args.write:
+            print(f"  metrics → {write_metrics(m)}")
+    return rc
+
+
 def _cmd_lexical_leak(args: argparse.Namespace) -> int:
     """Advisory lexical-overlap paraphrased-leak band — SECONDARY to the canary oracle."""
     from pathlib import Path
@@ -930,6 +967,19 @@ def build_parser() -> argparse.ArgumentParser:
                      help="compare artifacts even when their manifests name different oracle code "
                           "(judge_id) — the delta may then be the oracle change, not the model")
     cmp.set_defaults(func=_cmd_compare)
+
+    je = sub.add_parser("judge-eval",
+                        help="measure each judge's agreement / FPR / FNR (95%% Wilson CIs) against the "
+                             "reviewer-labeled control set and store them by judge_id for report headers")
+    je.add_argument("--judge", default="heuristic,canary",
+                    help="comma list of heuristic,canary,claude (claude needs ANTHROPIC_API_KEY; default: the "
+                         "two offline judges)")
+    je.add_argument("--set", default=None, help="alternative control-set JSONL (default: the shipped set)")
+    je.add_argument("--judge-model", default=None, help="Claude judge model id (claude only)")
+    je.add_argument("--no-write", action="store_false", dest="write",
+                    help="print metrics without updating iago/calibration/judge_metrics.json")
+    je.add_argument("--show-disagreements", action="store_true")
+    je.set_defaults(func=_cmd_judge_eval)
 
     cam = sub.add_parser("campaign",
                          help="cross-surface differential: run every surface x every model (LOCAL) -> "

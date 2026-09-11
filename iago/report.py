@@ -19,6 +19,7 @@ from pathlib import Path
 
 from .config import REPORTS_DIR
 from .artifacts import require_surface
+from .judge_eval import calibration_line
 from .judge import BYPASSED, ERROR, NEEDS_REVIEW
 from .stats import wilson_interval
 
@@ -322,6 +323,13 @@ def build_report(rows: list[dict]) -> str:
     a = lines.append
 
     a("# Iago — Guardrail Red-Team Report")
+    a("")
+    # The judge's own measured error rate sits beside every number it produced (ISC-35).
+    a(calibration_line(rows[0].get("judge_id"), "heuristic"))
+    if any(r.get("claude_verdict") for r in rows):
+        a("")
+        a(calibration_line(next((r.get("claude_judge_id") for r in rows if r.get("claude_judge_id")), None),
+                           "claude"))
     a("")
     a("> **Authorized defensive-security research.** Iago probes an LLM's own safety")
     a("> controls to measure which bypass techniques slip past them, so the controls")

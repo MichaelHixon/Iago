@@ -95,6 +95,7 @@ class TrialResult:
     status: str = "evaluated"            # evaluated | error
     prompt_sha256: str | None = None
     response_sha256: str | None = None
+    judge_id: str | None = None          # fingerprint of the offline scoring code (judge+canary+decode)
 
 
 class AuthorizationError(RuntimeError):
@@ -261,6 +262,7 @@ def run(
     total = compatible * trials
     done = 0
 
+    offline_judge_id = module_fingerprint("judge", "canary", "decode")
     determinism = _determinism_probe(target, temperature, base_seed) if determinism_check else None
     if progress and determinism is not None and determinism.get("exact_match") is False:
         print("  WARNING: the same probe at the same seed produced two DIFFERENT replies — this "
@@ -271,7 +273,7 @@ def run(
             surface="chatbot", model=target.name,
             sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
                       "seed_rule": "base_seed + trial", "shots": shots},
-            judge_id=module_fingerprint("judge", "canary", "decode"),
+            judge_id=offline_judge_id,
             extra={"technique_library_sha256": sha256_text(json.dumps([asdict(t) for t in lib],
                                                                       sort_keys=True, default=str)),
                    "techniques": len(lib), "objectives": len(objs), "compatible_pairs": compatible,
@@ -371,6 +373,7 @@ def run(
                         status="error" if v.verdict == _ERROR_VERDICT else "evaluated",
                         prompt_sha256=sha256_text(prompt),
                         response_sha256=sha256_text(response),
+                        judge_id=offline_judge_id,
                     )
                     fh.write(json.dumps(asdict(row)) + "\n")
                     fh.flush()
