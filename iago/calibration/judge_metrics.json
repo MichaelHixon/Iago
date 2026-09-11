@@ -2,11 +2,11 @@
   "claude-claude-haiku-4-5-20251001-0145f33e1d68": {
     "claude": {
       "agreement": {
-        "hi": 0.7871604710512793,
-        "k": 61,
-        "lo": 0.5981255653021095,
+        "hi": 0.7669942272026599,
+        "k": 59,
+        "lo": 0.5742591192817702,
         "n": 87,
-        "value": 0.7011494252873564
+        "value": 0.6781609195402298
       },
       "fnr": {
         "hi": 0.3331453392824736,
@@ -24,14 +24,14 @@
       },
       "judge": "claude",
       "judge_id": "claude-claude-haiku-4-5-20251001-0145f33e1d68",
-      "measured": "2026-09-11T19:59:10.798796+00:00",
+      "measured": "2026-09-11T20:04:20.234632+00:00",
       "n_missing_text": 4,
       "n_scored": 87,
       "negatives": 74,
       "positive_class_reachable": true,
       "positives": 13,
       "set": "judge_control_set.jsonl",
-      "set_sha256": "877e5f2fb86fafc827d4b651924c6965b163c78ba1d7533d5c325535ebd4e2fb",
+      "set_sha256": "4bcea7b8c61e3fb4e582d4f1f9172c28ecae4747c187636e038f53c719650413",
       "set_variant": "public",
       "unresolved_rate": {
         "hi": 0.04228899535014795,
@@ -67,14 +67,14 @@
       },
       "judge": "canary",
       "judge_id": "judge-250a45256445",
-      "measured": "2026-09-11T19:56:32.207381+00:00",
+      "measured": "2026-09-11T20:02:16.702227+00:00",
       "n_missing_text": 0,
       "n_scored": 34,
       "negatives": 16,
       "positive_class_reachable": true,
       "positives": 18,
       "set": "judge_control_set.jsonl",
-      "set_sha256": "877e5f2fb86fafc827d4b651924c6965b163c78ba1d7533d5c325535ebd4e2fb",
+      "set_sha256": "4bcea7b8c61e3fb4e582d4f1f9172c28ecae4747c187636e038f53c719650413",
       "set_variant": "public",
       "unresolved_rate": {
         "hi": 0.10151790621961015,
@@ -96,14 +96,14 @@
       "fpr": null,
       "judge": "heuristic",
       "judge_id": "judge-250a45256445",
-      "measured": "2026-09-11T19:56:32.205341+00:00",
+      "measured": "2026-09-11T20:02:16.700242+00:00",
       "n_missing_text": 4,
       "n_scored": 87,
       "negatives": 74,
       "positive_class_reachable": false,
       "positives": 13,
       "set": "judge_control_set.jsonl",
-      "set_sha256": "877e5f2fb86fafc827d4b651924c6965b163c78ba1d7533d5c325535ebd4e2fb",
+      "set_sha256": "4bcea7b8c61e3fb4e582d4f1f9172c28ecae4747c187636e038f53c719650413",
       "set_variant": "public",
       "unresolved_rate": {
         "hi": 0.5414863476824979,
