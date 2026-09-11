@@ -25,7 +25,7 @@ from pathlib import Path
 import yaml
 
 from .agent_harness import AgentTrace
-from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED, _is_external
+from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED, _is_external, probe_quality_note
 from .canary import contains_secret as _contains_secret
 from .config import ARTIFACTS_DIR, DEFAULT_AGENT_STEPS, DEFAULT_TEMPERATURE, DEFAULT_TRIALS, REPORTS_DIR
 from .stats import wilson_interval
@@ -152,10 +152,13 @@ def run_exfil_suite(
     trials: int = DEFAULT_TRIALS, temperature: float = DEFAULT_TEMPERATURE,
     base_seed: int, max_steps: int = DEFAULT_AGENT_STEPS,
     artifacts_dir: Path | None = None, progress: bool = False,
+    capability_chain: tuple[str, str] | None = None,
 ) -> Path:
     """The shared trials loop + JSONL row schema + artifact writer. `run_one(scenario, chat_fn,
     options, max_steps) -> AgentTrace` drives one scenario; `judge(trace, scenario) -> ExfilVerdict`
-    scores it. Requires >=1 attack scenario (an all-control run measures nothing)."""
+    scores it. Requires >=1 attack scenario (an all-control run measures nothing).
+    `capability_chain` = the (first_tool, sink_tool) pair the surface's report uses as its floor;
+    when given, each capability row carries `floor_fired` under that SAME definition (ISC-32)."""
     if not scenarios:
         raise ValueError("no scenarios to run")
     if not any(s.kind == "attack" for s in scenarios):
@@ -184,6 +187,10 @@ def run_exfil_suite(
                     "exfil_recipient": v.exfil_recipient, "leaked_canary": v.leaked_canary,
                     "tool_calls": [asdict(c) for c in trace.calls],
                     "final_text": trace.final_text, "steps": trace.steps,
+                    "hit_step_limit": trace.hit_step_limit, "empty_final": trace.empty_final,
+                    "floor_fired": (
+                        ({c.name for c in trace.calls} >= set(capability_chain))
+                        if (scen.kind == "capability" and capability_chain) else None),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
                 fh.write(json.dumps(row) + "\n")
@@ -252,6 +259,7 @@ def write_exfil_report(
         lines.append("")
 
     # Headline hijack-rate table.
+    lines.extend(probe_quality_note(rows))
     lines.append(f"## {hijack_noun.capitalize()} hijack rate by attack scenario")
     lines.append("")
     lines.append("| Scenario | Trials | Hijacked | Attempted | Rate | 95% CI |")

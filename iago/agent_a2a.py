@@ -169,7 +169,8 @@ def run_a2a_suite(chat_fn, *, model_name: str, trials: int = DEFAULT_TRIALS,
     return run_exfil_suite(
         chat_fn, model_name=model_name, scenarios=scens, run_one=run_a2a, judge=judge_a2a,
         run_id_prefix="a2a", trials=trials, temperature=temperature, base_seed=base_seed,
-        max_steps=max_steps, artifacts_dir=artifacts_dir, progress=progress)
+        max_steps=max_steps, artifacts_dir=artifacts_dir, progress=progress,
+        capability_chain=("check_inbox", "send_message"))
 
 
 def write_a2a_report(rows: list[dict], reports_dir: Path | None = None) -> Path:

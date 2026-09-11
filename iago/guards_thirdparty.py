@@ -71,10 +71,22 @@ class LlamaGuard(Guard):
     def inspect(self, text: str, *, system: str | None = None) -> GuardResult:
         verdict = (self._classify(text) or "").strip()
         lines = [ln.strip() for ln in verdict.splitlines() if ln.strip()]
-        if lines and lines[0].lower().startswith("unsafe"):
+        if not lines:
+            raise GuardBackendUnavailable(
+                f"llama-guard returned an EMPTY reply from {self.model!r} — is the Llama Guard model "
+                "the one being served?")
+        head = lines[0].lower()
+        if head.startswith("unsafe"):
             codes = " ".join(lines[1:]) or "unspecified"
             return GuardResult(True, f"llama-guard flagged the request unsafe ({codes})")
-        return GuardResult(False)
+        if head.rstrip(".") == "safe":
+            return GuardResult(False)
+        # Anything else (markdown-wrapped '**unsafe**', prose from a chat model served under the
+        # guard's name) used to PASS the prompt — a delta report showing 0 blocks was then
+        # indistinguishable from a working guard (ISC-32). Unrecognized output is a broken backend.
+        raise GuardBackendUnavailable(
+            f"llama-guard returned an unrecognized verdict {lines[0][:60]!r} — expected 'safe' or "
+            f"'unsafe\\n<codes>'; check that {self.model!r} is actually Llama Guard")
 
 
 # --- Guardrails AI jailbreak validator -------------------------------------------
@@ -136,14 +148,20 @@ class GuardrailsAIGuard(Guard):
 def _as_label_list(out: object) -> list[dict]:
     """Normalize a transformers text-classification result to a flat list of {label, score}.
     The pipeline may return a single dict (top_k=1), a list of dicts (top_k=None, one input),
-    or a list-of-lists (batched). Anything else normalizes to empty (inspect then passes)."""
+    or a list-of-lists (batched). Any other shape is a broken backend and raises — it used to
+    normalize to empty, which `inspect` then PASSED (ISC-32)."""
     if isinstance(out, dict):
         return [out]
     if isinstance(out, list):
         if out and isinstance(out[0], list):
-            return [r for r in out[0] if isinstance(r, dict)]
-        return [r for r in out if isinstance(r, dict)]
-    return []
+            results = [r for r in out[0] if isinstance(r, dict)]
+        else:
+            results = [r for r in out if isinstance(r, dict)]
+        if results:
+            return results
+    raise GuardBackendUnavailable(
+        f"hf-prompt-injection classifier returned an unrecognized result shape ({type(out).__name__}) — "
+        "expected {label, score} dict(s); is the served model a text-classification pipeline?")
 
 
 class HFPromptInjectionGuard(Guard):
@@ -154,6 +172,9 @@ class HFPromptInjectionGuard(Guard):
     name = "hf-prompt-injection"
     stage = "input"
     _POSITIVE = frozenset({"injection", "jailbreak", "label_1"})
+    # Labels a prompt-injection classifier emits for the benign class. A result carrying NEITHER
+    # vocabulary is a different model than expected and must not pass by default (ISC-32).
+    _NEGATIVE = frozenset({"safe", "benign", "legit", "no_injection", "clean", "label_0"})
 
     def __init__(
         self,
@@ -183,6 +204,12 @@ class HFPromptInjectionGuard(Guard):
         if self._classify_fn is None:
             self._classify_fn = self._default_classifier()
         results = _as_label_list(self._classify_fn(text))
+        labels = {str(r.get("label", "")).lower() for r in results}
+        if not (labels & self._POSITIVE) and not (labels & self._NEGATIVE):
+            raise GuardBackendUnavailable(
+                f"hf-prompt-injection classifier returned unrecognized labels {sorted(labels)!r} — "
+                f"expected one of {sorted(self._POSITIVE | self._NEGATIVE)}; is {self.model!r} a "
+                "prompt-injection classifier?")
         for r in results:
             label = str(r.get("label", "")).lower()
             score = float(r.get("score", 0.0))

@@ -39,7 +39,7 @@ from pathlib import Path
 import yaml
 
 from .agent_harness import AgentTrace, run_agent
-from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED
+from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED, probe_quality_note
 from .config import (
     ARTIFACTS_DIR,
     BASE_SEED,
@@ -136,21 +136,8 @@ VALID_KINDS = ("attack", "control", "capability")
 VALID_ARMS = ("rce", "ssrf")
 
 
-def _resolve_doc(name: str, documents: dict[str, str]) -> str | None:
-    """Resolve a requested document name to a stored key, tolerantly, so the injection reliably
-    reaches the agent even when it drops the extension or changes case ('README' -> 'README.md').
-    A real doc store resolves these; without it, an attack scenario can score 'resisted' merely
-    because the agent fat-fingered the filename and never SAW the poison (caught live vs llama3.1).
-    Exact match wins, then case-insensitive, then stem match. Returns the KEY or None."""
-    if name in documents:
-        return name
-    lowered = {k.lower(): k for k in documents}
-    if name.lower() in lowered:
-        return lowered[name.lower()]
-    # stem match: 'README' matches 'README.md'
-    want = name.lower().rsplit(".", 1)[0]
-    stems = {k.lower().rsplit(".", 1)[0]: k for k in documents}
-    return stems.get(want)
+# The tolerant resolver now lives in agent_harness (base surface got the same fix, ISC-32).
+from .agent_harness import resolve_doc as _resolve_doc  # noqa: E402
 
 
 def execute_toolabuse(name: str, arguments: dict, scenario: ToolAbuseScenario) -> str:
@@ -476,6 +463,8 @@ def run_toolabuse_suite(
                     "tool_calls": [asdict(c) for c in trace.calls],
                     "final_text": trace.final_text, "steps": trace.steps,
                     "hit_step_limit": trace.hit_step_limit,
+                    "empty_final": trace.empty_final,
+                    "floor_fired": ((v.verdict == HIJACKED) if scen.kind == "capability" else None),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
                 fh.write(json.dumps(row) + "\n")
@@ -582,6 +571,7 @@ def write_toolabuse_report(rows: list[dict], reports_dir: Path | None = None) ->
         lines.append("")
 
     # Headline — hijack rate per attack scenario, split by arm.
+    lines.extend(probe_quality_note(rows))
     lines.append("## Behavioral hijack rate by attack scenario")
     lines.append("")
     n_attack = sum(len(rs) for rs in attacks.values())
