@@ -174,6 +174,24 @@ def _fires(tech: Technique, obj: Objective) -> bool:
     return True
 
 
+_DETERMINISM_PROBE = "Reply with exactly the three words: pinned seed check"
+
+
+def _determinism_probe(target: Target, temperature: float, base_seed: int) -> dict:
+    """Fire one fixed, benign probe twice at the run's temperature + base seed and report whether
+    the replies were byte-identical. Two short generations (`num_predict` capped), never written
+    as trial rows. A failure to probe is recorded, never raised — the check informs, the run
+    decides nothing on it."""
+    opts = {"temperature": temperature, "seed": base_seed, "num_predict": 24}
+    try:
+        a = target.generate(_DETERMINISM_PROBE, options=dict(opts))
+        b = target.generate(_DETERMINISM_PROBE, options=dict(opts))
+    except Exception as exc:  # the matrix will surface a real transport failure loudly itself
+        return {"exact_match": None, "error": str(exc)[:200]}
+    return {"exact_match": a == b, "reply_sha256": [sha256_text(a), sha256_text(b)],
+            "probe": _DETERMINISM_PROBE, "options": opts}
+
+
 def _run_id(model: str, now: datetime) -> str:
     safe_model = model.replace(":", "-").replace("/", "-")
     return f"{now.strftime('%Y%m%dT%H%M%SZ')}_{safe_model}"
@@ -193,8 +211,13 @@ def run(
     techniques: list[Technique] | None = None,
     objectives: list[Objective] | None = None,
     progress: bool = False,
+    determinism_check: bool = True,
 ) -> Path:
     """Execute the full matrix and write a JSONL artifact file. Returns its path.
+
+    `determinism_check` fires one fixed probe TWICE (same temperature + base seed) before the
+    matrix and records whether the replies matched in the manifest — the README claims
+    same-host reproducibility, and this measures it per run instead of assuming it (ISC-34).
 
     `technique_limit` / `objective_limit` cap the matrix for a fast smoke run
     without hammering the model for the whole library. `shots` overrides the
@@ -238,6 +261,11 @@ def run(
     total = compatible * trials
     done = 0
 
+    determinism = _determinism_probe(target, temperature, base_seed) if determinism_check else None
+    if progress and determinism is not None and determinism.get("exact_match") is False:
+        print("  WARNING: the same probe at the same seed produced two DIFFERENT replies — this "
+              "host/build is not bit-reproducible at these settings; the manifest records it.")
+
     with out_path.open("w") as fh:
         write_manifest(fh, build_manifest(
             surface="chatbot", model=target.name,
@@ -246,7 +274,8 @@ def run(
             judge_id=module_fingerprint("judge", "canary", "decode"),
             extra={"technique_library_sha256": sha256_text(json.dumps([asdict(t) for t in lib],
                                                                       sort_keys=True, default=str)),
-                   "techniques": len(lib), "objectives": len(objs), "compatible_pairs": compatible}))
+                   "techniques": len(lib), "objectives": len(objs), "compatible_pairs": compatible,
+                   "determinism": determinism}))
         # Round-robin by trial: each round (batch_id) fires the whole matrix once, so a
         # config's repeated trials are spread across the run instead of fired back-to-back.
         # That exposes non-stationarity (refusal drift over the run) rather than burying it

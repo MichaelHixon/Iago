@@ -80,6 +80,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             objective_limit=obj_limit,
             shots=args.shots,
             progress=True,
+            determinism_check=getattr(args, "determinism_check", True),
         )
     except AuthorizationError as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
@@ -894,6 +895,8 @@ def build_parser() -> argparse.ArgumentParser:
                         "or 'all'; opt-in real guards (need a backend) 'llama-guard,guardrails-ai,"
                         "hf-prompt-injection'. Run raw + guarded, then `iago delta` (or `defense-delta`)")
     r.add_argument("--smoke", action="store_true", help="1x1x1 fast proof of the loop")
+    r.add_argument("--no-determinism-check", action="store_false", dest="determinism_check",
+                   help="skip the two-generation same-seed replay probe (manifest records null)")
     r.add_argument("--html", action="store_true", help="also write a styled, colored HTML report")
     r.add_argument("--log", action="store_true",
                    help="also write a full request/response transcript (every trial, untruncated) — "
