@@ -22,10 +22,32 @@ from .config import (
     DEFAULT_TRIALS,
 )
 from .objectives import load_objectives
-from .report import write_html_report, write_log, write_report
+from .judge import ERROR
+from .report import verdict_of, write_html_report, write_log, write_report
 from .runner import AuthorizationError, load_artifacts, run
 from .target import available_targets, build_target
 from .guards import GuardedTarget, available_guards, build_guards
+from .guards_thirdparty import GuardBackendUnavailable
+
+
+def _valid_count(rows: list[dict]) -> int:
+    """Rows that actually probed the model — a <<RUN-ERROR>> row measured nothing."""
+    return sum(1 for r in rows if verdict_of(r) != ERROR)
+
+
+def _nothing_measured(rows: list[dict], what: str = "trials") -> int | None:
+    """Non-zero exit code (with the reason on stderr) when an artifact holds zero VALID rows;
+    None when there is something to report. A report may still be written for the record, but
+    the process must not exit 0: a run that measured nothing is not a run in which "the
+    guardrails held" (ISC-31 — the exit-0-measured-nothing class)."""
+    if not rows:
+        print(f"ERROR: artifact holds 0 {what} — nothing was measured.", file=sys.stderr)
+        return 2
+    if _valid_count(rows) == 0:
+        print(f"ERROR: all {len(rows)} {what} are RUN-ERROR rows — the harness never reached the "
+              "model, so nothing was measured (this is NOT a hold).", file=sys.stderr)
+        return 1
+    return None
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
@@ -36,7 +58,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         target = build_target(args.target, model=model)
         if getattr(args, "guard", None):
             target = GuardedTarget(target, build_guards(args.guard))
-    except ValueError as exc:
+    except (ValueError, GuardBackendUnavailable) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
@@ -62,6 +84,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
     except AuthorizationError as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 2
+    except (ValueError, GuardBackendUnavailable) as exc:
+        # Zero fireable pairs, or a guard backend that died mid-run: nothing was measured.
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
 
     rows = load_artifacts(artifact_path)
     report_path = write_report(rows)
@@ -71,8 +97,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"HTML:      {write_html_report(rows)}")
     if getattr(args, "log", False):
         print(f"Transcript: {write_log(rows, html=getattr(args, 'html', False))}")
-    print(f"({len(rows)} trials recorded)")
-    return 0
+    print(f"({len(rows)} trials recorded; {_valid_count(rows)} valid)")
+    rc = _nothing_measured(rows)
+    return 0 if rc is None else rc
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
@@ -84,12 +111,15 @@ def _cmd_report(args: argparse.Namespace) -> int:
         print(f"ERROR: artifact not found: {path}", file=sys.stderr)
         return 2
     rows = load_artifacts(path)
+    if not rows:
+        return _nothing_measured(rows) or 2
     if args.log:
         print(f"Transcript: {write_log(rows, html=args.html)}  ({len(rows)} trials)")
     else:
         out = write_html_report(rows) if args.html else write_report(rows)
-        print(f"Report: {out}  ({len(rows)} trials)")
-    return 0
+        print(f"Report: {out}  ({len(rows)} trials; {_valid_count(rows)} valid)")
+    rc = _nothing_measured(rows)
+    return 0 if rc is None else rc
 
 
 def _cmd_delta(args: argparse.Namespace) -> int:
@@ -121,6 +151,14 @@ def _cmd_compare(args: argparse.Namespace) -> int:
             print(f"ERROR: artifact not found: {p}", file=sys.stderr)
             return 2
     comp = build_comparison(paths)
+    if not comp.scenario_ids:
+        # Rows without `kind` (chatbot `run` artifacts), empty files, or a surface whose verdict
+        # vocabulary compare does not adjudicate all yield an EMPTY matrix — which used to render
+        # as a "no divergence" report at exit 0 (ISC-31).
+        print("ERROR: no adjudicated attack scenarios across the given artifacts — compare needs "
+              ">=2 same-surface AGENT artifacts (rows carrying `kind`); nothing to compare.",
+              file=sys.stderr)
+        return 2
     if len(comp.models) < 2:
         print(f"ERROR: compare needs >=2 models across the given artifacts (found "
               f"{len(comp.models)}: {[m.model for m in comp.models]}). Run the same surface "
@@ -171,6 +209,12 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
     out = write_campaign_report(campaign)
     print(f"\nSurfaces run: {', '.join(surface_paths)}")
     print(f"Campaign report: {out}")
+    if errors:
+        # The report is still written (a failed leg is recorded, never hidden), but a partial
+        # campaign must not exit 0 — a pipeline reading the code would call it complete (ISC-31).
+        print(f"WARNING: {len(errors)} campaign leg(s) failed — report is PARTIAL (exit 1).",
+              file=sys.stderr)
+        return 1
     return 0
 
 
@@ -255,8 +299,15 @@ def _cmd_regrade(args: argparse.Namespace) -> int:
               file=sys.stderr)
         return 1
     report_path = write_report(load_artifacts(path))
-    print(f"  regraded {summary['regraded']} rows; {summary['flipped_vs_heuristic']} flipped vs heuristic")
+    sk = summary["skipped"]
+    print(f"  regraded {summary['regraded']} rows; {summary['flipped_vs_heuristic']} flipped vs heuristic; "
+          f"skipped {sk['unknown_objective']} unknown-objective, {sk['run_error']} run-error, "
+          f"{sk['structural_verdict']} structural-verdict")
     print(f"Report:    {report_path}")
+    if summary["regraded"] == 0:
+        print("ERROR: 0 rows were regraded — nothing changed (check the objective ids in the "
+              "artifact against objectives.yaml).", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -417,11 +468,16 @@ def _cmd_adaptive_run(args: argparse.Namespace) -> int:
 
     rows = load_adaptive_artifacts(artifact_path)
     report_path = write_adaptive_report(rows)
+    n_scored = sum(1 for r in rows if r.get("outcome") != "error")
     print(f"\nArtifacts: {artifact_path}")
     print(f"Report:    {report_path}")
-    print(f"({len(rows)} conversations recorded)")
+    print(f"({len(rows)} conversations recorded; {n_scored} scored)")
     if not deterministic:
         print("NOTE: LLM-attacker turns are nondeterministic — this run does not replay bit-for-bit.")
+    if n_scored == 0:
+        print("ERROR: every conversation hit a transport error — nothing was measured (this is NOT "
+              "a hold).", file=sys.stderr)
+        return 1
     return 0
 
 

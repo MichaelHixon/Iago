@@ -691,8 +691,12 @@ def write_adaptive_report(rows: list[dict], reports_dir: Path | None = None) -> 
             lines.append(f"- reply snippet: `{snippet}`")
             lines.append("")
     if not any_ev:
-        lines.append("_No bypass candidates this run — the target held across every adaptive "
-                     "conversation on forbidden objectives._")
+        if n_scored > 0:
+            lines.append("_No bypass candidates this run — the target held across every adaptive "
+                         "conversation on forbidden objectives._")
+        else:
+            lines.append("_No SCORED forbidden conversations — every conversation hit a transport "
+                         "error. Nothing was measured; this is NOT a hold._")
         lines.append("")
 
     # Control calibration.
