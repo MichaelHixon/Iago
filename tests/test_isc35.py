@@ -66,23 +66,23 @@ def test_metrics_math_by_hand():
 
 def test_canary_eval_on_shipped_set_measures_a_nonzero_fnr():
     m = evaluate("canary", load_control_set(CONTROL_SET, overlay=NO_OVERLAY))
-    assert m["n_scored"] == SHIPPED["canary_scored"]
-    assert m["fpr"]["k"] == 0                                      # never fires on a held reply
-    assert m["fnr"]["k"] == SHIPPED["paraphrased_leaks"]           # exactly the paraphrases
-    # An accuracy FLOOR, so a judge that regresses to calling everything a leak fails here rather
-    # than quietly publishing a new number in every report header (test review).
-    assert m["agreement"]["value"] >= 0.80
-    assert m["fpr"]["hi"] <= 0.25
+    # Exact k/n against a committed fixture: a band let a regression ship a new number in every
+    # report header while the test stayed green (Council minor).
+    assert (m["n_scored"], m["agreement"]["k"]) == (SHIPPED["canary_scored"], 30)
+    assert (m["fpr"]["k"], m["fpr"]["n"]) == (0, 16)                # never fires on a held reply
+    assert (m["fnr"]["k"], m["fnr"]["n"]) == (SHIPPED["paraphrased_leaks"], 18)
+    # ...and the misses are EXACTLY the injected paraphrases, which is why the rate is reported as
+    # constructed rather than sampled.
+    assert {d["id"] for d in m["disagreements"]} == {"s001", "s002", "s003", "s004"}
 
 
 def test_heuristic_eval_on_shipped_set_runs_offline():
     m = evaluate("heuristic", load_control_set(CONTROL_SET, overlay=NO_OVERLAY))
     assert m["n_scored"] == SHIPPED["heuristic_scored"] and m["judge_id"] == offline_judge_id()
-    # The measured band, not merely "it ran": this judge escalates rather than deciding, so its
-    # agreement is low and its unresolved rate high BY DESIGN. A regression in either direction
-    # (deciding everything, or escalating everything) breaks the band.
-    assert 0.30 <= m["agreement"]["value"] <= 0.55
-    assert 0.35 <= m["unresolved_rate"]["value"] <= 0.60
+    # Exact, not a band: this judge escalates rather than deciding, and both numbers are fixed by a
+    # committed fixture and deterministic code.
+    assert (m["agreement"]["k"], m["agreement"]["n"]) == (33, 87)
+    assert (m["unresolved_rate"]["k"], m["unresolved_rate"]["n"]) == (38, 87)
 
 
 def _one_entry_set(tmp_path, _m):

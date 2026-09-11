@@ -2,18 +2,18 @@
   "claude-claude-haiku-4-5-20251001-0145f33e1d68": {
     "claude": {
       "agreement": {
-        "hi": 0.7669942272026599,
-        "k": 59,
-        "lo": 0.5742591192817702,
+        "hi": 0.7568153688556492,
+        "k": 58,
+        "lo": 0.5624216326943015,
         "n": 87,
-        "value": 0.6781609195402298
+        "value": 0.6666666666666666
       },
       "fnr": {
-        "hi": 0.3331453392824736,
-        "k": 1,
-        "lo": 0.013710066379696323,
+        "hi": 0.4223517050863101,
+        "k": 2,
+        "lo": 0.04325726318273798,
         "n": 13,
-        "value": 0.07692307692307693
+        "value": 0.15384615384615385
       },
       "fpr": {
         "hi": 0.049351503566216516,
@@ -24,14 +24,22 @@
       },
       "judge": "claude",
       "judge_id": "claude-claude-haiku-4-5-20251001-0145f33e1d68",
-      "measured": "2026-09-11T20:04:20.234632+00:00",
+      "measured": "2026-09-11T20:15:30.377613+00:00",
+      "metrics_schema": 2,
       "n_missing_text": 4,
       "n_scored": 87,
       "negatives": 74,
       "positive_class_reachable": true,
       "positives": 13,
+      "positives_by_kind": {
+        "control": 13,
+        "forbidden": 4
+      },
+      "positives_scored_by_kind": {
+        "control": 13
+      },
       "set": "judge_control_set.jsonl",
-      "set_sha256": "4bcea7b8c61e3fb4e582d4f1f9172c28ecae4747c187636e038f53c719650413",
+      "set_sha256": "f191cf4c79b930acde71b39e1acbf71829f1a925c2e6387ffdbad5add1f4e66c",
       "set_variant": "public",
       "unresolved_rate": {
         "hi": 0.04228899535014795,
@@ -67,14 +75,21 @@
       },
       "judge": "canary",
       "judge_id": "judge-250a45256445",
-      "measured": "2026-09-11T20:02:16.702227+00:00",
+      "measured": "2026-09-11T20:13:25.364928+00:00",
+      "metrics_schema": 2,
       "n_missing_text": 0,
       "n_scored": 34,
       "negatives": 16,
       "positive_class_reachable": true,
       "positives": 18,
+      "positives_by_kind": {
+        "prompt-leak": 18
+      },
+      "positives_scored_by_kind": {
+        "prompt-leak": 18
+      },
       "set": "judge_control_set.jsonl",
-      "set_sha256": "4bcea7b8c61e3fb4e582d4f1f9172c28ecae4747c187636e038f53c719650413",
+      "set_sha256": "f191cf4c79b930acde71b39e1acbf71829f1a925c2e6387ffdbad5add1f4e66c",
       "set_variant": "public",
       "unresolved_rate": {
         "hi": 0.10151790621961015,
@@ -96,14 +111,22 @@
       "fpr": null,
       "judge": "heuristic",
       "judge_id": "judge-250a45256445",
-      "measured": "2026-09-11T20:02:16.700242+00:00",
+      "measured": "2026-09-11T20:13:25.362907+00:00",
+      "metrics_schema": 2,
       "n_missing_text": 4,
       "n_scored": 87,
       "negatives": 74,
       "positive_class_reachable": false,
       "positives": 13,
+      "positives_by_kind": {
+        "control": 13,
+        "forbidden": 4
+      },
+      "positives_scored_by_kind": {
+        "control": 13
+      },
       "set": "judge_control_set.jsonl",
-      "set_sha256": "4bcea7b8c61e3fb4e582d4f1f9172c28ecae4747c187636e038f53c719650413",
+      "set_sha256": "f191cf4c79b930acde71b39e1acbf71829f1a925c2e6387ffdbad5add1f4e66c",
       "set_variant": "public",
       "unresolved_rate": {
         "hi": 0.5414863476824979,

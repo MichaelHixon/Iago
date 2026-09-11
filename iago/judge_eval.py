@@ -48,6 +48,13 @@ def _writable_metrics_path() -> Path:
     home.mkdir(parents=True, exist_ok=True)
     return home / "judge_metrics.json"
 
+#: Bumped whenever the measurement code changes what a metrics row MEANS or contains. The judge_id
+#: fingerprints the JUDGES, not this module, so metrics written before a judge_eval change stayed
+#: silently "valid": the shipped file predated `positives_by_kind` and the disclosure branch that
+#: depends on it never rendered, leaving every report header quoting a harmful false-negative rate
+#: measured on zero harmful entries (Council blocker). A row below this version is not quoted.
+METRICS_SCHEMA = 2
+
 POSITIVE_LABELS = frozenset({"bypassed", "leaked"})
 KINDS_FOR = {"heuristic": ("forbidden", "control"), "canary": ("prompt-leak",), "claude": ("forbidden", "control")}
 
@@ -98,7 +105,7 @@ def set_fingerprint(entries: list[dict]) -> str:
     17 positives vs 87 / 13, with every remaining positive benign). The one field whose job is to
     say which set produced a number was blind to the only difference that changes it
     (code-review blocker, ISC-35)."""
-    return sha256_text(json.dumps([[e["id"], e["kind"], e["label"], e.get("response") is not None]
+    return sha256_text(json.dumps([[e["id"], e["kind"], e["label"], sha256_text(e.get("response"))]
                                    for e in entries]))
 
 
@@ -173,7 +180,8 @@ def evaluate(judge_name: str, entries: list[dict], *, judge_fn: Callable[[dict],
         raise ValueError(f"{judge_name} is declared unable to assign the positive class, but it "
                          f"predicted one ({fp} false positives over {negatives} negatives)")
     return {
-        "judge": judge_name, "judge_id": judge_id, "measured": datetime.now(timezone.utc).isoformat(),
+        "judge": judge_name, "judge_id": judge_id, "metrics_schema": METRICS_SCHEMA,
+        "measured": datetime.now(timezone.utc).isoformat(),
         "set": CONTROL_SET.name, "set_sha256": set_fingerprint(entries),
         "set_variant": "with-local-overlay" if any(e.get("_overlay") for e in entries) else "public",
         "n_scored": len(scored), "n_missing_text": len(missing), "positives": positives, "negatives": negatives,
@@ -228,15 +236,26 @@ def calibration_line(judge_id: str | None, judge_name: str, metrics: dict | None
     if not m:
         return (f"**Judge calibration ({judge_name} `{judge_id}`):** unmeasured for this scoring code — "
                 "run `iago judge-eval` to measure agreement / FPR / FNR on the labeled control set.")
+    if m.get("metrics_schema", 1) < METRICS_SCHEMA:
+        return (f"**Judge calibration ({judge_name} `{judge_id}`):** stored metrics were written by an "
+                f"older measurement build (schema {m.get('metrics_schema', 1)} < {METRICS_SCHEMA}) and "
+                "may omit disclosures this build emits; not quoted. Re-run `iago judge-eval`.")
     try:
         # Compare against the set AS THE METRICS WERE SCOPED: a row measured with `--no-overlay`
         # must be checked against the public set even on a machine that happens to hold the private
         # overlay, or a correct public measurement would be refused here for the wrong reason.
         overlay = None if m.get("set_variant") == "with-local-overlay" else Path("/nonexistent-overlay")
         here = set_fingerprint(load_control_set(control_set, overlay=overlay))
-    except Exception:
-        here = None
-    if here and m.get("set_sha256") and here != m["set_sha256"]:
+    except Exception as exc:
+        # A guard whose job is "never quote an unreproducible number" must not PASS when it cannot
+        # check (Council major): one truncated line in the control set used to return None here and
+        # quote the row in full.
+        return (f"**Judge calibration ({judge_name} `{judge_id}`):** the control set could not be read "
+                f"to verify these metrics ({type(exc).__name__}); not quoted.")
+    if not m.get("set_sha256"):
+        return (f"**Judge calibration ({judge_name} `{judge_id}`):** stored metrics carry no control-set "
+                "fingerprint, so they cannot be tied to a set; not quoted. Re-run `iago judge-eval`.")
+    if here != m["set_sha256"]:
         # The stored metrics were measured on a DIFFERENT set than the one on this disk — most often
         # the private overlay of withheld harmful bodies. Quoting them would assert a number the
         # reader cannot reproduce (code-review blocker, ISC-35).
@@ -245,6 +264,17 @@ def calibration_line(judge_id: str | None, judge_name: str, metrics: dict | None
                 f"(`{m.get('set_variant', 'unknown')}`); not quoted. Run `iago judge-eval` here to "
                 "measure agreement / FPR / FNR on your own copy.")
     missing = f"; {m['n_missing_text']} entr(ies) had no body available" if m.get("n_missing_text") else ""
+    if judge_name == "canary":
+        # The 4 false negatives are exactly the injected paraphrases: the numerator and denominator
+        # are both author-chosen, so a Wilson interval would imply a random sample that never
+        # happened (Council major). State the two populations instead of one blended rate.
+        agree = _pct(m["agreement"])
+        return (f"**Judge calibration (canary `{judge_id}`):** agreement {agree} on "
+                f"{m['n_scored']} reviewer-labeled responses; measured {m['measured'][:10]}. "
+                "The false-negative rate is **constructed, not sampled**: this oracle catches a "
+                "verbatim canary (0 missed of the real sampled leaks) and misses a full paraphrase "
+                "(4 missed of the 4 synthetic paraphrases deliberately added). Read a reported leak "
+                "rate as a **lower bound**, not a point estimate.")
     by_kind = m.get("positives_scored_by_kind") or {}
     if by_kind:
         detail = ", ".join(f"{n} {k}" for k, n in sorted(by_kind.items()))

@@ -807,6 +807,10 @@ def build_report(rows: list[dict]) -> str:
 
 def write_report(rows: list[dict], reports_dir: Path | None = None) -> Path:
     """Build and write the report to reports/, returning its path."""
+    # BEFORE rows[0]["model"]: the guard lived only in the build_* functions, so the CLI
+    # path reached this line first and ISC-33's own headline KeyError still fired
+    # (Council blocker). The write_* wrappers are what every command calls.
+    require_surface(rows, "chatbot", reader="iago report")
     out_dir = Path(reports_dir) if reports_dir else REPORTS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     model = rows[0]["model"] if rows else "unknown"
@@ -1036,6 +1040,21 @@ def build_html_report(rows: list[dict]) -> str:
     o('<div class=mast>')
     o('<div class=kicker>Iago · Guardrail Red-Team</div>')
     o("<h1>LLM Guardrail Red-Team Report</h1>")
+    # The HTML copy is the one that gets shared, and it published bypass rates with NO judge-error
+    # disclosure at all while the markdown disclosed (Council major).
+    _cal: list[str] = []
+    if forbidden or controls:
+        _cal.append(calibration_line(rows[0].get("judge_id"), "heuristic"))
+    if leaks:
+        _cal.append(calibration_line(rows[0].get("judge_id"), "canary"))
+    if any(r.get("claude_verdict") for r in rows):
+        _cal.append(calibration_line(
+            next((r.get("claude_judge_id") for r in rows if r.get("claude_judge_id")), None), "claude"))
+    for line in _cal:
+        o(f"<p class=sub>{_inline_md_to_html(line)}</p>")
+    o("<p class=sub>Calibration caveat: the control set is one reviewer's labels over replies from "
+      "local llama3.x models, stratified by the heuristic judge's own verdicts, plus four synthetic "
+      "paraphrased leaks. It bounds each judge's error on THAT population.</p>")
     o('<div class=sub>Authorized defensive-security research — the target is a local model under the operator\'s control.</div>')
     o(f'<div class=meta>Target model <code>{_esc(model)}</code> &nbsp;·&nbsp; generated {_esc(now)}<br>'
       f'{len({r["objective_id"] for r in forbidden})} forbidden · '
@@ -1258,6 +1277,10 @@ def build_html_report(rows: list[dict]) -> str:
 
 def write_html_report(rows: list[dict], reports_dir: Path | None = None) -> Path:
     """Build and write the HTML report to reports/, returning its path."""
+    # BEFORE rows[0]["model"]: the guard lived only in the build_* functions, so the CLI
+    # path reached this line first and ISC-33's own headline KeyError still fired
+    # (Council blocker). The write_* wrappers are what every command calls.
+    require_surface(rows, "chatbot", reader="iago report")
     out_dir = Path(reports_dir) if reports_dir else REPORTS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     model = rows[0]["model"] if rows else "unknown"
@@ -1364,6 +1387,10 @@ def build_html_log(rows: list[dict]) -> str:
 
 def write_log(rows: list[dict], reports_dir: Path | None = None, html: bool = False) -> Path:
     """Write the full transcript to reports/, returning its path."""
+    # BEFORE rows[0]["model"]: the guard lived only in the build_* functions, so the CLI
+    # path reached this line first and ISC-33's own headline KeyError still fired
+    # (Council blocker). The write_* wrappers are what every command calls.
+    require_surface(rows, "chatbot", reader="iago report")
     out_dir = Path(reports_dir) if reports_dir else REPORTS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     model = rows[0]["model"] if rows else "unknown"
