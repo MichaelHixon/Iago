@@ -324,12 +324,25 @@ def build_report(rows: list[dict]) -> str:
 
     a("# Iago — Guardrail Red-Team Report")
     a("")
-    # The judge's own measured error rate sits beside every number it produced (ISC-35).
-    a(calibration_line(rows[0].get("judge_id"), "heuristic"))
-    if any(r.get("claude_verdict") for r in rows):
+    # Each judge's own measured error rate sits beside the numbers IT produced (ISC-35). The header
+    # used to quote the heuristic unconditionally, so a prompt-leak-only run — whose rate comes from
+    # the deterministic canary oracle — advertised the heuristic's structural rates instead of the
+    # canary's real 22% false-negative rate (cross-vendor audit, critical).
+    judge_id = rows[0].get("judge_id")
+    if forbidden or controls:
+        a(calibration_line(judge_id, "heuristic"))
         a("")
+    if leaks:
+        a(calibration_line(judge_id, "canary"))
+        a("")
+    if any(r.get("claude_verdict") for r in rows):
         a(calibration_line(next((r.get("claude_judge_id") for r in rows if r.get("claude_judge_id")), None),
                            "claude"))
+        a("")
+    a("_Calibration caveat: the control set is one reviewer's labels over replies from local "
+      "llama3.x models, stratified by the heuristic judge's own verdicts, plus four synthetic "
+      "paraphrased leaks. It bounds each judge's error on THAT population; a different target model "
+      "or technique mixture may differ. See `iago/calibration/README.md`._")
     a("")
     a("> **Authorized defensive-security research.** Iago probes an LLM's own safety")
     a("> controls to measure which bypass techniques slip past them, so the controls")
