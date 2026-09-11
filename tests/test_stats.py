@@ -3,8 +3,26 @@
 from iago.stats import mcnemar_exact_p, wilson_interval
 
 
-def test_zero_total_is_zero_zero():
-    assert wilson_interval(0, 0) == (0.0, 0.0)
+def test_zero_total_is_uninformative_not_certain():
+    # No data is not certainty: an empty/all-error denominator must never render as "0%–0%".
+    assert wilson_interval(0, 0) == (0.0, 1.0)
+
+
+def test_out_of_range_inputs_raise():
+    import pytest
+    with pytest.raises(ValueError):
+        wilson_interval(4, 3)
+    with pytest.raises(ValueError):
+        wilson_interval(-1, 3)
+
+
+def test_exact_values_at_k0_and_kn():
+    # Closed form at k=0: low=0, high = z²/(n+z²). k=n mirrors it. Exact, not an inequality.
+    z2 = 1.96 ** 2
+    lo, hi = wilson_interval(0, 3)
+    assert lo == 0.0 and abs(hi - z2 / (3 + z2)) < 1e-12
+    lo, hi = wilson_interval(3, 3)
+    assert hi == 1.0 and abs(lo - (1 - z2 / (3 + z2))) < 1e-12
 
 
 def test_interval_stays_within_unit():

@@ -24,6 +24,8 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .guards_thirdparty import GuardBackendUnavailable
+
 from .attacks import (
     NEUTRAL_HISTORY_USER,
     PLANTED_HISTORY_ACK,
@@ -118,6 +120,10 @@ def _execute_arm(target, tech: Technique, turns: list[str], opts: dict,
             return _run_multiturn(target, turns, opts, system=system)
         prompt = turns[0]
         return prompt, target.generate(prompt, system=system, options=opts)
+    except GuardBackendUnavailable:
+        # A missing/garbage guard backend is not a per-trial transport blip: every trial would
+        # error and the run would read as "held". Fail the whole run loud instead (ISC-31).
+        raise
     except Exception as exc:  # keep the run alive; record the failure
         return "\n---\n".join(turns), f"<<RUN-ERROR: {exc}>>"
 
@@ -137,6 +143,8 @@ def _execute_planted(target, system: str | None, planted: list[dict], ask: str,
     messages.append({"role": "user", "content": ask})
     try:
         reply = target.chat(messages, options=opts)
+    except GuardBackendUnavailable:
+        raise  # see _execute_arm — a dead guard backend fails the run, never a row
     except Exception as exc:  # keep the run alive; record the failure
         reply = f"<<RUN-ERROR: {exc}>>"
     readable = "\n\n".join(f"[{m['role']}]\n{m['content']}" for m in messages)
@@ -209,6 +217,13 @@ def run(
     # techniques fire only at prompt-leak objectives; provenance techniques only at trust
     # objectives). Count only the compatible pairs so the progress total matches what actually runs.
     compatible = sum(1 for tech in lib for obj in objs if _fires(tech, obj))
+    if compatible == 0:
+        # Nothing would fire: writing an empty artifact and a "No artifacts" report at exit 0 is
+        # the exit-0-measured-nothing failure (ISC-31). Say so before touching the disk.
+        raise ValueError(
+            "no technique/objective pairs fire: every loaded technique is scoped to an objective "
+            "kind absent from the loaded objectives (check --limit-* / applies_to scoping)"
+        )
     total = compatible * trials
     done = 0
 

@@ -37,10 +37,16 @@ def mcnemar_exact_p(b: int, c: int) -> float:
 def wilson_interval(hits: int, total: int, z: float = 1.96) -> tuple[float, float]:
     """95% (z=1.96) Wilson score interval for a binomial proportion hits/total.
 
-    Returns (low, high), each clamped to [0, 1]. total <= 0 => (0.0, 0.0).
+    Returns (low, high), each clamped to [0, 1].
+
+    No data is NOT certainty: total == 0 returns the uninformative (0.0, 1.0) so an empty or
+    all-error denominator can never render as a confident "0%–0%" (the exit-0-measured-nothing
+    class, ISC-31). Out-of-range inputs raise rather than producing a NaN.
     """
-    if total <= 0:
-        return (0.0, 0.0)
+    if total < 0 or hits < 0 or hits > total:
+        raise ValueError(f"wilson_interval: hits/total out of range ({hits}/{total})")
+    if total == 0:
+        return (0.0, 1.0)
     phat = hits / total
     z2 = z * z
     denom = 1.0 + z2 / total

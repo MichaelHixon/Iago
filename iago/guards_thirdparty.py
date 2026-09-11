@@ -199,12 +199,20 @@ THIRDPARTY_GUARD_BUILDERS: dict[str, Callable[[], Guard]] = {
 }
 
 
-def build_thirdparty_guard(name: str) -> Guard:
+def build_thirdparty_guard(name: str, *, probe: bool = True) -> Guard:
     """Build a real third-party guard by name, or raise ValueError for an unknown name.
-    A present-but-unavailable backend raises GuardBackendUnavailable (with an install hint)."""
+    A present-but-unavailable backend raises GuardBackendUnavailable (with an install hint).
+
+    `probe=True` fires one benign classification at BUILD time so a missing backend fails
+    before the first trial. Without it the failure surfaced lazily inside the runner's
+    per-trial error capture, every row became <<RUN-ERROR>>, and the report read "held"
+    (ISC-31). The probe text is inert; an input guard classifying it is a no-op."""
     try:
-        return THIRDPARTY_GUARD_BUILDERS[name]()
+        guard = THIRDPARTY_GUARD_BUILDERS[name]()
     except KeyError:
         raise ValueError(
             f"unknown third-party guard {name!r}; available: {', '.join(sorted(THIRDPARTY_GUARD_BUILDERS))}"
         ) from None
+    if probe:
+        guard.inspect("ping")
+    return guard
