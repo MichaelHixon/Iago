@@ -18,6 +18,7 @@ are keyed by `judge_id` (a fingerprint of the scoring code), so editing a judge 
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +31,22 @@ CALIBRATION_DIR = Path(__file__).resolve().parent / "calibration"
 CONTROL_SET = CALIBRATION_DIR / "judge_control_set.jsonl"
 OVERLAY = CALIBRATION_DIR / "judge_control_set.local.jsonl"
 METRICS_PATH = CALIBRATION_DIR / "judge_metrics.json"
+
+
+def _writable_metrics_path() -> Path:
+    """Where `judge-eval` stores metrics. The shipped path lives inside the package, which is
+    read-only in a wheel install (an uncaught PermissionError) and otherwise mutates the install;
+    fall back to the user's config dir (code-review minor)."""
+    try:
+        if METRICS_PATH.exists() and os.access(METRICS_PATH, os.W_OK):
+            return METRICS_PATH
+        if os.access(CALIBRATION_DIR, os.W_OK):
+            return METRICS_PATH
+    except OSError:
+        pass
+    home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "iago"
+    home.mkdir(parents=True, exist_ok=True)
+    return home / "judge_metrics.json"
 
 POSITIVE_LABELS = frozenset({"bypassed", "leaked"})
 KINDS_FOR = {"heuristic": ("forbidden", "control"), "canary": ("prompt-leak",), "claude": ("forbidden", "control")}
@@ -61,7 +78,14 @@ def load_control_set(path: Path | str | None = None, overlay: Path | str | None 
         bodies = {json.loads(l)["id"]: json.loads(l)["response"] for l in op.read_text().splitlines() if l.strip()}
         for e in entries:
             if e.get("response") is None and e["id"] in bodies:
-                e["response"] = bodies[e["id"]]
+                body = bodies[e["id"]]
+                want = e.get("response_sha256")
+                if want and sha256_text(body) != want:
+                    # The withheld entries carry the hash of the exact body they were labeled on;
+                    # a mismatched overlay would silently score a different text (code-review minor).
+                    raise ValueError(f"overlay body for {e['id']} does not match its recorded "
+                                     f"response_sha256 — the label was assigned to different text")
+                e["response"] = body
                 e["_overlay"] = True
     return entries
 
@@ -74,7 +98,8 @@ def set_fingerprint(entries: list[dict]) -> str:
     17 positives vs 87 / 13, with every remaining positive benign). The one field whose job is to
     say which set produced a number was blind to the only difference that changes it
     (code-review blocker, ISC-35)."""
-    return sha256_text(json.dumps([[e["id"], e["label"], e.get("response") is not None] for e in entries]))
+    return sha256_text(json.dumps([[e["id"], e["kind"], e["label"], e.get("response") is not None]
+                                   for e in entries]))
 
 
 def _rate(k: int, n: int) -> dict:
@@ -165,7 +190,7 @@ def load_metrics(path: Path | str | None = None) -> dict:
 
 def write_metrics(result: dict, path: Path | str | None = None) -> Path:
     """Store under metrics[judge_id][judge_name]; other judges' entries are kept."""
-    p = Path(path) if path else METRICS_PATH
+    p = Path(path) if path else _writable_metrics_path()
     data = load_metrics(p)
     data.setdefault(result["judge_id"], {})[result["judge"]] = {k: v for k, v in result.items() if k != "disagreements"}
     p.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
@@ -207,7 +232,7 @@ def calibration_line(judge_id: str | None, judge_name: str, metrics: dict | None
                 f"different control set than the one in this checkout "
                 f"(`{m.get('set_variant', 'unknown')}`); not quoted. Run `iago judge-eval` here to "
                 "measure agreement / FPR / FNR on your own copy.")
-    missing = f"; {m['n_missing_text']} positive(s) had no body available" if m.get("n_missing_text") else ""
+    missing = f"; {m['n_missing_text']} entr(ies) had no body available" if m.get("n_missing_text") else ""
     if m.get("positive_class_reachable") is False:
         return (f"**Judge calibration ({judge_name} `{judge_id}`):** agreement {_pct(m['agreement'])}, "
                 f"unresolved {_pct(m['unresolved_rate'])} on {m['n_scored']} reviewer-labeled responses "

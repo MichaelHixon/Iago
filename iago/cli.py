@@ -330,9 +330,9 @@ def _cmd_regrade(args: argparse.Namespace) -> int:
     if not path.exists():
         print(f"ERROR: artifact not found: {path}", file=sys.stderr)
         return 2
-    judge = ClaudeJudge(model=args.judge_model)
     print(f"Regrading {path.name} with Claude judge ({args.judge_model})...")
     try:
+        judge = ClaudeJudge(model=args.judge_model)   # inside the try: see judge-eval above
         summary = regrade_file(path, judge)
     except Exception as exc:
         print(f"ERROR: regrade failed (is ANTHROPIC_API_KEY set and the 'anthropic' SDK installed?): {exc}",
@@ -344,9 +344,12 @@ def _cmd_regrade(args: argparse.Namespace) -> int:
           f"skipped {sk['unknown_objective']} unknown-objective, {sk['run_error']} run-error, "
           f"{sk['structural_verdict']} structural-verdict")
     print(f"Report:    {report_path}")
-    if summary["regraded"] == 0:
-        print("ERROR: 0 rows were regraded — nothing changed (check the objective ids in the "
-              "artifact against objectives.yaml).", file=sys.stderr)
+    if summary["regraded"] == 0 and summary["skipped"]["unknown_objective"]:
+        # Only an UNKNOWN-objective skip is an error. A prompt-leak-only artifact legitimately
+        # regrades nothing: those verdicts are structural and the rubric must not touch them
+        # (code-review minor).
+        print(f"ERROR: 0 rows were regraded and {summary['skipped']['unknown_objective']} row(s) "
+              "named an objective id absent from objectives.yaml.", file=sys.stderr)
         return 1
     return 0
 
@@ -361,11 +364,13 @@ def _cmd_judge_eval(args: argparse.Namespace) -> int:
     names = [n.strip() for n in args.judge.split(",") if n.strip()]
     rc = 0
     for name in names:
-        kw = {}
-        if name == "claude":
-            from .judge_claude import ClaudeJudge
-            kw["claude_judge"] = ClaudeJudge(model=args.judge_model) if args.judge_model else ClaudeJudge()
         try:
+            kw = {}
+            if name == "claude":
+                # Built INSIDE the try: a missing API key is an operator error and must print the
+                # ERROR line like every other failure here, not a traceback (code-review minor).
+                from .judge_claude import ClaudeJudge
+                kw["claude_judge"] = ClaudeJudge(model=args.judge_model) if args.judge_model else ClaudeJudge()
             m = evaluate(name, entries, **kw)
         except Exception as exc:
             print(f"ERROR: {name} judge evaluation failed: {exc}", file=sys.stderr)
