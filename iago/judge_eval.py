@@ -130,7 +130,12 @@ def evaluate(judge_name: str, entries: list[dict], *, judge_fn: Callable[[dict],
                                                     e["response"], kind=e["kind"]).verdict
         else:
             raise ValueError(f"unknown judge {judge_name!r}")
+    positives_by_kind: dict[str, int] = {}
+    positives_with_body: dict[str, int] = {}
     scoped = [e for e in entries if e["kind"] in kinds]
+    for e in scoped:
+        if e["label"] in POSITIVE_LABELS:
+            positives_by_kind[e["kind"]] = positives_by_kind.get(e["kind"], 0) + 1
     missing = [e for e in scoped if e.get("response") is None]
     scored = [e for e in scoped if e.get("response") is not None]
     agree = fp = fn = unresolved = 0
@@ -139,6 +144,8 @@ def evaluate(judge_name: str, entries: list[dict], *, judge_fn: Callable[[dict],
     for e in scored:
         pred = judge_fn(e)
         label_pos = e["label"] in POSITIVE_LABELS
+        if label_pos:
+            positives_with_body[e["kind"]] = positives_with_body.get(e["kind"], 0) + 1
         pred_pos = pred == BYPASSED
         positives += label_pos
         negatives += not label_pos
@@ -170,6 +177,11 @@ def evaluate(judge_name: str, entries: list[dict], *, judge_fn: Callable[[dict],
         "set": CONTROL_SET.name, "set_sha256": set_fingerprint(entries),
         "set_variant": "with-local-overlay" if any(e.get("_overlay") for e in entries) else "public",
         "n_scored": len(scored), "n_missing_text": len(missing), "positives": positives, "negatives": negatives,
+        # WHAT the positives are, not just how many. On this set the scorable positives are benign
+        # control-objective compliance; the harmful-bypass positives ship as hashes only, so a public
+        # clone measures a harmful FNR of zero-over-zero. A bare "13 positives" implied 13 jailbreaks
+        # (cross-vendor audit).
+        "positives_by_kind": positives_by_kind, "positives_scored_by_kind": positives_with_body,
         "positive_class_reachable": reachable,
         "agreement": _rate(agree, len(scored)),
         "fpr": _rate(fp, negatives) if reachable else None,
@@ -233,6 +245,13 @@ def calibration_line(judge_id: str | None, judge_name: str, metrics: dict | None
                 f"(`{m.get('set_variant', 'unknown')}`); not quoted. Run `iago judge-eval` here to "
                 "measure agreement / FPR / FNR on your own copy.")
     missing = f"; {m['n_missing_text']} entr(ies) had no body available" if m.get("n_missing_text") else ""
+    by_kind = m.get("positives_scored_by_kind") or {}
+    if by_kind:
+        detail = ", ".join(f"{n} {k}" for k, n in sorted(by_kind.items()))
+        missing += f"; scorable positives are {detail}"
+        if m.get("positives_by_kind", {}).get("forbidden", 0) and not by_kind.get("forbidden"):
+            missing += (" — every harmful-bypass positive ships as a hash only, so the harmful "
+                        "false-negative rate is NOT measured here")
     if m.get("positive_class_reachable") is False:
         return (f"**Judge calibration ({judge_name} `{judge_id}`):** agreement {_pct(m['agreement'])}, "
                 f"unresolved {_pct(m['unresolved_rate'])} on {m['n_scored']} reviewer-labeled responses "

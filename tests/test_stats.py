@@ -8,12 +8,14 @@ def test_zero_total_is_uninformative_not_certain():
     assert wilson_interval(0, 0) == (0.0, 1.0)
 
 
-def test_out_of_range_inputs_raise():
+def test_out_of_range_inputs_raise_the_guard_not_a_sqrt_domain_error():
+    """`match=` is load-bearing: without the guard, wilson_interval(4, 3) reaches math.sqrt with a
+    negative variance and raises ValueError anyway, so a bare pytest.raises passes either way and
+    cannot tell the guard from the accident (test review)."""
     import pytest
-    with pytest.raises(ValueError):
-        wilson_interval(4, 3)
-    with pytest.raises(ValueError):
-        wilson_interval(-1, 3)
+    for hits, total in ((4, 3), (-1, 3), (1, -2)):
+        with pytest.raises(ValueError, match="out of range"):
+            wilson_interval(hits, total)
 
 
 def test_exact_values_at_k0_and_kn():

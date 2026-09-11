@@ -347,8 +347,14 @@ def _stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
+def _require_chatbot(rows: list[dict]) -> None:
+    from .artifacts import require_surface
+    require_surface(rows, "chatbot", reader="iago compose-delta")
+
+
 def write_compose_report(rows: list[dict], library: list[Technique] | None = None,
                          reports_dir: Path | None = None) -> Path:
+    _require_chatbot(rows)
     out_dir = Path(reports_dir) if reports_dir else REPORTS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"compose_delta_{_stamp()}.md"

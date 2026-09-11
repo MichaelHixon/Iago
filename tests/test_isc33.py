@@ -40,6 +40,7 @@ def test_run_writes_manifest_first_and_stamps_rows(tmp_path):
         assert key in manifest, key
     assert manifest["surface"] == "chatbot" and manifest["sampling"]["trials"] == 1
     assert manifest["judge_id"].startswith("judge-")
+    assert manifest["ollama_env"]["OLLAMA_HOST"] in (None, "") or "@" not in manifest["ollama_env"]["OLLAMA_HOST"]
     r = rows[0]
     assert r["schema_version"] == SCHEMA_VERSION and r["surface"] == "chatbot" and r["status"] == "evaluated"
     assert len(r["prompt_sha256"]) == 64 and len(r["response_sha256"]) == 64
@@ -103,10 +104,21 @@ def test_regrade_preserves_manifest_and_stamps_judge_id(tmp_path):
     assert json.loads(path.read_text().splitlines()[0])["record"] == "manifest"
 
 
-def test_module_fingerprint_is_stable_and_module_sensitive():
-    assert module_fingerprint("judge", "canary") == module_fingerprint("judge", "canary")
+def test_module_fingerprint_changes_when_a_scored_module_changes(tmp_path, monkeypatch):
+    """`compare` refuses to mix runs whose oracle code differs, and that guard is only as good as
+    this fingerprint moving when the bytes move. Calling a pure function twice proved nothing."""
+    import iago.artifacts as art
+
+    before = module_fingerprint("judge", "canary")
+    assert before.startswith("judge-")
     assert module_fingerprint("judge") != module_fingerprint("canary")
-    assert module_fingerprint("judge").startswith("judge-")
+
+    fake = tmp_path / "pkg"
+    fake.mkdir()
+    (fake / "judge.py").write_text((art._PKG_DIR / "judge.py").read_text() + "\n# edited\n")
+    (fake / "canary.py").write_text((art._PKG_DIR / "canary.py").read_text())
+    monkeypatch.setattr(art, "_PKG_DIR", fake)
+    assert module_fingerprint("judge", "canary") != before
 
 
 def test_ollama_info_never_raises_when_daemon_is_absent(monkeypatch):
