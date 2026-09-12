@@ -378,3 +378,175 @@ def test_all_three_calibration_figures_are_pinned():
         sentence = plain[i:plain.index("harmless", i)]
         assert "bypassed in 0/2" in sentence, (name, sentence)
         assert "needs-review in 1/2" in sentence, (name, sentence)
+
+
+# --- ISC-55: the transcripts, which had no cross-renderer test at all -------------------------
+
+def _log_meta(doc: str, is_html: bool) -> list[dict]:
+    """The per-trial metadata line from either transcript, as {field: value} per trial."""
+    if is_html:
+        raw = re.findall(r"<div class=sub>(kind .*?)</div>", doc)
+    else:
+        raw = [l[2:] for l in doc.splitlines() if l.startswith("- kind `")]
+    out = []
+    for line in raw:
+        fields = {}
+        for part in _plain(line).split("·"):
+            bits = part.strip().split(" ", 1)
+            if len(bits) == 2:
+                fields[bits[0]] = bits[1].strip()
+        out.append(fields)
+    return out
+
+
+def _log_fixture():
+    """Two trials that differ ONLY in temperature and decode status — the pair that rendered
+    byte-identical in the HTML transcript."""
+    return [_row(objective_id="o1", trial=0, temperature=0.0, verdict="refused",
+                 gated=True, decoded=False, confidence=0.4),
+            _row(objective_id="o1", trial=1, temperature=1.2, verdict="bypassed",
+                 gated=True, decoded=True, confidence=0.9)]
+
+
+def test_the_two_transcripts_carry_the_same_per_trial_metadata():
+    """`build_log` and `build_html_log` had no cross-renderer test of any kind, and the HTML copy
+    omitted `temp` and `decoded` — so two trials differing only in sampling temperature and decode
+    status rendered identically in the copy a reviewer checks the report against."""
+    from iago.report import build_html_log, build_log
+
+    rows = _log_fixture()
+    md, html = _log_meta(build_log(rows), is_html=False), _log_meta(build_html_log(rows), is_html=True)
+    assert len(md) == len(rows) == len(html), (len(md), len(html))
+    assert md == html, (md, html)
+    # and the two trials are actually distinguishable in the HTML copy
+    assert html[0] != html[1], html
+
+
+@pytest.mark.parametrize("renderer,is_html", [("build_log", False), ("build_html_log", True)],
+                         ids=["md", "html"])
+def test_transcript_confidence_stays_within_range(renderer, is_html):
+    """Doubling the rendered confidence printed 1.60 and survived the whole suite."""
+    import iago.report as _r
+
+    for meta in _log_meta(getattr(_r, renderer)(_log_fixture()), is_html):
+        c = float(meta["confidence"])
+        assert 0.0 <= c <= 1.0, meta
+
+
+def test_both_transcripts_report_the_same_trial_count():
+    """A transcript claiming ten trials where the other claims nine."""
+    from iago.report import build_html_log, build_log
+
+    rows = _log_fixture()
+    # each renderer phrases it its own way: "Total trials: 2" vs "2 trials"
+    md_n = _header_count(build_log(rows), "total trials")
+    html_n = _header_count(build_html_log(rows), "trials")
+    assert md_n and html_n, (md_n, html_n)
+    assert md_n == html_n == str(len(rows)), (md_n, html_n)
+
+
+# --- ISC-55: the four breakdown tables, the entire drill-down of the shared copy ---------------
+
+# Tables one renderer emits and the other does not, each with its reason. Same contract as
+# _MARKDOWN_ONLY_HEADINGS: named, not silently skipped.
+_MARKDOWN_ONLY_TABLES = {
+    "Category": "no HTML equivalent — the shared copy has no category breakdown",
+    "Rank": "no HTML equivalent — the shared copy has no technique breakdown",
+    "Gated technique": "no HTML equivalent — the shared copy has no per-technique decode table",
+}
+
+
+def _cell_figures(text: str) -> frozenset:
+    """Figures in a table row, with fractions expanded to their parts.
+
+    The renderers group the same values differently by design — markdown gives `Leaked | Trials`
+    two columns where HTML writes `1/2` in one — so comparing raw figure strings would fail on a
+    layout choice. Expanding means a wrong VALUE still fails (every measured survivor was a value
+    change: a numerator +1, a denominator +1, a halved rate) while a pure grouping difference does
+    not. A transposition inside an HTML fraction is caught separately, by the `a <= b`
+    internal-consistency check."""
+    out = set()
+    for fig in re.findall(_FIGURE, text):
+        if "/" in fig:
+            out.update(fig.split("/"))
+        else:
+            out.add(fig)
+    return frozenset(out)
+
+
+def _tables(doc: str, is_html: bool) -> dict:
+    """{first column header: {row label: frozenset(figures)}} for every table in the document.
+
+    Keyed on the row LABEL rather than position, so a reordered table is not a false failure —
+    row order legitimately differed between renderers until the sort tiebreaks were matched, and
+    the figures are what this asserts."""
+    out = {}
+    if is_html:
+        for tbl in re.findall(r"<table.*?</table>", doc, re.S):
+            heads = [_plain(c).strip() for c in re.findall(r"<th[^>]*>(.*?)</th>", tbl, re.S)]
+            if not heads:
+                continue
+            rows = {}
+            for tr in re.findall(r"<tr>(.*?)</tr>", tbl, re.S):
+                cells = [_plain(c).strip() for c in re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)]
+                if cells:
+                    rows[cells[0]] = _cell_figures(" ".join(cells[1:]))
+            if rows:
+                out[heads[0]] = rows
+        return out
+    block, header = [], None
+    for line in doc.splitlines() + [""]:
+        if line.startswith("|"):
+            block.append(line)
+            continue
+        if len(block) >= 3:
+            header = [c.strip() for c in block[0].strip("|").split("|")]
+            rows = {}
+            for line2 in block[2:]:
+                cells = [_plain(c).strip() for c in line2.strip("|").split("|")]
+                if cells:
+                    rows[cells[0]] = _cell_figures(" ".join(cells[1:]))
+            if rows:
+                out[header[0]] = rows
+        block = []
+    return out
+
+
+def _table_fixture():
+    """Two techniques per finding kind, so every breakdown table renders more than one row."""
+    rows = list(_fixture())
+    for i, (kind, tid) in enumerate([("prompt-leak", "lk"), ("trust-escalation", "tr"),
+                                     ("unsafe-output", "us"), ("dead-end", "de")]):
+        for j in range(2):
+            rows.append(_row(objective_id=f"t-{kind}-{j}", objective_kind=kind,
+                             technique_id=f"{tid}-{j}", trial=j,
+                             verdict="bypassed" if j == 0 else "refused",
+                             **({"sink": "html" if j == 0 else "shell"} if kind == "unsafe-output" else {}),
+                             **({"deadend_signal": "result-channel", "deadend_control": False}
+                                if kind == "dead-end" else {})))
+    return rows
+
+
+def test_the_breakdown_table_allowlist_matches_what_the_renderers_emit():
+    """Same contract as the heading allowlist: a table added to HTML later must not sit silently
+    in the exemption list."""
+    rows = _table_fixture()
+    md_t = set(_tables(build_report(rows), is_html=False))
+    html_t = set(_tables(build_html_report(rows), is_html=True))
+    assert set(_MARKDOWN_ONLY_TABLES) == md_t - html_t, {
+        "listed but now shared or gone": set(_MARKDOWN_ONLY_TABLES) - (md_t - html_t),
+        "markdown-only but unlisted": (md_t - html_t) - set(_MARKDOWN_ONLY_TABLES),
+    }
+
+
+def test_every_shared_breakdown_table_agrees_cell_for_cell():
+    """Seven separate cell mutations survived the suite, including denominators — a "2/1" cell
+    shipped green. These four tables are the whole drill-down of the shared copy, because HTML has
+    no category or technique breakdown at all."""
+    rows = _table_fixture()
+    md_t = _tables(build_report(rows), is_html=False)
+    html_t = _tables(build_html_report(rows), is_html=True)
+    shared = set(md_t) & set(html_t)
+    assert shared, (sorted(md_t), sorted(html_t))
+    for key in sorted(shared):
+        assert md_t[key] == html_t[key], (key, md_t[key], html_t[key])
