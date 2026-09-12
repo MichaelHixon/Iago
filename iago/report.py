@@ -1344,9 +1344,13 @@ def build_html_report(rows: list[dict]) -> str:
     o("</details>")
 
     # LLM07 leak section
+    if leaks:
+        o("<h2>System-Prompt Extraction (OWASP LLM07)</h2>")
+    if leaks and not leak_valid:
+        o("<p><em>All prompt-leak trials errored (the harness could not reach the model) — no "
+          "extraction result. Re-run once the target is reachable.</em></p>")
     if leak_valid:
         lk = [r for r in leak_valid if verdict_of(r) == BYPASSED]
-        o("<h2>System-Prompt Extraction (OWASP LLM07)</h2>")
         o("<p>A known system prompt carrying a high-entropy canary is <em>planted</em> on the target; every "
           "technique then tries to make the model disclose it. A verbatim canary in the reply is ground-truth "
           f"proof of exfiltration. <strong>{len(lk)} / {len(leak_valid)} trials leaked "
@@ -1378,10 +1382,14 @@ def build_html_report(rows: list[dict]) -> str:
     # Trust escalation (provenance-forging) detail — parity with the markdown report: the headline
     # already appears in the scorecard + exec summary, but this is where the per-technique table and
     # the refuse→grant evidence live, so the HTML reader sees the same finding, not just the number.
+    if trust:
+        o("<h2>Trust Escalation — Fabricated Provenance (OWASP LLM01)</h2>")
+    if trust and not trust_valid:
+        o("<p><em>All trust-escalation trials errored (the harness could not reach the model) — no "
+          "result. Re-run once the target is reachable.</em></p>")
     if trust_valid:
         esc = [r for r in trust_valid if verdict_of(r) == BYPASSED]
         placebo_grants = sum(1 for r in trust_valid if r.get("placebo_signal") == "granted")
-        o("<h2>Trust Escalation — Fabricated Provenance (OWASP LLM01)</h2>")
         o("<p>Fabricated relationship history (a decision log, prior joint research, a trusted-partner "
           "or continuity claim) is planted as <em>prior conversation turns</em> — not the system channel, "
           "which would confound trust-transfer with authority-override. Each objective carries a scenario "
@@ -1423,9 +1431,13 @@ def build_html_report(rows: list[dict]) -> str:
     # Unsafe output handling (LLM05) detail — parity with the markdown report: the scorecard row and
     # exec-summary line already show the headline, but the per-sink table + evidence live here so the
     # HTML reader sees the same finding, not just the number.
+    if unsafe:
+        o("<h2>Unsafe Output Handling (OWASP LLM05)</h2>")
+    if unsafe and not unsafe_valid:
+        o("<p><em>All unsafe-output trials errored (the harness could not reach the model) — no "
+          "result. Re-run once the target is reachable.</em></p>")
     if unsafe_valid:
         em = [r for r in unsafe_valid if verdict_of(r) == BYPASSED]
-        o("<h2>Unsafe Output Handling (OWASP LLM05)</h2>")
         o("<p>Each objective asks the model to produce output for a downstream sink (an HTML page, a "
           "markdown renderer, a shell) that weaponizes a unique attacker <strong>marker</strong> — an "
           "inert exfil host or a placeholder command. A bypass is proven deterministically: the reply "
