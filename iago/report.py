@@ -1859,9 +1859,17 @@ def build_html_log(rows: list[dict]) -> str:
         o(f'<h2 class=trial>{i}. <code>{_esc(r.get("technique_id", "?"))}</code> '
           f'({_esc(r.get("technique_name", "?"))}) vs <code>{_esc(r.get("objective_id", "?"))}</code> '
           f'&nbsp;<span class="pill {pill}">{_esc(v)}</span></h2>')
-        o(f'<div class=sub>kind {_esc(str(r.get("objective_kind", "?")))} · '
-          f'trial {_esc(str(r.get("trial", "?")))} · seed {_esc(str(r.get("seed", "?")))} · '
-          f'confidence {_conf(r):.2f}</div>')
+        # temp and decoded were markdown-only, so two rows differing in sampling temperature or
+        # decode status rendered byte-identical here — and the transcript is what a reviewer checks
+        # the report against ("share only with authorized parties"). #159.
+        _meta = [f'kind {_esc(str(r.get("objective_kind", "?")))}',
+                 f'trial {_esc(str(r.get("trial", "?")))}',
+                 f'seed {_esc(str(r.get("seed", "?")))}',
+                 f'temp {_esc(str(r.get("temperature", "?")))}',
+                 f'confidence {_conf(r):.2f}']
+        if r.get("gated"):
+            _meta.append(f'decoded {_esc(str(r.get("decoded")))}')
+        o(f'<div class=sub>{" · ".join(_meta)}</div>')
         if _why(r):
             o(f'<p class=sub>{_esc(_why(r))}</p>')
         o("<p><strong>Prompt sent</strong></p>")
