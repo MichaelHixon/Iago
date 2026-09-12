@@ -31,6 +31,31 @@ CALIBRATION_DIR = Path(__file__).resolve().parent / "calibration"
 CONTROL_SET = CALIBRATION_DIR / "judge_control_set.jsonl"
 OVERLAY = CALIBRATION_DIR / "judge_control_set.local.jsonl"
 METRICS_PATH = CALIBRATION_DIR / "judge_metrics.json"
+#: A path guaranteed not to exist, used to force load_control_set to skip the overlay so a
+#: measurement and its verification read the SAME public set (one constant, not two spellings).
+NO_OVERLAY_SENTINEL = Path("/nonexistent-overlay")
+
+
+class NonReproducibleMetricsRefused(RuntimeError):
+    """Raised by write_metrics rather than clobber the SHIPPED metrics file with a measurement a
+    clone cannot reproduce. The committed judge_metrics.json is public-reproducible by contract
+    (test_shipped_metrics_are_public_and_reproducible_here), so only metrics measured on the shipped
+    public control set may land there by default. Two routes reach the same harm: the local overlay
+    of withheld harmful bodies (`set_variant == "with-local-overlay"`), and a custom `--set` whose
+    `set_sha256` differs from the shipped set's — both make the public artifact unreproducible
+    (ISC-51; the second route surfaced in the code review that gated it). Writes to an explicit
+    non-shipped path, and `--no-overlay` measurements of the shipped set, are unaffected.
+
+    This is a best-effort EARLY WARNING, not the authoritative gate: it verifies against the control
+    set ON DISK, so an uncommitted in-place edit of the canonical set is invisible to it (Council).
+    The authoritative public-reproducibility gate is the CI test
+    test_shipped_metrics_are_public_and_reproducible_here, which compares the COMMITTED metrics
+    against the COMMITTED control set. The guard fails CLOSED: it refuses unless the metrics
+    positively verify against the shipped set."""
+
+
+# Exported for callers/tests written before the guard was broadened beyond the overlay route.
+OverlayWriteRefused = NonReproducibleMetricsRefused
 
 
 def _writable_metrics_path() -> Path:
@@ -208,12 +233,49 @@ def load_metrics(path: Path | str | None = None) -> dict:
     return json.loads(p.read_text()) if p.exists() else {}
 
 
-def write_metrics(result: dict, path: Path | str | None = None) -> Path:
-    """Store under metrics[judge_id][judge_name]; other judges' entries are kept."""
+def _shipped_public_fingerprint() -> str | None:
+    """The fingerprint of the shipped control set AS A CLONE SEES IT — no overlay merged. Best-effort:
+    returns None if the set cannot be read, so a write is never blocked because the check itself broke
+    (the self-contained overlay test below still fires in that case)."""
+    try:
+        return set_fingerprint(load_control_set(overlay=NO_OVERLAY_SENTINEL))
+    except (OSError, ValueError, json.JSONDecodeError):
+        # A genuine logic bug (e.g. a KeyError from schema drift) is NOT swallowed here — it should
+        # surface, not be masked as "set unreadable". Only real read/parse failures return None,
+        # and the caller fails CLOSED on None at the shipped path.
+        return None
+
+
+def write_metrics(result: dict, path: Path | str | None = None, *, allow_overlay: bool = False) -> Path:
+    """Store under metrics[judge_id][judge_name]; other judges' entries are kept. Refuses to write a
+    measurement a clone cannot reproduce over the shipped METRICS_PATH unless `allow_overlay` — an
+    overlay measurement OR one made on a different control set (ISC-51)."""
     p = Path(path) if path else _writable_metrics_path()
+    if not allow_overlay and p.resolve() == METRICS_PATH.resolve():
+        # Fail CLOSED: allow only when the metrics POSITIVELY verify against the shipped set. If the
+        # set could not be read (expected is None) we refuse rather than fall through — the reader
+        # side (calibration_line) fails closed on the same failure, and the writer must not be looser
+        # than the reader (Council). `not reproducible` already subsumes the overlay case (a filled
+        # overlay changes the fingerprint), so the overlay flag only phrases the reason — it is not a
+        # second condition that could go unpinned (Council test-quality finding).
+        expected = _shipped_public_fingerprint()
+        reproducible = expected is not None and result.get("set_sha256") == expected
+        if not reproducible:
+            why = ("overlay-measured (set_variant=with-local-overlay)"
+                   if result.get("set_variant") == "with-local-overlay"
+                   else "measured on a different control set than the shipped one" if expected is not None
+                   else "not verifiable against the shipped control set (it could not be read)")
+            raise NonReproducibleMetricsRefused(
+                f"refusing to overwrite the shipped {METRICS_PATH.name} with metrics that are {why}; "
+                f"it must stay public-reproducible. Re-run `iago judge-eval --no-overlay` on the shipped "
+                f"set to update it, or pass --allow-overlay-write to force.")
     data = load_metrics(p)
     data.setdefault(result["judge_id"], {})[result["judge"]] = {k: v for k, v in result.items() if k != "disagreements"}
-    p.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+    # Atomic replace so an interrupt/ENOSPC mid-write can never leave the committed file truncated
+    # (Council nit): write a sibling temp, then rename over the target.
+    tmp = p.with_name(f"{p.name}.tmp{os.getpid()}")
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+    os.replace(tmp, p)
     return p
 
 

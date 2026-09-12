@@ -375,9 +375,9 @@ def _cmd_judge_eval(args: argparse.Namespace) -> int:
     """Measure the judges against the labeled control set (ISC-35)."""
     from pathlib import Path
 
-    from .judge_eval import evaluate, load_control_set, write_metrics
+    from .judge_eval import NO_OVERLAY_SENTINEL, OverlayWriteRefused, evaluate, load_control_set, write_metrics
 
-    entries = load_control_set(args.set, overlay=Path("/nonexistent") if args.no_overlay else None)
+    entries = load_control_set(args.set, overlay=NO_OVERLAY_SENTINEL if args.no_overlay else None)
     names = [n.strip() for n in args.judge.split(",") if n.strip()]
     if not names:
         # `--judge ""` (an unset CI variable) used to run no judge and exit 0 — the ISC-31 class
@@ -417,7 +417,11 @@ def _cmd_judge_eval(args: argparse.Namespace) -> int:
             for d in m["disagreements"]:
                 print(f"    {d['id']}: label={d['label']} predicted={d['predicted']}")
         if args.write:
-            print(f"  metrics → {write_metrics(m)}")
+            try:
+                dest = write_metrics(m, allow_overlay=args.allow_overlay_write)
+                print(f"  metrics → {dest}")
+            except OverlayWriteRefused as exc:
+                print(f"  metrics NOT written: {exc}", file=sys.stderr)
     return rc
 
 
@@ -1065,6 +1069,10 @@ def build_parser() -> argparse.ArgumentParser:
     je.add_argument("--judge-model", default=None, help="Claude judge model id (claude only)")
     je.add_argument("--no-write", action="store_false", dest="write",
                     help="print metrics without updating iago/calibration/judge_metrics.json")
+    je.add_argument("--allow-overlay-write", action="store_true",
+                    help="permit writing metrics a clone cannot reproduce (overlay-measured, or on a "
+                         "different --set) over the shipped judge_metrics.json (default: refused so the "
+                         "committed file stays public-reproducible)")
     je.add_argument("--show-disagreements", action="store_true")
     je.set_defaults(func=_cmd_judge_eval)
 
