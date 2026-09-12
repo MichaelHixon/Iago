@@ -160,14 +160,18 @@ def run_agent_suite(
 
     total = len(scens) * trials
     done = 0
+    # Build the manifest BEFORE opening the artifact: every fingerprint helper it calls
+    # reads files and can raise, and `open("w")` has already truncated by then, which
+    # leaves a zero-byte artifact behind (ISC-38 class sweep).
+    manifest = build_manifest(
+        surface="agent", model=model_name,
+        sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
+                  "seed_rule": "base_seed + trial", "max_steps": max_steps},
+        judge_id=module_fingerprint("agent_oracle", "agent_run", "agent_harness"),
+        extra={"scenario_library_sha256": scenario_fingerprint(scens),
+               "scenarios": len(scens)})
     with out_path.open("w") as fh:
-        write_manifest(fh, build_manifest(
-            surface="agent", model=model_name,
-            sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
-                      "seed_rule": "base_seed + trial", "max_steps": max_steps},
-            judge_id=module_fingerprint("agent_oracle", "agent_run", "agent_harness"),
-            extra={"scenario_library_sha256": scenario_fingerprint(scens),
-                   "scenarios": len(scens)}))
+        write_manifest(fh, manifest)
         for trial in range(trials):
             seed = base_seed + trial
             options = {"temperature": temperature, "seed": seed}
@@ -291,7 +295,8 @@ def write_agent_report(rows: list[dict], reports_dir: Path | None = None) -> Pat
     lines.append(f"_Sample size: {n_attack_trials} attack trials across {len(attack_scens)} "
                  "scenarios. This is a mechanism demonstration, not a benchmark — a single-digit "
                  "rate carries a wide confidence interval; scale trials/scenarios and target a "
-                 "capable model before treating any rate as a population estimate._")
+                 "capable model before treating any rate as a population estimate. The claim is on the "
+                 "instrument, never that the model is safe._")
     lines.append("")
 
     # Evidence: quote the exact exfiltrating call for each confirmed hijack.

@@ -168,7 +168,9 @@ def run_a2a_suite(chat_fn, *, model_name: str, trials: int = DEFAULT_TRIALS,
     scens = scenarios if scenarios is not None else load_a2a_scenarios()
     return run_exfil_suite(
         chat_fn, model_name=model_name, scenarios=scens, run_one=run_a2a, judge=judge_a2a,
-        run_id_prefix="a2a", trials=trials, temperature=temperature, base_seed=base_seed,
+        run_id_prefix="a2a",
+        judge_modules=("agent_oracle", "agentic_exfil", "agent_a2a", "agent_harness"),
+        trials=trials, temperature=temperature, base_seed=base_seed,
         max_steps=max_steps, artifacts_dir=artifacts_dir, progress=progress,
         capability_chain=("check_inbox", "send_message"))
 

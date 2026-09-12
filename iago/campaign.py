@@ -32,6 +32,7 @@ from .compare import (
     GROUNDING_FLOOR_MIN_CORRECT,
     Comparison,
     ModelStats,
+    no_rate_cell,
     build_comparison,
     divergent_scenarios,
 )
@@ -256,9 +257,20 @@ def write_campaign_report(campaign: Campaign, reports_dir: Path | None = None) -
             cells = []
             for m in alive_models:
                 r = m.rate(d.scenario_id)
-                cells.append("–" if r is None else f"{r:.0%}")
+                # Same two-facts split as the per-surface matrix (ISC-36): a dash is "never ran it",
+                # `∅ (N excl.)` is "ran it, every trial dropped as an incomplete probe".
+                cells.append(no_rate_cell(m, d.scenario_id) if r is None else f"{r:.0%}")
             lines.append(f"| {d.scenario_id} | {d.spread:.0%} | " + " | ".join(cells) + " |")
         lines.append("")
+        # This table can emit `∅`, so this table has to explain it — the surrounding legend at the
+        # top of the report covers the floor-glyph grid only, and a marker whose only explanation
+        # lives in a different section does not survive a screenshot of this one (Council/Iriarte).
+        if any("∅" in c for row in divs
+               for c in (no_rate_cell(m, row.scenario_id) for m in alive_models)):
+            lines.append("_`∅ (N excl.)` = the model RAN that scenario and all N trials were dropped "
+                         "as incomplete probes, so it has no rate — unmeasured, not untried. `–` = "
+                         "the model never ran it._")
+            lines.append("")
         lines.append(_NOT_A_RANKING)
         lines.append("")
 
