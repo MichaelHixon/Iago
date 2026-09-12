@@ -28,12 +28,18 @@ _SHARED_LABELS = (
     "Dead-end scope-holding",
 )
 
-# Labels whose sentences present the SAME figures in a different order by design. Named here
-# rather than silently tolerated: every other label is compared ordered, so a swapped numerator
-# and denominator fails.
-_ORDER_MAY_DIFFER = {
-    "Dead-end scope-holding": "markdown leads with the stop rate, HTML with the fabrication rate",
-}
+# Claim phrases that must carry the same figures in both copies. Comparing a flat positional
+# tuple was not enough: swapping which figure attached to "fabricated a completion" and which to
+# "used a machine stop channel" produced byte-identical tuples, so an inverted finding shipped
+# green — and the ordering exemption that was supposed to cover it pointed the wrong way.
+_CLAIM_PHRASES = (
+    "fabricated a completion",
+    "machine stop channel",
+    "leaked the planted canary",
+    "flipped a refusal to compliance",
+    "emitted a live injectable construct",
+    "confirmed bypasses",
+)
 
 # "1/3", "33%", "21%–100%", "6%-79%"
 _FIGURE = r"\d+(?:\.\d+)?%?(?:/\d+)?(?:[–-]\d+(?:\.\d+)?%?)?"
@@ -138,9 +144,13 @@ def _scorecard_rows(doc: str, is_html: bool) -> list[tuple]:
 
 
 def _fixture():
-    """One run exercising every shared surface: a forbidden objective with a bypass and two holds,
-    a control, a leak, a trust escalation, an unsafe-output emission, and a dead-end unsolvable
-    alongside its solvable control."""
+    """One run exercising every shared surface AND every verdict.
+
+    Row-shape diversity is load-bearing, not decoration. With nine clean rows every scorecard row
+    read VULNERABLE, so hardcoding the verdict into the HTML pill survived the whole suite; and
+    with no needs-review row, a diverged `leak_valid` filter rendered 2/3 (67%) in one copy and
+    2/4 (50%) in the other while both parsers still agreed. One row of each shape turns both
+    survivors into kills with no new assertion logic."""
     return [
         _row(objective_id="o-forb", trial=0, verdict="bypassed"),
         _row(objective_id="o-forb", trial=1, verdict="refused"),
@@ -156,6 +166,16 @@ def _fixture():
              verdict="bypassed", deadend_signal="result-channel", deadend_control=False),
         _row(objective_id="o-de-c", objective_kind="dead-end", technique_id="t5",
              verdict="refused", deadend_signal="control-correct", deadend_control=True),
+        # an objective that HELD, so the verdict column is not a constant
+        _row(objective_id="o-clean", trial=0, verdict="refused"),
+        _row(objective_id="o-clean", trial=1, verdict="refused"),
+        # a needs-review row: without one, the valid-row filters cannot be seen to diverge
+        _row(objective_id="o-leak", objective_kind="prompt-leak", technique_id="t2", trial=1,
+             verdict="needs-review"),
+        # an errored row, excluded from every rate
+        _row(objective_id="o-forb", trial=3, verdict="error"),
+        # a decode-failed row: reached the model but never exercised the guardrail
+        _row(objective_id="o-forb", trial=4, verdict="refused", gated=True, decoded=False),
     ]
 
 
@@ -164,18 +184,21 @@ def test_the_extractor_reads_what_a_human_reads():
     () == () and every mutation passes. Pin the extractor against a hand-read of the fixture."""
     md_doc = build_report(_fixture())
     summary = _exec_summary(md_doc)
-    # 1 of 3 forbidden trials was a confirmed bypass, at 33%
-    assert _numbers_after(summary, "Harmful content")[:3] == ("1", "3", "33%")
-    assert _numbers_after(summary, "System-prompt extraction (LLM07)")[:2] == ("1", "1")
+    # o-forb contributes 3 valid trials (its errored and decode-failed rows are excluded) and
+    # o-clean 2, so 1 confirmed bypass out of 5 valid forbidden trials, at 20%
+    assert _numbers_after(summary, "Harmful content")[:3] == ("1", "5", "20%")
+    # the leak objective has one bypass and one needs-review row, both valid
+    assert _numbers_after(summary, "System-prompt extraction (LLM07)")[:2] == ("1", "2")
     assert _numbers_after(summary, "Nonexistent label") is None
 
     rows = _scorecard_rows(md_doc, is_html=False)
-    assert len(rows) == 5, rows            # forbidden, leak, trust, unsafe, dead-end
+    assert len(rows) == 6, rows       # o-forb, o-clean, leak, trust, unsafe, dead-end
     forb = next(r for r in rows if r[1] == "o-forb")
     assert forb[2] == "VULNERABLE" and "1/3" in forb[3], forb
+    # the verdict column is not a constant, which is what makes comparing it meaningful
+    assert next(r for r in rows if r[1] == "o-clean")[2] == "INCONCLUSIVE", rows
 
-    # 9 fixture rows, one of them a control, which is not scored
-    assert _header_count(md_doc, "scored trials") == "8", _header_count(md_doc, "scored trials")
+    assert _header_count(md_doc, "scored trials") == "11", _header_count(md_doc, "scored trials")
 
 
 @pytest.mark.parametrize("label", _SHARED_LABELS)
@@ -191,8 +214,7 @@ def test_executive_summary_numbers_agree_across_renderers(label):
     # every figure, with multiplicity: a changed, dropped or invented number fails here whatever
     # the sentence order
     assert Counter(md_nums) == Counter(html_nums), (label, md_nums, html_nums)
-    if label not in _ORDER_MAY_DIFFER:
-        assert md_nums == html_nums, (label, md_nums, html_nums)
+    assert md_nums == html_nums, (label, md_nums, html_nums)
 
 
 def test_scorecard_rows_agree_across_renderers():
@@ -213,3 +235,47 @@ def test_header_counts_agree_across_renderers(noun):
     html_n = _header_count(build_html_report(rows), noun)
     assert md_n is not None and html_n is not None, (noun, md_n, html_n)
     assert md_n == html_n, (noun, md_n, html_n)
+
+
+def _claim_figures(text: str) -> dict:
+    """{claim phrase: figures in the clause that makes it}, for every phrase present.
+
+    Positional comparison cannot see a claim INVERSION — swap which figure attaches to "fabricated
+    a completion" and which to "machine stop channel" and the flat tuple is unchanged, so the
+    shared copy can report the exact inverse of the finding and stay green. Clauses are split on
+    `;` because that is how both renderers join two claims in one sentence."""
+    out = {}
+    for clause in re.split(r"[;.] ", text):
+        for phrase in _CLAIM_PHRASES:
+            if phrase in clause:
+                out.setdefault(phrase, []).append(tuple(re.findall(_FIGURE, clause)))
+    return out
+
+
+def test_each_claim_carries_the_same_figures_in_both_renderers():
+    """The inversion test. Swapping the dead-end fabrication and stop figures in one renderer left
+    all 945 tests green while the two copies reported opposite findings about the same run."""
+    rows = _fixture()
+    md = _claim_figures(_exec_summary(build_report(rows)))
+    html = _claim_figures(_exec_summary(build_html_report(rows)))
+    assert md, "no claim phrases found in markdown — the parser found nothing"
+    assert set(md) == set(html), (sorted(md), sorted(html))
+    for phrase in md:
+        assert md[phrase] == html[phrase], (phrase, md[phrase], html[phrase])
+
+
+@pytest.mark.parametrize("renderer", [build_report, build_html_report], ids=["md", "html"])
+def test_every_figure_in_a_report_is_internally_consistent(renderer):
+    """Not a differential — a differential structurally CANNOT catch a shared helper. Swapping the
+    bounds inside `ci_str` reverses every confidence interval in BOTH copies at once, so the two
+    still agree and the suite stays green. These assertions read one document on its own terms."""
+    doc = _plain(renderer(_fixture()))
+
+    for a, b in re.findall(r"(\d+) ?/ ?(\d+)", doc):
+        assert int(a) <= int(b), f"{a}/{b} claims more events than trials"
+
+    for lo, hi in re.findall(r"(\d+)%[–-](\d+)%", doc):
+        assert int(lo) <= int(hi), f"confidence interval {lo}%–{hi}% is reversed"
+
+    for conf in re.findall(r"\bconfidence[^0-9]{0,20}(\d+\.\d+)", doc):
+        assert 0.0 <= float(conf) <= 1.0, f"confidence {conf} outside [0, 1]"
