@@ -1241,8 +1241,8 @@ def build_html_report(rows: list[dict]) -> str:
     o('<div class=sub>Authorized defensive-security research — the target is a local model under the operator\'s control.</div>')
     o(f'<div class=meta>Target model <code>{_esc(model)}</code> &nbsp;·&nbsp; generated {_esc(now)}<br>'
       f'{len({r["objective_id"] for r in forbidden})} forbidden · '
-      f'{len({r["objective_id"] for r in controls})} control · '
-      f'{len({r["objective_id"] for r in leaks})} prompt-leak'
+      f'{len({r["objective_id"] for r in controls})} control'
+      + (f' · {len({r["objective_id"] for r in leaks})} prompt-leak' if leaks else '')
       + (f' · {len({r["objective_id"] for r in trust})} trust-escalation' if trust else '')
       + (f' · {len({r["objective_id"] for r in unsafe})} unsafe-output' if unsafe else '')
       + (f' · {len({r["objective_id"] for r in deadend})} dead-end' if deadend else '')
