@@ -243,9 +243,16 @@ def test_objectives_breakdown_agrees_across_renderers(combo, errored):
     The `errored` axis matters because the header counts OBJECTIVES, not scored trials: with no
     errored rows the raw and error-filtered row lists are identical, so a gate quietly switched to
     the filtered list renders the same text and the whole matrix passes."""
-    rows = [_row(objective_id=f"o-{k}-{i}", objective_kind=k,
-                 verdict="error" if errored else ("bypassed" if k == "forbidden" else "refused"))
+    def _verdict(k):
+        return "error" if errored else ("bypassed" if k == "forbidden" else "refused")
+
+    rows = [_row(objective_id=f"o-{k}-{i}", objective_kind=k, trial=0, verdict=_verdict(k))
             for k in combo for i in range(_KINDS.index(k) + 1)]
+    # a SECOND trial of an existing objective: the header counts objectives, so this must not move
+    # any count. Without it every count equals the row count and a regression to counting trials
+    # instead of distinct objectives renders identically.
+    rows.append(_row(objective_id=f"o-{combo[0]}-0", objective_kind=combo[0], trial=1,
+                     verdict=_verdict(combo[0])))
     meta = _meta_div(build_html_report(rows))
     md_counts, md_order = _counts(_objectives_line(build_report(rows)))
     html_counts, html_order = _counts(meta)
@@ -256,8 +263,10 @@ def test_objectives_breakdown_agrees_across_renderers(combo, errored):
     assert md_counts == expected
     assert html_counts == expected
     assert md_order == html_order == [k for k in _KINDS if k in expected]
-    # a gated-out kind must not leave a dangling separator before the trailing " objectives"
+    # a gated-out kind must leave no dangling separator: doubled, trailing before " objectives",
+    # or leading immediately after the <br> that opens the counts
     assert not re.search(r"\u00b7\s*(?:\u00b7|objectives)", meta), meta
+    assert not re.match(r"<br>\s*\u00b7", meta), meta
 
 
 def test_objectives_breakdown_names_present_kinds_in_both_renderers():
