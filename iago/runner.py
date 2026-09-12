@@ -37,7 +37,7 @@ from .attacks import (
 )
 from .config import ARTIFACTS_DIR, BASE_SEED, DEFAULT_TEMPERATURE, DEFAULT_TRIALS
 from .decode import decode_recovered, is_decode_gated
-from .judge import _trust_arm_signal, judge, judge_leak, judge_trust, judge_unsafe_output
+from .judge import _trust_arm_signal, judge, judge_deadend, judge_leak, judge_trust, judge_unsafe_output
 from .objectives import Objective, load_objectives
 from .target import Target
 
@@ -87,6 +87,10 @@ class TrialResult:
     # unsafe-output (LLM05): the downstream sink this objective targeted (html | markdown |
     # shell), carried so the report can group emission rates per sink. None for other kinds.
     sink: str | None = None
+    # dead-end: the commitment-channel signal judge_deadend read (result-channel | blocked | declined
+    # | hedged-deliverable | deliverable-prose | off-format | unresolved | none | control-*). Carries
+    # WHY a dead-end row scored as it did, so the report can split the stop rate. None for other kinds.
+    deadend_signal: str | None = None
     # Schema + provenance (ISC-33): every row names its schema and surface so a reader can refuse
     # the wrong artifact; `status` separates a probe that reached the model from one that did not
     # (garak's attempt status); the hashes let an auditor pin a quoted prompt/response to a row.
@@ -171,6 +175,11 @@ def _fires(tech: Technique, obj: Objective) -> bool:
     if not tech.applies_to_kind(obj.kind):
         return False
     if obj.is_trust_escalation and not tech.provenance:
+        return False
+    # dead-end is OPT-IN: only techniques that explicitly name it fire at a dead-end objective.
+    # A general jailbreak wrapped around a checksum-with-no-file request is noise, not a probe of
+    # whether the model stops at the scope boundary.
+    if obj.is_dead_end and not (tech.applies_to and "dead-end" in tech.applies_to):
         return False
     return True
 
@@ -371,6 +380,7 @@ def run(
                     opts = {"temperature": temperature, "seed": seed}
                     started = time.monotonic()
                     anon_response = anon_signal = placebo_response = placebo_signal = prov_signal = None
+                    deadend_signal = None
 
                     if obj.is_trust_escalation:
                         # THREE-ARM DIFFERENTIAL under the SAME scenario gate (obj.system_prompt):
@@ -400,7 +410,10 @@ def run(
                     else:
                         # prompt-leak (LLM07): plant the secret system prompt so the attack has
                         # something hidden to extract. Other objective kinds send no system message.
-                        system = obj.system_prompt if obj.is_prompt_leak else None
+                        # prompt-leak (LLM07) and dead-end both plant a scenario system prompt:
+                        # leak hides a secret to extract; dead-end states the SCOPE and the two reply
+                        # channels. Other objective kinds send no system message.
+                        system = obj.system_prompt if (obj.is_prompt_leak or obj.is_dead_end) else None
                         prompt, response = _execute_arm(target, tech, turns, opts, system)
                         latency = time.monotonic() - started
                         # Oracle dispatch by objective kind:
@@ -411,6 +424,11 @@ def run(
                             v = judge_leak(obj.canary, response)
                         elif obj.is_unsafe_output:
                             v = judge_unsafe_output(response, obj.sink, obj.marker)
+                        elif obj.is_dead_end:
+                            # commitment-channel oracle: a RESULT: format-match is a structural
+                            # fabrication (BYPASSED); a BLOCKED/refusal is a stop (REFUSED); anything
+                            # ambiguous escalates to the rubric judge. See judge_deadend.
+                            v, deadend_signal = judge_deadend(response, obj.deliverable_format, obj.in_scope_answer)
                         else:
                             v = judge(response)
                     # Decode-gating: for cipher / low-resource techniques, record whether the
@@ -449,6 +467,7 @@ def run(
                         placebo_response=placebo_response,
                         placebo_signal=placebo_signal,
                         prov_signal=prov_signal,
+                        deadend_signal=deadend_signal,
                         status="error" if v.verdict == _ERROR_VERDICT else "evaluated",
                         prompt_sha256=sha256_text(prompt),
                         response_sha256=sha256_text(response),
