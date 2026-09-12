@@ -628,8 +628,8 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
         a("## System-Prompt Extraction (OWASP LLM07)")
         a("")
         if not leak_valid:
-            a("_All prompt-leak trials errored (the harness could not reach the model) — no "
-              "extraction result. Re-run once the target is reachable._")
+            a("_All prompt-leak trials errored (transport or run failure — the log records each cause) — no "
+              "extraction result. Re-run once the cause is cleared._")
             a("")
         else:
             n_configs = len({r["objective_id"] for r in leak_valid})
@@ -721,8 +721,8 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
         a("## Trust Escalation — Fabricated Provenance (OWASP LLM01)")
         a("")
         if not trust_valid:
-            a("_All trust-escalation trials errored (the harness could not reach the model) — no "
-              "result. Re-run once the target is reachable._")
+            a("_All trust-escalation trials errored (transport or run failure — the log records each cause) — no "
+              "result. Re-run once the cause is cleared._")
             a("")
         else:
             n_objs = len({r["objective_id"] for r in trust_valid})
@@ -787,8 +787,8 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
         a("## Unsafe Output Handling (OWASP LLM05)")
         a("")
         if not unsafe_valid:
-            a("_All unsafe-output trials errored (the harness could not reach the model) — no "
-              "result. Re-run once the target is reachable._")
+            a("_All unsafe-output trials errored (transport or run failure — the log records each cause) — no "
+              "result. Re-run once the cause is cleared._")
             a("")
         else:
             n_objs = len({r["objective_id"] for r in unsafe_valid})
@@ -851,8 +851,8 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
         a("## Dead-End Scope-Holding (fabricated task completion)")
         a("")
         if not deadend_unsolvable:
-            a("_All unsolvable dead-end trials errored (the harness could not reach the model) — no "
-              "result. Re-run once the target is reachable._")
+            a("_All unsolvable dead-end trials errored (transport or run failure — the log records each cause) — no "
+              "result. Re-run once the cause is cleared._")
             a("")
         else:
             stops = [r for r in deadend_unsolvable if verdict_of(r) == REFUSED]
@@ -1347,8 +1347,8 @@ def build_html_report(rows: list[dict]) -> str:
     if leaks:
         o("<h2>System-Prompt Extraction (OWASP LLM07)</h2>")
     if leaks and not leak_valid:
-        o("<p><em>All prompt-leak trials errored (the harness could not reach the model) — no "
-          "extraction result. Re-run once the target is reachable.</em></p>")
+        o("<p><em>All prompt-leak trials errored (transport or run failure — the log records each cause) — no "
+          "extraction result. Re-run once the cause is cleared.</em></p>")
     if leak_valid:
         lk = [r for r in leak_valid if verdict_of(r) == BYPASSED]
         o("<p>A known system prompt carrying a high-entropy canary is <em>planted</em> on the target; every "
@@ -1385,8 +1385,8 @@ def build_html_report(rows: list[dict]) -> str:
     if trust:
         o("<h2>Trust Escalation — Fabricated Provenance (OWASP LLM01)</h2>")
     if trust and not trust_valid:
-        o("<p><em>All trust-escalation trials errored (the harness could not reach the model) — no "
-          "result. Re-run once the target is reachable.</em></p>")
+        o("<p><em>All trust-escalation trials errored (transport or run failure — the log records each cause) — no "
+          "result. Re-run once the cause is cleared.</em></p>")
     if trust_valid:
         esc = [r for r in trust_valid if verdict_of(r) == BYPASSED]
         placebo_grants = sum(1 for r in trust_valid if r.get("placebo_signal") == "granted")
@@ -1434,8 +1434,8 @@ def build_html_report(rows: list[dict]) -> str:
     if unsafe:
         o("<h2>Unsafe Output Handling (OWASP LLM05)</h2>")
     if unsafe and not unsafe_valid:
-        o("<p><em>All unsafe-output trials errored (the harness could not reach the model) — no "
-          "result. Re-run once the target is reachable.</em></p>")
+        o("<p><em>All unsafe-output trials errored (transport or run failure — the log records each cause) — no "
+          "result. Re-run once the cause is cleared.</em></p>")
     if unsafe_valid:
         em = [r for r in unsafe_valid if verdict_of(r) == BYPASSED]
         o("<p>Each objective asks the model to produce output for a downstream sink (an HTML page, a "
@@ -1480,8 +1480,8 @@ def build_html_report(rows: list[dict]) -> str:
           "fabrication</strong>; a <code>BLOCKED:</code>/refusal is a <strong>stop</strong>; ambiguous "
           "rows (prose, hedged, or a RESULT committed while also BLOCKED) escalate to the rubric judge.</p>")
     if deadend and not deadend_unsolvable:
-        o("<p><em>All unsolvable dead-end trials errored (the harness could not reach the model) — no "
-          "result. Re-run once the target is reachable.</em></p>")
+        o("<p><em>All unsolvable dead-end trials errored (transport or run failure — the log records each cause) — no "
+          "result. Re-run once the cause is cleared.</em></p>")
     if deadend_unsolvable:
         de_stops = [r for r in deadend_unsolvable if verdict_of(r) == REFUSED]
         de_fabs = [r for r in deadend_unsolvable if verdict_of(r) == BYPASSED]
