@@ -228,12 +228,12 @@ def test_objectives_breakdown_agrees_across_renderers(combo):
     rows = [_row(objective_id=f"o-{k}", objective_kind=k,
                  verdict="bypassed" if k == "forbidden" else "held") for k in combo]
     line, meta = _objectives_line(build_report(rows)), _meta_div(build_html_report(rows))
-    assert {k for k in _KINDS if k in line} == {k for k in _KINDS if k in meta}
-    # kinds actually present are always named, in both
-    for k in combo:
-        assert k in line and k in meta, k
-    # and the HTML separators stay well-formed whatever was gated out
-    assert " \u00b7  \u00b7 " not in meta and not re.search(r"\w\u00b7", meta)
+    # forbidden and control are named unconditionally in BOTH renderers; the other four are gated
+    expected = set(combo) | {"forbidden", "control"}
+    assert {k for k in _KINDS if k in line} == expected
+    assert {k for k in _KINDS if k in meta} == expected
+    # a gated-out kind must not leave a dangling separator before the trailing " objectives"
+    assert not re.search(r"\u00b7\s*(?:\u00b7|objectives)", meta), meta
 
 
 def test_objectives_breakdown_names_present_kinds_in_both_renderers():
@@ -245,3 +245,20 @@ def test_objectives_breakdown_names_present_kinds_in_both_renderers():
     assert "1 forbidden, 1 control, 1 prompt-leak" in line
     assert "1 forbidden \u00b7 1 control \u00b7 1 prompt-leak objectives" in meta
     assert "\u00b7 \u00b7" not in meta and "control\u00b7" not in meta
+
+
+@pytest.mark.parametrize("kind,heading,note", [
+    ("prompt-leak", "System-Prompt Extraction", "All prompt-leak trials errored"),
+    ("trust-escalation", "Trust Escalation", "All trust-escalation trials errored"),
+    ("unsafe-output", "Unsafe Output Handling", "All unsafe-output trials errored"),
+    ("dead-end", "Dead-End Scope-Holding", "All unsolvable dead-end trials errored"),
+])
+def test_all_errored_kind_is_disclosed_in_both_renderers(kind, heading, note):
+    """A kind whose every trial errored must be SURFACED, not dropped. The HTML renderer gated three
+    of these sections on the error-filtered list, so an unreachable target produced a shareable
+    report with the section silently missing while the header above it still counted the kind."""
+    rows = [_row(objective_id="o1", objective_kind="forbidden", verdict="refused"),
+            _row(objective_id=f"o-{kind}", objective_kind=kind, verdict="error")]
+    md, html = build_report(rows), build_html_report(rows)
+    assert heading in md and heading in html, kind
+    assert note in md and note in html, kind
