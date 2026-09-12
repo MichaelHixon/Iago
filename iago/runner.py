@@ -175,22 +175,55 @@ def _fires(tech: Technique, obj: Objective) -> bool:
     return True
 
 
-_DETERMINISM_PROBE = "Reply with exactly the three words: pinned seed check"
+# Instrumentation, not attacks: these stay module constants and never enter the technique library.
+# Open-ended and long enough to leave the point-mass regime a 24-token fixed echo sat in — a
+# near-degenerate generation agrees with itself whether or not the host is bit-reproducible, so the
+# old probe could not fail. These exercise the same regime the matrix does. (ISC-49, superseding
+# ISC-34's two-generation cost bound.)
+_DETERMINISM_PROBE_TOKENS = 160
+_DETERMINISM_PROBES = (
+    "Describe, in one paragraph, how a lighthouse keeper spends a long winter night.",
+    "Invent six unrelated everyday objects and give each a one-sentence origin story.",
+)
 
 
 def _determinism_probe(target: Target, temperature: float, base_seed: int) -> dict:
-    """Fire one fixed, benign probe twice at the run's temperature + base seed and report whether
-    the replies were byte-identical. Two short generations (`num_predict` capped), never written
-    as trial rows. A failure to probe is recorded, never raised — the check informs, the run
-    decides nothing on it."""
-    opts = {"temperature": temperature, "seed": base_seed, "num_predict": 24}
-    try:
-        a = target.generate(_DETERMINISM_PROBE, options=dict(opts))
-        b = target.generate(_DETERMINISM_PROBE, options=dict(opts))
-    except Exception as exc:  # the matrix will surface a real transport failure loudly itself
-        return {"exact_match": None, "error": str(exc)[:200]}
-    return {"exact_match": a == b, "reply_sha256": [sha256_text(a), sha256_text(b)],
-            "probe": _DETERMINISM_PROBE, "options": opts}
+    """Fire each open-ended probe twice at the run's temperature + base seed and report whether the
+    replies were byte-identical. Fired BEFORE the matrix: that position absorbs Ollama's
+    first-generation-after-load effect, and a probe injected mid-run would perturb the very batching
+    it claims to measure. Probe replies are never written as trial rows and never scored.
+
+    The check is ONE-SIDED. A match is evidence this host reproduced those generations at that seed;
+    it is not proof the matrix replays. A mismatch is definitive, so `False` outranks `None` in the
+    aggregate: a probe that raised cannot un-observe a probe that differed. A failure to probe is
+    recorded, never raised — the check informs, the run decides nothing on it."""
+    opts = {"temperature": temperature, "seed": base_seed,
+            "num_predict": _DETERMINISM_PROBE_TOKENS}
+    probes: list[dict] = []
+    generations = 0
+    for text in _DETERMINISM_PROBES:
+        replies = []
+        try:
+            for _ in range(2):
+                replies.append(target.generate(text, options=dict(opts)))
+                generations += 1
+        except Exception as exc:  # the matrix will surface a real transport failure loudly itself
+            probes.append({"probe": text, "exact_match": None, "error": str(exc)[:200]})
+            continue
+        a, b = replies
+        probes.append({"probe": text, "exact_match": a == b,
+                       "reply_sha256": [sha256_text(a), sha256_text(b)]})
+    seen = [pr["exact_match"] for pr in probes]
+    if any(m is False for m in seen):
+        aggregate: bool | None = False
+    elif any(m is None for m in seen) or not seen:
+        aggregate = None
+    else:
+        aggregate = True
+    # `generations` is the number of probe calls that RETURNED, recorded rather than promised by a
+    # number in doctrine — the next tuning of the cap does not have to retire another anti-claim.
+    return {"exact_match": aggregate, "probes": probes, "options": opts,
+            "generations": generations}
 
 
 def _run_id(model: str, now: datetime) -> str:
@@ -216,9 +249,10 @@ def run(
 ) -> Path:
     """Execute the full matrix and write a JSONL artifact file. Returns its path.
 
-    `determinism_check` fires one fixed probe TWICE (same temperature + base seed) before the
-    matrix and records whether the replies matched in the manifest — the README claims
-    same-host reproducibility, and this measures it per run instead of assuming it (ISC-34).
+    `determinism_check` fires each open-ended probe TWICE (same temperature + base seed) before
+    the matrix and records per-probe matches, the aggregate, and the generations spent in the
+    manifest — the README claims same-host reproducibility, and this measures it per run instead
+    of assuming it (ISC-34, strengthened by ISC-49). Skipping it records `null`, not a pass.
 
     `technique_limit` / `objective_limit` cap the matrix for a fast smoke run
     without hammering the model for the whole library. `shots` overrides the
@@ -265,8 +299,10 @@ def run(
     offline_judge_id = module_fingerprint("judge", "canary", "decode")
     determinism = _determinism_probe(target, temperature, base_seed) if determinism_check else None
     if progress and determinism is not None and determinism.get("exact_match") is False:
-        print("  WARNING: the same probe at the same seed produced two DIFFERENT replies — this "
-              "host/build is not bit-reproducible at these settings; the manifest records it.")
+        differed = [pr["probe"] for pr in determinism["probes"] if pr["exact_match"] is False]
+        print(f"  WARNING: {len(differed)} of {len(determinism['probes'])} probes produced two "
+              "DIFFERENT replies at the same seed — this host/build is not bit-reproducible at "
+              "these settings; the manifest records which.")
 
     with out_path.open("w") as fh:
         write_manifest(fh, build_manifest(
