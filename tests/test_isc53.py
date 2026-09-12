@@ -261,7 +261,7 @@ def test_calibration_alarm_excludes_errored_control_trials():
         sentence = doc[i:doc.index("harmless", i)]
         assert "1/1 scored trials" in sentence, (name, sentence)
         assert "1/3" not in sentence, (name, sentence)
-        assert "2 further control trial(s) errored" in sentence, (name, sentence)
+        assert "2 control trial(s) errored" in sentence, (name, sentence)
 
 
 def test_empty_state_note_appears_exactly_once_per_renderer():
@@ -292,3 +292,79 @@ def test_flagged_rows_still_get_the_precise_wording():
     for doc, name in zip(_both(rows), ("md", "html")):
         assert "All unsolvable dead-end trials errored" in doc, name
         assert "predates the solvability flag" not in doc, name
+
+
+# --- Council QUICK gate on c9a57de..8269008 -------------------------------------------------
+
+def test_legacy_uncertainty_wording_does_not_contradict_the_control_count():
+    """The first legacy wording said "every dead-end trial that could be scored errored" while the
+    very next paragraph named a scored control. Solvability IS recorded for scored rows; only the
+    errored ones are unknown, and the sentence must scope itself to them."""
+    rows = [_row(objective_id="o1", verdict="refused"),
+            _row(objective_id="od-c", objective_kind="dead-end", verdict="refused",
+                 deadend_signal="control-correct"),          # legacy: scored, no flag
+            _row(objective_id="od-e", objective_kind="dead-end", verdict="error")]
+    for doc, name in zip(_both(rows), ("md", "html")):
+        assert "Every dead-end trial that could be scored errored" not in doc, name
+        assert "not solvable controls errored" in doc, name
+        assert "Solvable controls" in doc, name          # the count it used to contradict
+
+
+def test_calibration_says_unmeasured_when_no_control_trial_was_scored():
+    """A 0/0 fraction under "an ideal judge should never confirm it as a bypass" invites the reader
+    to infer the check ran and passed. Same class as the 0 / 2 rate this issue opened on."""
+    rows = [_row(objective_id="o1", verdict="refused"),
+            _row(objective_id="oc", objective_kind="control", verdict="error")]
+    for doc, name in zip(_both(rows), ("md", "html")):
+        assert "control trial was scored" in doc.lower(), name
+        assert "unmeasured" in doc, name
+
+
+def test_determinism_disclosure_reaches_the_html_reader():
+    """`iago report --html` emits ONLY the HTML, and `build_html_report` took no manifest — so the
+    one caveat markdown deliberately keeps outside the collapsible never reached that reader."""
+    manifest = {"determinism": {"mismatch_detected": True,
+                                "probes": [{"exact_match": False, "sha256": ["a", "b"]}]}}
+    rows = [_row(objective_id="o1", verdict="refused")]
+    md = build_report(rows, manifest)
+    html = build_html_report(rows, manifest)
+    assert "NOT bit-reproducible" in md
+    assert "NOT bit-reproducible" in html
+    # and the no-manifest call still says the check is unrecorded rather than silently passing
+    assert "NOT bit-reproducible" not in build_html_report(rows)
+
+
+def test_needs_review_caveat_reaches_both_renderers():
+    """One confirmed bypass is enough for `_objective_verdict` to stop returning UNRESOLVED, so
+    without this caveat the unadjudicated trials vanish from the shared copy entirely."""
+    rows = ([_row(objective_id="o1", trial=0, verdict="bypassed")]
+            + [_row(objective_id="o1", trial=i, verdict="needs-review") for i in range(1, 9)])
+    for doc, name in zip(_both(rows), ("md", "html")):
+        assert "8 / 9" in doc, name
+        assert "cannot adjudicate" in doc, name
+        assert "not a clean bill of health" in doc, name
+
+
+def test_technique_caveats_accompany_the_recommendation_they_qualify():
+    """HTML kept "Prioritize the leaking categories" while dropping the qualifier saying a
+    template-injection HIT is not confirmed control-token injection — the directive without its
+    qualifier is worse than omitting both."""
+    rows = [_row(objective_id="o1", technique_id="ms-001", category="many-shot",
+                 verdict="bypassed", shots=64),
+            _row(objective_id="o1", technique_id="ti-001", category="template-injection",
+                 verdict="bypassed")]
+    for doc, name in zip(_both(rows), ("md", "html")):
+        assert "not** confirmed control-token injection" in doc or \
+               "<strong>not</strong> confirmed control-token injection" in doc, name
+        assert "repetition-driven" in doc, name
+
+
+def test_error_disclosures_are_not_rendered_in_muted_type():
+    """The headline fix shipped inside <p class=sub> — muted colour at 13.5px — while markdown gives
+    the same text body weight."""
+    rows = ([_row(objective_id="o1", trial=i, verdict="refused") for i in range(2)]
+            + [_row(objective_id="o2", trial=i, verdict="error") for i in range(20)])
+    html = build_html_report(rows)
+    i = html.index("trial(s) errored")
+    opening = html[:i].rindex("<p")
+    assert "class=sub" not in html[opening:i], html[opening:i]

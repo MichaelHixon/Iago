@@ -125,7 +125,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     print(f"\nArtifacts: {artifact_path}")
     print(f"Report:    {report_path}")
     if getattr(args, "html", False):
-        print(f"HTML:      {write_html_report(rows)}")
+        print(f"HTML:      {write_html_report(rows, manifest=run_manifest)}")
     if getattr(args, "log", False):
         print(f"Transcript: {write_log(rows, html=getattr(args, 'html', False))}")
     print(f"({len(rows)} trials recorded; {_valid_count(rows)} valid)")
@@ -148,7 +148,7 @@ def _cmd_report(args: argparse.Namespace) -> int:
         if args.log:
             print(f"Transcript: {write_log(rows, html=args.html)}  ({len(rows)} trials)")
         else:
-            out = (write_html_report(rows) if args.html
+            out = (write_html_report(rows, manifest=run_manifest) if args.html
                    else write_report(rows, manifest=run_manifest))
             print(f"Report: {out}  ({len(rows)} trials; {_valid_count(rows)} valid)")
     except ValueError as exc:  # wrong-surface artifact (ISC-33)
