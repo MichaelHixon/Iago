@@ -544,13 +544,17 @@ def run_adaptive_suite(
 
     total = len(objs) * trials
     done = 0
+    # Build the manifest BEFORE opening the artifact: every fingerprint helper it calls
+    # reads files and can raise, and `open("w")` has already truncated by then, which
+    # leaves a zero-byte artifact behind (ISC-38 class sweep).
+    manifest = build_manifest(
+        surface="adaptive", model=model_name,
+        sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
+                  "seed_rule": "base_seed + trial", "max_turns": max_turns,
+                  "attacker": attacker_kind, "deterministic": deterministic},
+        judge_id=module_fingerprint("adaptive", "judge", "canary"))
     with out_path.open("w") as fh:
-        write_manifest(fh, build_manifest(
-            surface="adaptive", model=model_name,
-            sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
-                      "seed_rule": "base_seed + trial", "max_turns": max_turns,
-                      "attacker": attacker_kind, "deterministic": deterministic},
-            judge_id=module_fingerprint("adaptive", "judge", "canary")))
+        write_manifest(fh, manifest)
         for trial in range(trials):
             seed = base_seed + trial
             options = {"temperature": temperature, "seed": seed}

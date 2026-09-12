@@ -163,7 +163,8 @@ def _chain_in_order(calls, chain: tuple[str, str]) -> bool:
 
 def run_exfil_suite(
     chat_fn, *, model_name: str, scenarios: list, run_one, judge, run_id_prefix: str,
-    trials: int = DEFAULT_TRIALS, temperature: float = DEFAULT_TEMPERATURE,
+    judge_modules: tuple[str, ...], trials: int = DEFAULT_TRIALS,
+    temperature: float = DEFAULT_TEMPERATURE,
     base_seed: int, max_steps: int = DEFAULT_AGENT_STEPS,
     artifacts_dir: Path | None = None, progress: bool = False,
     capability_chain: tuple[str, str] | None = None,
@@ -172,11 +173,21 @@ def run_exfil_suite(
     options, max_steps) -> AgentTrace` drives one scenario; `judge(trace, scenario) -> ExfilVerdict`
     scores it. Requires >=1 attack scenario (an all-control run measures nothing).
     `capability_chain` = the (first_tool, sink_tool) pair the surface's report uses as its floor;
-    when given, each capability row carries `floor_fired` under that SAME definition (ISC-32)."""
+    when given, each capability row carries `floor_fired` under that SAME definition (ISC-32).
+
+    `judge_modules` NAMES the iago modules whose source fingerprints the oracle (ISC-38). It was
+    previously derived from `run_id_prefix` as `f"agent_{prefix}"`, which silently coupled the
+    surface's run-id to a filename on disk: a prefix with no matching module raised FileNotFoundError
+    from inside `module_fingerprint` AFTER `out_path.open("w")` had already truncated the artifact,
+    leaving a zero-byte file behind. The fingerprint is now computed from an explicit list BEFORE any
+    file is created, so a bad module list fails with nothing written."""
     if not scenarios:
         raise ValueError("no scenarios to run")
     if not any(s.kind == "attack" for s in scenarios):
         raise ValueError("suite needs at least one 'attack' scenario")
+
+    # Fingerprint FIRST: a missing module must fail before the artifact file exists (ISC-38).
+    judge_id = module_fingerprint(*judge_modules)
 
     now = datetime.now(timezone.utc)
     out_dir = Path(artifacts_dir) if artifacts_dir else ARTIFACTS_DIR
@@ -186,14 +197,18 @@ def run_exfil_suite(
 
     total = len(scenarios) * trials
     done = 0
+    # Build the manifest BEFORE opening the artifact: every fingerprint helper it calls
+    # reads files and can raise, and `open("w")` has already truncated by then, which
+    # leaves a zero-byte artifact behind (ISC-38 class sweep).
+    manifest = build_manifest(
+        surface=run_id_prefix, model=model_name,
+        sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
+                  "seed_rule": "base_seed + trial", "max_steps": max_steps},
+        judge_id=judge_id,
+        extra={"scenario_library_sha256": scenario_fingerprint(scenarios),
+               "scenarios": len(scenarios)})
     with out_path.open("w") as fh:
-        write_manifest(fh, build_manifest(
-            surface=run_id_prefix, model=model_name,
-            sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
-                      "seed_rule": "base_seed + trial", "max_steps": max_steps},
-            judge_id=module_fingerprint("agent_oracle", "agentic_exfil", f"agent_{run_id_prefix}", "agent_harness"),
-            extra={"scenario_library_sha256": scenario_fingerprint(scenarios),
-                   "scenarios": len(scenarios)}))
+        write_manifest(fh, manifest)
         for trial in range(trials):
             seed = base_seed + trial
             options = {"temperature": temperature, "seed": seed}

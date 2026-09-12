@@ -390,14 +390,18 @@ def run_memory_suite(
 
     total = len(scens) * trials
     done = 0
+    # Build the manifest BEFORE opening the artifact: every fingerprint helper it calls
+    # reads files and can raise, and `open("w")` has already truncated by then, which
+    # leaves a zero-byte artifact behind (ISC-38 class sweep).
+    manifest = build_manifest(
+        surface="memory", model=model_name,
+        sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
+                  "seed_rule": "base_seed + trial", "max_steps": max_steps},
+        judge_id=module_fingerprint("agent_oracle", "agent_memory", "agent_harness"),
+        extra={"scenario_library_sha256": scenario_fingerprint(scens),
+               "scenarios": len(scens)})
     with out_path.open("w") as fh:
-        write_manifest(fh, build_manifest(
-            surface="memory", model=model_name,
-            sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
-                      "seed_rule": "base_seed + trial", "max_steps": max_steps},
-            judge_id=module_fingerprint("agent_oracle", "agent_memory", "agent_harness"),
-            extra={"scenario_library_sha256": scenario_fingerprint(scens),
-                   "scenarios": len(scens)}))
+        write_manifest(fh, manifest)
         for trial in range(trials):
             seed = base_seed + trial
             options = {"temperature": temperature, "seed": seed}
