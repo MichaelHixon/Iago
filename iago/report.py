@@ -1504,8 +1504,8 @@ def build_html_report(rows: list[dict], manifest: dict | None = None) -> str:
     # dropping the qualifier that reinterprets them — a template-injection HIT is not confirmed
     # control-token injection, and a many-shot positive above the pool size is repetition, not
     # breadth. Keeping the directive without the qualifier is worse than omitting both.
-    ms_rows_html = [r for r in valid if r["technique_id"].startswith("ms-") and r.get("shots")]
-    ti_rows_html = [r for r in valid if r["category"] == "template-injection"]
+    ms_rows_html = [r for r in rows if r.get("category") == "many-shot" and r.get("shots")]
+    ti_rows_html = [r for r in rows if r.get("category") == "template-injection"]
     if ms_rows_html or ti_rows_html:
         o("<h2>Technique caveats — how to read these rates</h2>")
         if ms_rows_html:
