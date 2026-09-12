@@ -550,3 +550,35 @@ def test_every_shared_breakdown_table_agrees_cell_for_cell():
     assert shared, (sorted(md_t), sorted(html_t))
     for key in sorted(shared):
         assert md_t[key] == html_t[key], (key, md_t[key], html_t[key])
+
+
+# --- ISC-55: the recommendation list, which one renderer could silently shorten ----------------
+
+def _recommendations(doc: str, is_html: bool) -> list[str]:
+    """The leading phrase of each hardening recommendation, in order.
+
+    The leading phrase rather than the whole text: both renderers open each item with the same
+    bolded directive and then diverge in the supporting sentence, so this pins WHICH advice is
+    given and how much of it, without forcing the prose together."""
+    if is_html:
+        body = doc[doc.index("Hardening Recommendations"):]
+        items = re.findall(r"<li>(.*?)</li>", body, re.S)
+    else:
+        body = doc[doc.index("## Hardening Recommendations"):]
+        items = re.findall(r"^\d+\. (.+)$", body, re.M)
+    out = []
+    for item in items:
+        text = _plain(item).strip()
+        out.append(re.split(r"[.:]", text, maxsplit=1)[0].strip())
+    return out
+
+
+def test_the_same_recommendations_reach_both_renderers():
+    """Truncating the list in one copy — HTML dropping its last recommendation, or `_hardening_recs`
+    taking [:1] instead of [:3] — survived the whole suite. The recommendations are the actionable
+    half of the report and the shared copy is the one that gets acted on."""
+    rows = _table_fixture()
+    md = _recommendations(build_report(rows), is_html=False)
+    html = _recommendations(build_html_report(rows), is_html=True)
+    assert md, "no recommendations parsed from markdown"
+    assert md == html, (md, html)
