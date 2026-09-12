@@ -32,23 +32,24 @@ class _T(Target):
         return self.generate(None, options=options)
 
 
-def test_deterministic_target_records_exact_match_and_probe_is_not_a_row(tmp_path):
+def test_deterministic_target_records_no_mismatch_and_probe_is_not_a_row(tmp_path):
     t = _T()
     path = run(t, techniques=TECHS, objectives=OBJS, trials=2, base_seed=777, artifacts_dir=tmp_path)
     manifest, rows = read_artifact(path)
     d = manifest["determinism"]
     # A literal, not the value the code also wrote to the other field it is compared against.
-    assert d["exact_match"] is True and d["options"]["seed"] == 777
+    # ISC-50 renamed the field: a one-sided check cannot report `exact_match: true`.
+    assert d["mismatch_detected"] is False and d["options"]["seed"] == 777
     assert manifest["sampling"]["base_seed"] == 777
     assert len(rows) == 2                       # 1 pair x 2 trials; the probe calls are not rows
-    assert len(t.calls) == 6                    # 4 probe (2 probes x 2) + 2 trials — ISC-49
+    assert len(t.calls) == 7                    # 1 warm-up + 4 probe + 2 trials — ISC-49/50
     assert t.calls[0][1]["num_predict"] == 160  # capped, but past the point-mass regime
 
 
 def test_nondeterministic_target_records_mismatch(tmp_path):
-    t = _T(replies=iter(["one", "two", "same", "same", "A" * 300]))
+    t = _T(replies=iter(["warmup", "one", "two", "same", "same", "A" * 300]))
     manifest, _ = read_artifact(run(t, techniques=TECHS, objectives=OBJS, trials=1, artifacts_dir=tmp_path))
-    assert manifest["determinism"]["exact_match"] is False
+    assert manifest["determinism"]["mismatch_detected"] is True
 
 
 def test_check_can_be_skipped_and_records_null(tmp_path):
@@ -75,5 +76,9 @@ def test_agent_path_pins_seed_per_trial(tmp_path):
 def test_readme_states_the_bounded_claim():
     text = Path(__file__).resolve().parents[1].joinpath("README.md").read_text()
     assert "## Reproducibility" in text
-    assert re.search(r"same host, Ollama build, model digest", text)
+    assert re.search(r"host, Ollama build, model digest", text)
     assert "does **not** make an LLM run reproducible everywhere" in text
+    # ISC-50: the headline may not present the probe as a warrant that the run DOES reproduce.
+    assert "tries to **disprove** bit-reproducibility" in text
+    assert "The check is **one-sided**" in text
+    assert 'There is no value meaning "this host reproduces"' in text

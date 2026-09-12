@@ -90,7 +90,8 @@ _METHOD_RATES = (
     "interval**: with few trials the interval is wide (a 1/3 rate is not the same finding as 30/90), "
     "so the CI is what makes a rate defensible rather than anecdotal — raise `--trials` to tighten it. "
     "Sampling is pinned (fixed temperature, per-trial seed) to make runs reproducible *where the "
-    "backend honors the seed*.")
+    "backend honors the seed* — whether this host actually did is measured per run and stated "
+    "above, not assumed here.")
 _METHOD_NONSTATIONARITY = (
     "Trials are fired in interleaved rounds (`batch_id`) and stamped with `run_seq` and a timestamp. "
     "Guardrail behavior can be **non-stationary** — refusal likelihood drifts with time, position in "
@@ -248,8 +249,45 @@ def _render_scorecard(a, forbidden_valid: list[dict], leak_valid: list[dict],
     a("")
 
 
-def build_report(rows: list[dict]) -> str:
-    """Render the markdown report from artifact rows."""
+def determinism_disclosure(manifest: dict | None) -> str:
+    """One sentence telling the report's reader what the run measured about its own host.
+
+    ISC-50. The measurement existed in the manifest and reached nobody: `build_report` took rows
+    only, so a host that had just measured itself non-reproducible still produced a clean-looking
+    report. A disclosure that does not reach the reader is not a disclosure (ISC-40/47), and the
+    unknown cases must never render as clean."""
+    d = (manifest or {}).get("determinism")
+    if manifest is None:
+        return ("_⚠️ Reproducibility on this host was **not read** for this report (no run manifest "
+                "available). Treat the pinning note below as a claim about inputs, not a measured "
+                "result._")
+    if d is None:
+        return ("_⚠️ The determinism check **did not run** for this run (`--no-determinism-check`), "
+                "so nothing here says whether this host reproduces at these settings — and the "
+                "matrix ran on a cold model, unlike a default run._")
+    mismatch = d.get("mismatch_detected")
+    probes = d.get("probes") or []
+    if mismatch is True:
+        differed = [str(i + 1) for i, pr in enumerate(probes) if pr.get("mismatch") is True]
+        seed = (d.get("options") or {}).get("seed")
+        return (f"_⚠️ **This host measured itself NOT bit-reproducible at these settings** — probe "
+                f"{', '.join(differed)} of {len(probes)} returned two different replies at seed "
+                f"{seed}. The rates below come from a run that cannot be replayed exactly here, so "
+                "a delta against another run may be the host rather than the model._")
+    if mismatch is False:
+        return (f"_The determinism check found no mismatch in {len(probes)} probe pairs on this "
+                "host. The check is **one-sided**: that is a failure to disprove reproducibility, "
+                "never a demonstration of it, and it says nothing about the matrix's own replies._")
+    return ("_⚠️ The determinism check could **not be completed** for this run, so whether this "
+            "host reproduces at these settings is unknown — which is neither a pass nor a "
+            "failure. See `determinism.probes` in the artifact manifest._")
+
+
+def build_report(rows: list[dict], manifest: dict | None = None) -> str:
+    """Render the markdown report from artifact rows.
+
+    `manifest` carries the run's recorded determinism result; omitted, the report says the
+    measurement was not read rather than implying it was clean (ISC-50)."""
     require_surface(rows, "chatbot", reader="iago report")
     if not rows:
         return "# Iago Report\n\n_No artifacts — nothing to report._\n"
@@ -409,6 +447,11 @@ def build_report(rows: list[dict]) -> str:
     # in a collapsible so the result leads. Text lives in shared constants (single source
     # with the HTML renderer) written as flowing lines so hard-break renderers don't stack
     # them into a narrow column.
+    # NOT inside the collapsible: a host that measured itself non-reproducible is a finding about
+    # THIS run's numbers, and a disclosure folded behind a <details> is one the reader can miss
+    # (ISC-50). The generic statistical caveats stay tucked; this one leads.
+    a(determinism_disclosure(manifest))
+    a("")
     a("<details>")
     a(f"<summary>{_HOWTOREAD_SUMMARY}</summary>")
     a("")
@@ -805,7 +848,8 @@ def build_report(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def write_report(rows: list[dict], reports_dir: Path | None = None) -> Path:
+def write_report(rows: list[dict], reports_dir: Path | None = None,
+                 manifest: dict | None = None) -> Path:
     """Build and write the report to reports/, returning its path."""
     # BEFORE rows[0]["model"]: the guard lived only in the build_* functions, so the CLI
     # path reached this line first and ISC-33's own headline KeyError still fired
@@ -817,7 +861,7 @@ def write_report(rows: list[dict], reports_dir: Path | None = None) -> Path:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     safe_model = model.replace(":", "-").replace("/", "-")
     out_path = out_dir / f"report_{stamp}_{safe_model}.md"
-    out_path.write_text(build_report(rows))
+    out_path.write_text(build_report(rows, manifest))
     return out_path
 
 

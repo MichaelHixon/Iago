@@ -105,6 +105,10 @@ class Comparison:
     scenario_ids: list[str]                    # union of attack scenario ids, stable order
     scenario_names: dict[str, str]
     judge_ids: dict[str, str | None] = field(default_factory=dict)  # artifact -> oracle fingerprint (None = legacy)
+    # artifact -> the run's recorded `determinism` block (None = legacy artifact / not recorded).
+    # A delta between two runs is exactly the claim non-determinism on the measuring host attacks,
+    # so compare must say when a contributing host proved itself non-reproducible (ISC-50).
+    determinism: dict[str, dict | None] = field(default_factory=dict)
 
 
 def build_comparison(artifact_paths: list[Path | str], *, allow_judge_mismatch: bool = False) -> Comparison:
@@ -122,10 +126,12 @@ def build_comparison(artifact_paths: list[Path | str], *, allow_judge_mismatch: 
     order: list[str] = []                      # attack scenarios in first-seen order
     names: dict[str, str] = {}
     judge_ids: dict[str, str | None] = {}
+    determinism: dict[str, dict | None] = {}
     for path in artifact_paths:
         manifest, rows = read_artifact(path)
         require_surface(rows, "agent", reader="iago compare")
         judge_ids[str(path)] = manifest.get("judge_id") if manifest else None
+        determinism[str(path)] = manifest.get("determinism") if manifest else None
         for r in rows:
             model = r.get("model", "unknown")
             ms = by_model.get(model)
@@ -182,7 +188,8 @@ def build_comparison(artifact_paths: list[Path | str], *, allow_judge_mismatch: 
             + "); re-run the older one, or pass --allow-judge-mismatch to compare anyway"
         )
     return Comparison(models=[by_model[m] for m in model_order],
-                      scenario_ids=order, scenario_names=names, judge_ids=judge_ids)
+                      scenario_ids=order, scenario_names=names, judge_ids=judge_ids,
+                      determinism=determinism)
 
 
 @dataclass
@@ -330,6 +337,21 @@ def write_comparison_report(comp: Comparison, reports_dir: Path | None = None) -
                      "that produced no valid hijacked/resisted verdict (e.g. an error). They are dropped "
                      "from the denominator, never counted as a non-hijack, so the rate is not biased "
                      "downward._")
+        lines.append("")
+    nonrepro = [Path(p).name for p, d in (comp.determinism or {}).items()
+                if (d or {}).get("mismatch_detected") is True]
+    if nonrepro:
+        lines.append(f"_⚠️ **Measured non-reproducible host:** {', '.join(nonrepro)} recorded a "
+                     "determinism mismatch — the same probe at the same seed returned two different "
+                     "replies. A delta below may be the HOST rather than a model difference. Re-run "
+                     "on a host whose check comes back clean before treating any gap as a finding._")
+        lines.append("")
+    unread = [Path(p).name for p, d in (comp.determinism or {}).items()
+              if d is None or d.get("mismatch_detected") is None]
+    if unread:
+        lines.append(f"_⚠️ Reproducibility was not established for {', '.join(unread)} (the check "
+                     "was skipped, could not complete, or the artifact predates it). Unknown is not "
+                     "clean: these deltas are uncorroborated on that axis._")
         lines.append("")
     unknown = [Path(p).name for p, j in (comp.judge_ids or {}).items() if not j]
     if unknown:

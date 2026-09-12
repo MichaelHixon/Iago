@@ -99,7 +99,7 @@ def test_cmd_report_all_error_artifact_exits_1(tmp_path, monkeypatch, capsys):
     techs = [Technique("t1", "Direct", "direct-ask", "d", "Do: {objective}")]
     path = run(_Target(exc=RuntimeError("down")), techniques=techs, objectives=FORBIDDEN,
                trials=1, artifacts_dir=tmp_path)
-    monkeypatch.setattr(cli, "write_report", lambda rows: tmp_path / "r.md")
+    monkeypatch.setattr(cli, "write_report", lambda rows, **kw: tmp_path / "r.md")
     rc = cli._cmd_report(types.SimpleNamespace(artifact=str(path), log=False, html=False))
     assert rc == 1
     assert "NOT a hold" in capsys.readouterr().err

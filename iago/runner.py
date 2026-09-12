@@ -178,52 +178,94 @@ def _fires(tech: Technique, obj: Objective) -> bool:
 # Instrumentation, not attacks: these stay module constants and never enter the technique library.
 # Open-ended and long enough to leave the point-mass regime a 24-token fixed echo sat in — a
 # near-degenerate generation agrees with itself whether or not the host is bit-reproducible, so the
-# old probe could not fail. These exercise the same regime the matrix does. (ISC-49, superseding
-# ISC-34's two-generation cost bound.)
+# old probe could not fail. These exercise the same regime the matrix does on CONTENT, though not on
+# length: the matrix sets no `num_predict` and these cap at 160, so a longer matrix reply samples
+# more decode positions than the probe does. (ISC-49, superseding ISC-34's two-generation cost
+# bound; the honesty fixes are ISC-50.)
+#
+# TWO probes rather than one is not a power argument — detection power tracks total tokens, not
+# probe count. It is a hedge against PROMPT-DEPENDENT determinism, which this host demonstrated on
+# the first live run: one probe differed and the other matched at the same seed. One probe would
+# have reported whichever it happened to be.
 _DETERMINISM_PROBE_TOKENS = 160
 _DETERMINISM_PROBES = (
     "Describe, in one paragraph, how a lighthouse keeper spends a long winter night.",
     "Invent six unrelated everyday objects and give each a one-sentence origin story.",
 )
+# Fired once and DISCARDED before the probes. Without it, call 1 of probe 1 is the
+# first-generation-after-load and call 2 is warm, so probe 1's pair straddles the cold-load
+# boundary by construction and a mismatch there cannot be told apart from prompt-cache warming.
+# ISC-49 read exactly that confound as prompt-dependent nondeterminism (ISC-50 corrects it).
+_DETERMINISM_WARMUP = "Say the word: ready."
 
 
 def _determinism_probe(target: Target, temperature: float, base_seed: int) -> dict:
-    """Fire each open-ended probe twice at the run's temperature + base seed and report whether the
-    replies were byte-identical. Fired BEFORE the matrix: that position absorbs Ollama's
-    first-generation-after-load effect, and a probe injected mid-run would perturb the very batching
-    it claims to measure. Probe replies are never written as trial rows and never scored.
+    """Fire a discarded warm-up, then each open-ended probe twice at the run's temperature + base
+    seed, and report whether any pair differed. Fired BEFORE the matrix: that position warms the
+    model for the run (so `--no-determinism-check` runs the matrix COLD — the two modes are not the
+    same experiment), and a probe injected mid-run would perturb the very batching it claims to
+    measure. Probe replies are never written as trial rows and never scored.
 
-    The check is ONE-SIDED. A match is evidence this host reproduced those generations at that seed;
-    it is not proof the matrix replays. A mismatch is definitive, so `False` outranks `None` in the
-    aggregate: a probe that raised cannot un-observe a probe that differed. A failure to probe is
-    recorded, never raised — the check informs, the run decides nothing on it."""
+    The check is ONE-SIDED, and the field name says so: `mismatch_detected` is True when a pair
+    differed, False when none did IN THESE PAIRS, and None when it could not be determined. There is
+    no value meaning "reproducible" — this instrument cannot observe that. A mismatch is definitive,
+    so True outranks None: a probe that raised cannot un-observe a probe that differed. A failure to
+    probe is recorded, never raised — the check informs, the run decides nothing on it.
+
+    Sensitivity scales with temperature and with tokens generated: a clean result at temperature 0
+    is much weaker evidence than a clean result at 0.8, because far fewer decode positions are
+    near-ties. The manifest records both so a reader can weigh it."""
     opts = {"temperature": temperature, "seed": base_seed,
             "num_predict": _DETERMINISM_PROBE_TOKENS}
+    warmup: dict = {"fired": False, "error": None, "prompt": _DETERMINISM_WARMUP}
+    try:
+        target.generate(_DETERMINISM_WARMUP, options=dict(opts))
+        warmup["fired"] = True
+    except Exception as exc:
+        warmup["error"] = str(exc)[:200]
+
     probes: list[dict] = []
     generations = 0
     for text in _DETERMINISM_PROBES:
-        replies = []
+        replies: list[str] = []
+        error = None
         try:
             for _ in range(2):
                 replies.append(target.generate(text, options=dict(opts)))
                 generations += 1
         except Exception as exc:  # the matrix will surface a real transport failure loudly itself
-            probes.append({"probe": text, "exact_match": None, "error": str(exc)[:200]})
-            continue
-        a, b = replies
-        probes.append({"probe": text, "exact_match": a == b,
-                       "reply_sha256": [sha256_text(a), sha256_text(b)]})
-    seen = [pr["exact_match"] for pr in probes]
-    if any(m is False for m in seen):
-        aggregate: bool | None = False
+            error = str(exc)[:200]
+        # `position` is "warm" only when the warm-up actually returned. If it failed, probe 1 still
+        # straddles the cold boundary and the reader must be able to see that.
+        position = "warm" if warmup["fired"] else ("cold" if not probes else "warm")
+        rec: dict = {"probe": text, "position": position,
+                     "reply_sha256": [sha256_text(r) for r in replies]}
+        if error is not None:
+            # A partial pair records the hash it DID get, so `generations` reconciles with the
+            # hashes a reader can count instead of silently disagreeing with them.
+            rec["mismatch"] = None
+            rec["error"] = error
+            rec["replies_returned"] = len(replies)
+        else:
+            rec["mismatch"] = replies[0] != replies[1]
+        probes.append(rec)
+
+    seen = [pr["mismatch"] for pr in probes]
+    if any(m is True for m in seen):
+        mismatch: bool | None = True
     elif any(m is None for m in seen) or not seen:
-        aggregate = None
+        # Not a pass. An empty probe tuple or any unusable pair leaves the question open, and the
+        # one thing this field must never do is manufacture a clean result out of no observation.
+        mismatch = None
     else:
-        aggregate = True
-    # `generations` is the number of probe calls that RETURNED, recorded rather than promised by a
-    # number in doctrine — the next tuning of the cap does not have to retire another anti-claim.
-    return {"exact_match": aggregate, "probes": probes, "options": opts,
-            "generations": generations}
+        mismatch = False
+    # `generations` counts probe calls that RETURNED, excluding the warm-up, which is counted
+    # separately. Token spend is the honest cost unit and it is derivable: generations x
+    # num_predict is the ceiling, so re-tuning the cap moves a recorded number rather than hiding
+    # behind a constant count.
+    return {"mismatch_detected": mismatch, "probes": probes, "options": opts,
+            "generations": generations, "warmup": warmup,
+            "max_tokens_per_generation": _DETERMINISM_PROBE_TOKENS}
 
 
 def _run_id(model: str, now: datetime) -> str:
@@ -298,11 +340,12 @@ def run(
 
     offline_judge_id = module_fingerprint("judge", "canary", "decode")
     determinism = _determinism_probe(target, temperature, base_seed) if determinism_check else None
-    if progress and determinism is not None and determinism.get("exact_match") is False:
-        differed = [pr["probe"] for pr in determinism["probes"] if pr["exact_match"] is False]
-        print(f"  WARNING: {len(differed)} of {len(determinism['probes'])} probes produced two "
-              "DIFFERENT replies at the same seed — this host/build is not bit-reproducible at "
-              "these settings; the manifest records which.")
+    if progress and determinism is not None and determinism.get("mismatch_detected") is True:
+        differed = [i + 1 for i, pr in enumerate(determinism["probes"]) if pr["mismatch"] is True]
+        which = ", ".join(str(i) for i in differed)
+        print(f"  WARNING: probe {which} of {len(determinism['probes'])} produced two DIFFERENT "
+              "replies at the same seed — this host/build is not bit-reproducible at these "
+              "settings, and the reports from this run say so.")
 
     with out_path.open("w") as fh:
         write_manifest(fh, build_manifest(
