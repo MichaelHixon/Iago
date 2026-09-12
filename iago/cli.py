@@ -42,7 +42,8 @@ def _positive_int(value: str) -> int:
 
 
 def _valid_count(rows: list[dict]) -> int:
-    """Rows that actually PROBED the guardrail. A <<RUN-ERROR>> row never reached the model; a
+    """Rows that actually PROBED the guardrail. A <<RUN-ERROR>> row never produced a usable
+    reply — transport, guard, or judge failure; a
     decode-failed cipher row reached it but never exercised the guardrail (decode.py), and since
     ISC-32 the report excludes those from every harmful denominator — so counting them here would
     let an all-decode-failed run exit 0 with an empty report (code-review major)."""
@@ -61,7 +62,7 @@ def _nothing_measured(rows: list[dict], what: str = "trials") -> int | None:
     if _valid_count(rows) == 0:
         n_err = sum(1 for r in rows if verdict_of(r) == ERROR)
         n_dec = sum(1 for r in rows if r.get("gated") and r.get("decoded") is False)
-        why = (f"{n_err} RUN-ERROR (never reached the model)" if n_err else "")
+        why = (f"{n_err} RUN-ERROR (transport or run failure)" if n_err else "")
         why += (" and " if n_err and n_dec else "") + (f"{n_dec} decode-failure (the model never "
                                                        "recovered the objective)" if n_dec else "")
         print(f"ERROR: 0 of {len(rows)} {what} probed a guardrail — {why}. Nothing was measured "
