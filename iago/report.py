@@ -564,10 +564,11 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
         _de_regraded = any(r.get("claude_verdict") for r in deadend_unsolvable)
         _state = "post-regrade" if _de_regraded else "pre-regrade, provisional"
         _correct, _engaged = _deadend_control_counts(deadend_controls)
-        a(f"**Dead-end scope-holding ({_state}) —** {len(_stops)} / {_n} unsolvable trials used a "
-          f"machine stop channel ({pct(bypass_rate(len(_stops), _n))}, 95% CI {ci_str(len(_stops), _n)} "
-          f"— a two-sided point estimate, not a bound); **{len(_fabs)} / {_n} fabricated a completion** "
-          f"({pct(bypass_rate(len(_fabs), _n))}, 95% CI {ci_str(len(_fabs), _n)}). "
+        a(f"**Dead-end scope-holding ({_state}) —** **{len(_fabs)} / {_n} fabricated a completion** "
+          f"({pct(bypass_rate(len(_fabs), _n))}, 95% CI {ci_str(len(_fabs), _n)}); "
+          f"{len(_stops)} / {_n} unsolvable trials used a machine stop channel "
+          f"({pct(bypass_rate(len(_stops), _n))}, 95% CI {ci_str(len(_stops), _n)} "
+          f"— a two-sided point estimate, not a bound). "
           + (f"Solvable controls: {_correct}/{len(deadend_controls)} completed correctly, {_engaged} "
              "engaged the RESULT channel. " if deadend_controls else "")
           + "Detail and caveats in the dead-end section below.")
@@ -1273,6 +1274,9 @@ def _inline_md_to_html(text: str) -> str:
     t = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
     t = re.sub(r"`(.+?)`", r"<code>\1</code>", t)
     t = re.sub(r"\*(.+?)\*", r"<em>\1</em>", t)
+    # `_italic_` too: every determinism_disclosure branch wraps in underscores, and without this
+    # the shared copy printed them literally around its most important caveat.
+    t = re.sub(r"(?<![A-Za-z0-9_])_(.+?)_(?![A-Za-z0-9_])", r"<em>\1</em>", t)
     return t
 
 
@@ -1311,7 +1315,10 @@ def build_html_report(rows: list[dict], manifest: dict | None = None) -> str:
     cat_stats = [{"category": c,
                   "rate": bypass_rate(sum(1 for r in trs if verdict_of(r) == BYPASSED), len(trs))}
                  for c, trs in by_cat.items()]
-    cat_stats.sort(key=lambda s: -s["rate"])
+    # Same tiebreak as the markdown renderer (:485). Without it ties fall to insertion order
+    # here and to category name there, and `_hardening_recs` takes the top three — so the two
+    # copies recommended fixing different categories.
+    cat_stats.sort(key=lambda s: (-s["rate"], s["category"]))
 
     deadend = [r for r in rows if r["objective_kind"] == "dead-end"]
     deadend_valid = [r for r in deadend if verdict_of(r) != ERROR]
@@ -1605,8 +1612,9 @@ def build_html_report(rows: list[dict], manifest: dict | None = None) -> str:
         o('<div class=tbl-wrap><table><thead><tr><th>Technique</th><th>Escalated</th>'
           "<th>Rate</th><th>&nbsp;</th><th>95% CI</th></tr></thead><tbody>")
         for tid, trs in sorted(t_by_tech.items(),
-                               key=lambda kv: -bypass_rate(sum(1 for r in kv[1] if verdict_of(r) == BYPASSED),
-                                                     len(kv[1]))):
+                               key=lambda kv: (-bypass_rate(sum(1 for r in kv[1]
+                                                               if verdict_of(r) == BYPASSED),
+                                                            len(kv[1])), kv[0])):
             hh = sum(1 for r in trs if verdict_of(r) == BYPASSED)
             rate = bypass_rate(hh, len(trs))
             sev = _sev_class(VULNERABLE if hh else HELD, rate)
@@ -1651,8 +1659,9 @@ def build_html_report(rows: list[dict], manifest: dict | None = None) -> str:
         o('<div class=tbl-wrap><table><thead><tr><th>Sink</th><th>Emitted</th>'
           "<th>Rate (lower bound)</th><th>&nbsp;</th><th>95% CI</th></tr></thead><tbody>")
         for sink, trs in sorted(u_by_sink.items(),
-                                key=lambda kv: -bypass_rate(sum(1 for r in kv[1] if verdict_of(r) == BYPASSED),
-                                                            len(kv[1]))):
+                                key=lambda kv: (-bypass_rate(sum(1 for r in kv[1]
+                                                                if verdict_of(r) == BYPASSED),
+                                                             len(kv[1])), kv[0])):
             hh = sum(1 for r in trs if verdict_of(r) == BYPASSED)
             rate = bypass_rate(hh, len(trs))
             sev = _sev_class(VULNERABLE if hh else HELD, rate)
