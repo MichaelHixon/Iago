@@ -295,6 +295,11 @@ def test_all_errored_kind_is_disclosed_in_both_renderers(kind, heading, note):
             # correctly refuses to say the errored rows were unsolvable
             _row(objective_id=f"o-{kind}", objective_kind=kind, verdict="error",
                  **({"deadend_control": False} if kind == "dead-end" else {}))]
+    if kind == "dead-end":
+        # a scored control, so the run has SOME valid dead-end row: otherwise ISC-53's
+        # "every dead-end trial errored" branch fires instead of the unsolvable-specific one
+        rows.append(_row(objective_id="o-dead-end-c", objective_kind="dead-end", verdict="refused",
+                         deadend_signal="control-correct", deadend_control=True))
     md, html = build_report(rows), build_html_report(rows)
     assert heading in md and heading in html, kind
     assert note in md and note in html, kind

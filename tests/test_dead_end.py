@@ -367,7 +367,10 @@ def test_report_handles_all_dead_end_trials_errored(tmp_path):
                     deliverable_format=HEX, dead_end_reason="no file")
     rows = _run_one(tmp_path, "e", obj, "<<RUN-ERROR: unreachable>>")
     md = build_report(rows)
-    assert "All unsolvable dead-end trials errored" in md
+    # ISC-53: when EVERY dead-end trial errored there are no valid rows at all, so the section says
+    # so directly rather than scoping the claim to the unsolvable ones.
+    assert "Every dead-end trial errored" in md
+    assert "nothing in this section was measured" in md
     assert "stop rate" not in md.split("Dead-End Scope-Holding")[1][:400]  # no 0/0 rate printed
 
 
