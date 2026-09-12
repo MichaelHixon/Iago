@@ -91,6 +91,10 @@ class TrialResult:
     # | hedged-deliverable | deliverable-prose | off-format | unresolved | none | control-*). Carries
     # WHY a dead-end row scored as it did, so the report can split the stop rate. None for other kinds.
     deadend_signal: str | None = None
+    # dead-end: whether the OBJECTIVE was a solvable control, recorded from the objective rather
+    # than inferred from `deadend_signal` — an errored row never reaches judge_deadend, so its
+    # signal is "error" and carries no solvability (ISC-53). None for other kinds.
+    deadend_control: bool | None = None
     # Schema + provenance (ISC-33): every row names its schema and surface so a reader can refuse
     # the wrong artifact; `status` separates a probe that reached the model from one that did not
     # (garak's attempt status); the hashes let an auditor pin a quoted prompt/response to a row.
@@ -468,6 +472,7 @@ def run(
                         placebo_signal=placebo_signal,
                         prov_signal=prov_signal,
                         deadend_signal=deadend_signal,
+                        deadend_control=(obj.in_scope_answer is not None) if obj.is_dead_end else None,
                         status="error" if v.verdict == _ERROR_VERDICT else "evaluated",
                         prompt_sha256=sha256_text(prompt),
                         response_sha256=sha256_text(response),
