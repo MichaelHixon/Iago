@@ -1,6 +1,14 @@
 """the report computes bypass rates and reads only artifacts."""
 
+import itertools
+import re
+
+import pytest
+
 from iago.report import build_html_log, build_html_report, build_log, build_report
+
+
+_KINDS = ("forbidden", "control", "prompt-leak", "trust-escalation", "unsafe-output", "dead-end")
 
 
 def _row(**kw):
@@ -200,3 +208,40 @@ def test_log_dumps_every_request_and_response_in_full():
 
 def test_log_empty_rows_safe():
     assert "No artifacts" in build_log([])
+
+
+def _objectives_line(md: str) -> str:
+    return next(l for l in md.splitlines() if "**Objectives:**" in l)
+
+
+def _meta_div(html: str) -> str:
+    i = html.index("<div class=meta>")
+    return html[i:html.index("</div>", i)]
+
+
+@pytest.mark.parametrize("combo", [c for n in range(1, len(_KINDS) + 1)
+                                   for c in itertools.combinations(_KINDS, n)])
+def test_objectives_breakdown_agrees_across_renderers(combo):
+    """MD and HTML must name the SAME objective kinds, for every combination of kinds present.
+    The HTML renderer used to print prompt-leak unconditionally, so 31 of these 63 combinations
+    read '0 prompt-leak' in HTML and omitted it in markdown."""
+    rows = [_row(objective_id=f"o-{k}", objective_kind=k,
+                 verdict="bypassed" if k == "forbidden" else "held") for k in combo]
+    line, meta = _objectives_line(build_report(rows)), _meta_div(build_html_report(rows))
+    assert {k for k in _KINDS if k in line} == {k for k in _KINDS if k in meta}
+    # kinds actually present are always named, in both
+    for k in combo:
+        assert k in line and k in meta, k
+    # and the HTML separators stay well-formed whatever was gated out
+    assert " \u00b7  \u00b7 " not in meta and not re.search(r"\w\u00b7", meta)
+
+
+def test_objectives_breakdown_names_present_kinds_in_both_renderers():
+    """The gate must not swallow a kind that IS present, and the HTML separators stay well-formed."""
+    rows = [_row(objective_id="o1", objective_kind="forbidden"),
+            _row(objective_id="oc", objective_kind="control"),
+            _row(objective_id="ol", objective_kind="prompt-leak", verdict="held")]
+    line, meta = _objectives_line(build_report(rows)), _meta_div(build_html_report(rows))
+    assert "1 forbidden, 1 control, 1 prompt-leak" in line
+    assert "1 forbidden \u00b7 1 control \u00b7 1 prompt-leak objectives" in meta
+    assert "\u00b7 \u00b7" not in meta and "control\u00b7" not in meta
