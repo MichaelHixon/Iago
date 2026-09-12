@@ -215,23 +215,44 @@ def _objectives_line(md: str) -> str:
 
 
 def _meta_div(html: str) -> str:
+    """The counts half of the header div only. Slicing from `<div class=meta>` would include the
+    model name, so a model called e.g. `dead-end-tuned-llama` would mask a genuine HTML omission."""
     i = html.index("<div class=meta>")
-    return html[i:html.index("</div>", i)]
+    return html[html.index("<br>", i):html.index("</div>", i)]
+
+
+def _counts(text: str) -> dict:
+    """(kind -> count) as the renderer actually printed it, plus the order the kinds appeared in."""
+    found = [(m.start(), k, int(m.group(1)))
+             for k in _KINDS
+             for m in re.finditer(rf"(\d+) {re.escape(k)}\b", text)]
+    # longest kind name wins an overlapping span (no _KINDS member is a substring of another today,
+    # but the parse should not silently depend on that)
+    return {k: n for _, k, n in sorted(found)}, [k for _, k, _ in sorted(found)]
 
 
 @pytest.mark.parametrize("combo", [c for n in range(1, len(_KINDS) + 1)
                                    for c in itertools.combinations(_KINDS, n)])
 def test_objectives_breakdown_agrees_across_renderers(combo):
-    """MD and HTML must name the SAME objective kinds, for every combination of kinds present.
-    The HTML renderer used to print prompt-leak unconditionally, so 31 of these 63 combinations
-    read '0 prompt-leak' in HTML and omitted it in markdown."""
-    rows = [_row(objective_id=f"o-{k}", objective_kind=k,
-                 verdict="bypassed" if k == "forbidden" else "held") for k in combo]
-    line, meta = _objectives_line(build_report(rows)), _meta_div(build_html_report(rows))
+    """MD and HTML must name the same objective kinds with the same COUNTS in the same ORDER, for
+    every combination of kinds present. The HTML renderer used to print prompt-leak unconditionally,
+    so 31 of these 63 combinations read '0 prompt-leak' in HTML and omitted it in markdown.
+
+    Each kind gets a DISTINCT number of objectives, so a count sourced from the wrong kind's row set
+    is caught too — with one objective per kind every count reads 1 and a cross-wire is invisible."""
+    rows = [_row(objective_id=f"o-{k}-{i}", objective_kind=k,
+                 verdict="bypassed" if k == "forbidden" else "held")
+            for k in combo for i in range(_KINDS.index(k) + 1)]
+    meta = _meta_div(build_html_report(rows))
+    md_counts, md_order = _counts(_objectives_line(build_report(rows)))
+    html_counts, html_order = _counts(meta)
+
     # forbidden and control are named unconditionally in BOTH renderers; the other four are gated
-    expected = set(combo) | {"forbidden", "control"}
-    assert {k for k in _KINDS if k in line} == expected
-    assert {k for k in _KINDS if k in meta} == expected
+    expected = {k: (_KINDS.index(k) + 1 if k in combo else 0) for k in ("forbidden", "control")}
+    expected |= {k: _KINDS.index(k) + 1 for k in combo}
+    assert md_counts == expected
+    assert html_counts == expected
+    assert md_order == html_order == [k for k in _KINDS if k in expected]
     # a gated-out kind must not leave a dangling separator before the trailing " objectives"
     assert not re.search(r"\u00b7\s*(?:\u00b7|objectives)", meta), meta
 
