@@ -25,6 +25,7 @@ from .config import (
 from .objectives import load_objectives
 from .judge import ERROR
 from .report import verdict_of, write_html_report, write_log, write_report
+from .artifacts import read_artifact
 from .runner import AuthorizationError, load_artifacts, run
 from .target import available_targets, build_target
 from .guards import GuardedTarget, available_guards, build_guards
@@ -118,8 +119,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
-    rows = load_artifacts(artifact_path)
-    report_path = write_report(rows)
+    run_manifest, rows = read_artifact(artifact_path)
+    report_path = write_report(rows, manifest=run_manifest)
     print(f"\nArtifacts: {artifact_path}")
     print(f"Report:    {report_path}")
     if getattr(args, "html", False):
@@ -139,14 +140,15 @@ def _cmd_report(args: argparse.Namespace) -> int:
     if not path.exists():
         print(f"ERROR: artifact not found: {path}", file=sys.stderr)
         return 2
-    rows = load_artifacts(path)
+    run_manifest, rows = read_artifact(path)
     if not rows:
         return _nothing_measured(rows) or 2
     try:
         if args.log:
             print(f"Transcript: {write_log(rows, html=args.html)}  ({len(rows)} trials)")
         else:
-            out = write_html_report(rows) if args.html else write_report(rows)
+            out = (write_html_report(rows) if args.html
+                   else write_report(rows, manifest=run_manifest))
             print(f"Report: {out}  ({len(rows)} trials; {_valid_count(rows)} valid)")
     except ValueError as exc:  # wrong-surface artifact (ISC-33)
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -352,7 +354,8 @@ def _cmd_regrade(args: argparse.Namespace) -> int:
         print(f"ERROR: regrade failed (is ANTHROPIC_API_KEY set and the 'anthropic' SDK installed?): {exc}",
               file=sys.stderr)
         return 1
-    report_path = write_report(load_artifacts(path))
+    regrade_manifest, regrade_rows = read_artifact(path)
+    report_path = write_report(regrade_rows, manifest=regrade_manifest)
     sk = summary["skipped"]
     print(f"  regraded {summary['regraded']} rows; {summary['flipped_vs_heuristic']} flipped vs heuristic; "
           f"skipped {sk['unknown_objective']} unknown-objective, {sk['run_error']} run-error, "
@@ -1011,7 +1014,10 @@ def build_parser() -> argparse.ArgumentParser:
                         "hf-prompt-injection'. Run raw + guarded, then `iago delta` (or `defense-delta`)")
     r.add_argument("--smoke", action="store_true", help="1x1x1 fast proof of the loop")
     r.add_argument("--no-determinism-check", action="store_false", dest="determinism_check",
-                   help="skip the two-generation same-seed replay probe (manifest records null)")
+                   help="skip the same-seed replay probe: saves 5 short generations (a warm-up "
+                        "plus 2 probes x 2, capped at 160 tokens each, ~800 tokens) but records "
+                        "null instead of a measurement AND leaves the matrix running on a cold "
+                        "model, which a default run does not")
     r.add_argument("--html", action="store_true", help="also write a styled, colored HTML report")
     r.add_argument("--log", action="store_true",
                    help="also write a full request/response transcript (every trial, untruncated) — "

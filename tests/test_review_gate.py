@@ -156,7 +156,7 @@ def test_cmd_report_exits_nonzero_when_every_trial_was_a_decode_failure(tmp_path
 
     p = tmp_path / "a.jsonl"
     p.write_text("\n".join(json.dumps(_row(gated=True, decoded=False, trial=i)) for i in range(3)))
-    monkeypatch.setattr(cli, "write_report", lambda rows: tmp_path / "r.md")
+    monkeypatch.setattr(cli, "write_report", lambda rows, **kw: tmp_path / "r.md")
     rc = cli._cmd_report(types.SimpleNamespace(artifact=str(p), log=False, html=False))
     assert rc == 1
     err = capsys.readouterr().err

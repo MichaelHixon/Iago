@@ -52,7 +52,7 @@ def test_cmd_run_exits_nonzero_when_every_trial_errored(tmp_path, monkeypatch, c
 
     monkeypatch.setattr(cli, "run", fake_run)
     monkeypatch.setattr(cli, "build_target", lambda *a, **k: _T())
-    monkeypatch.setattr(cli, "write_report", lambda rows: tmp_path / "r.md")
+    monkeypatch.setattr(cli, "write_report", lambda rows, **kw: tmp_path / "r.md")
     rc = cli._cmd_run(_run_args())
     assert rc == 1
     assert "NOT a hold" in capsys.readouterr().err
@@ -69,7 +69,7 @@ def test_cmd_run_returns_zero_on_a_measured_run(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cli, "run", fake_run)
     monkeypatch.setattr(cli, "build_target", lambda *a, **k: _T())
-    monkeypatch.setattr(cli, "write_report", lambda rows: tmp_path / "r.md")
+    monkeypatch.setattr(cli, "write_report", lambda rows, **kw: tmp_path / "r.md")
     assert cli._cmd_run(_run_args()) == 0
 
 
@@ -110,7 +110,7 @@ def test_cmd_regrade_exits_nonzero_when_nothing_was_regraded(tmp_path, monkeypat
             raise AssertionError("must not be called for an unknown objective")
 
     monkeypatch.setattr("iago.judge_claude.ClaudeJudge", lambda **k: _Judge())
-    monkeypatch.setattr(cli, "write_report", lambda rows: tmp_path / "r.md")
+    monkeypatch.setattr(cli, "write_report", lambda rows, **kw: tmp_path / "r.md")
     rc = cli._cmd_regrade(types.SimpleNamespace(artifact=str(p), judge_model="m"))
     assert rc == 1
     assert "0 rows were regraded" in capsys.readouterr().err
