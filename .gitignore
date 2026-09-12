@@ -51,3 +51,6 @@ iago/calibration/*.local.jsonl
 # Rendered ISA + checkpoint state — personal, never publish
 ISA.html
 .checkpoint-state.json
+
+# Claude Code local config — never ship (may carry paths and machine-local settings)
+.claude/
