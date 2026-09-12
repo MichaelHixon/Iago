@@ -132,6 +132,7 @@ CATEGORIES = [
     "rag-injection",
     "agent-abuse",
     "mcp-injection",
+    "dead-end",
 ]
 
 # OWASP Top 10 for Agentic Applications 2026 (verified 2026-08-19, announced

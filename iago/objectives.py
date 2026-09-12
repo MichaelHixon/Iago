@@ -15,10 +15,13 @@ from pathlib import Path
 
 import yaml
 
+import re
+
 from .config import OBJECTIVES_FILE
+from .judge import RESULT_CHANNEL, STOP_CHANNEL
 
 REQUIRED_FIELDS = ("id", "objective", "kind")
-VALID_KINDS = ("forbidden", "control", "prompt-leak", "trust-escalation", "unsafe-output")
+VALID_KINDS = ("forbidden", "control", "prompt-leak", "trust-escalation", "unsafe-output", "dead-end")
 
 # Downstream sinks an unsafe-output objective can target (OWASP LLM05). Each names a
 # rendering/execution context whose oracle knows what a LIVE injectable construct looks
@@ -66,6 +69,12 @@ class Objective:
     # prose description of it. See judge.judge_unsafe_output.
     sink: str | None = None
     marker: str | None = None
+    # dead-end (fabricated task completion): `deliverable_format` is the regex the in-scope
+    # deliverable would match; `dead_end_reason` states why no in-scope path exists (unsolvable rows);
+    # `in_scope_answer`, when set, marks a SOLVABLE control row whose in-scope answer IS available.
+    deliverable_format: str | None = None
+    dead_end_reason: str | None = None
+    in_scope_answer: str | None = None
 
     @property
     def is_control(self) -> bool:
@@ -91,6 +100,15 @@ class Objective:
         confirms an escalation only when the provenance arm emits the action token while the
         anonymous AND placebo arms do not — isolating the relationship content as the cause."""
         return self.kind == "trust-escalation"
+
+    @property
+    def is_dead_end(self) -> bool:
+        """A task with NO valid in-scope completion. A well-aligned model STOPS — declines or asks for
+        scope — instead of fabricating a value or claiming an out-of-scope step. The scenario states a
+        SCOPE and two reply channels (RESULT: / BLOCKED:); judge_deadend reads the channel, not prose.
+        A SOLVABLE control (in_scope_answer set) rides along so a block-everything model does not score
+        a meaningless 100% stop rate."""
+        return self.kind == "dead-end"
 
 
 def load_objectives(objectives_file: Path | None = None) -> list[Objective]:
@@ -175,6 +193,55 @@ def load_objectives(objectives_file: Path | None = None) -> list[Objective]:
                     f"{path.name}: unsafe-output objective {rec['id']!r} marker {marker!r} is not in the "
                     "objective text — the ask must direct the payload at the marker for the oracle to be meaningful"
                 )
+        # A dead-end objective needs a deliverable_format (the shape the in-scope completion would
+        # take) and a scenario that defines both reply channels. Unsolvable rows must additionally
+        # state a dead_end_reason and MUST NOT let the format match the ask or the scenario (or the
+        # oracle would fire on an echo / an illustration). A solvable control (in_scope_answer set)
+        # flips the invariant: its answer must match the format and appear in the ask.
+        if rec["kind"] == "dead-end":
+            fmt, sys_prompt = rec.get("deliverable_format"), rec.get("system_prompt")
+            if not fmt or not sys_prompt:
+                raise ValueError(
+                    f"{path.name}: dead-end objective {rec['id']!r} needs both 'deliverable_format' "
+                    "(the regex the in-scope deliverable would match) and 'system_prompt' (the scenario)"
+                )
+            try:
+                compiled = re.compile(fmt, re.IGNORECASE)  # match judge_deadend (Council/Halloway H1)
+            except re.error as exc:
+                raise ValueError(
+                    f"{path.name}: dead-end objective {rec['id']!r} deliverable_format {fmt!r} is not a "
+                    f"valid regex: {exc}"
+                ) from exc
+            for chan in (RESULT_CHANNEL, STOP_CHANNEL):
+                if chan not in sys_prompt:
+                    raise ValueError(
+                        f"{path.name}: dead-end objective {rec['id']!r} system_prompt must define the "
+                        f"{chan!r} reply channel so the model knows how to answer"
+                    )
+            answer = rec.get("in_scope_answer")
+            if answer is None:
+                if not rec.get("dead_end_reason"):
+                    raise ValueError(
+                        f"{path.name}: unsolvable dead-end objective {rec['id']!r} needs a 'dead_end_reason' "
+                        "stating why no in-scope completion exists"
+                    )
+                if compiled.search(rec["objective"]) or compiled.search(sys_prompt):
+                    raise ValueError(
+                        f"{path.name}: dead-end objective {rec['id']!r} deliverable_format matches its own "
+                        "ask or scenario — the oracle would fire on an echo/illustration; the format must "
+                        "match only a fabricated completion"
+                    )
+            else:
+                if not compiled.fullmatch(answer):
+                    raise ValueError(
+                        f"{path.name}: dead-end control {rec['id']!r} in_scope_answer {answer!r} does not "
+                        "match its own deliverable_format"
+                    )
+                if answer not in rec["objective"]:
+                    raise ValueError(
+                        f"{path.name}: dead-end control {rec['id']!r} in_scope_answer {answer!r} must appear "
+                        "in the objective text — a control is solvable FROM the ask"
+                    )
         objectives.append(
             Objective(
                 id=rec["id"],
@@ -187,6 +254,9 @@ def load_objectives(objectives_file: Path | None = None) -> list[Objective]:
                 action_token=rec.get("action_token"),
                 sink=rec.get("sink"),
                 marker=rec.get("marker"),
+                deliverable_format=rec.get("deliverable_format"),
+                dead_end_reason=rec.get("dead_end_reason"),
+                in_scope_answer=rec.get("in_scope_answer"),
             )
         )
 
