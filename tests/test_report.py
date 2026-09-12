@@ -221,27 +221,30 @@ def _meta_div(html: str) -> str:
     return html[html.index("<br>", i):html.index("</div>", i)]
 
 
-def _counts(text: str) -> dict:
+def _counts(text: str) -> tuple[dict[str, int], list[str]]:
     """(kind -> count) as the renderer actually printed it, plus the order the kinds appeared in."""
-    found = [(m.start(), k, int(m.group(1)))
-             for k in _KINDS
-             for m in re.finditer(rf"(\d+) {re.escape(k)}\b", text)]
-    # longest kind name wins an overlapping span (no _KINDS member is a substring of another today,
-    # but the parse should not silently depend on that)
-    return {k: n for _, k, n in sorted(found)}, [k for _, k, _ in sorted(found)]
+    found = sorted((m.start(), k, int(m.group(1)))
+                   for k in _KINDS
+                   for m in re.finditer(rf"(\d+) {re.escape(k)}\b", text))
+    return {k: n for _, k, n in found}, [k for _, k, _ in found]
 
 
+@pytest.mark.parametrize("errored", [False, True], ids=["scored", "errored"])
 @pytest.mark.parametrize("combo", [c for n in range(1, len(_KINDS) + 1)
                                    for c in itertools.combinations(_KINDS, n)])
-def test_objectives_breakdown_agrees_across_renderers(combo):
+def test_objectives_breakdown_agrees_across_renderers(combo, errored):
     """MD and HTML must name the same objective kinds with the same COUNTS in the same ORDER, for
     every combination of kinds present. The HTML renderer used to print prompt-leak unconditionally,
     so 31 of these 63 combinations read '0 prompt-leak' in HTML and omitted it in markdown.
 
     Each kind gets a DISTINCT number of objectives, so a count sourced from the wrong kind's row set
-    is caught too — with one objective per kind every count reads 1 and a cross-wire is invisible."""
+    is caught too — with one objective per kind every count reads 1 and a cross-wire is invisible.
+
+    The `errored` axis matters because the header counts OBJECTIVES, not scored trials: with no
+    errored rows the raw and error-filtered row lists are identical, so a gate quietly switched to
+    the filtered list renders the same text and the whole matrix passes."""
     rows = [_row(objective_id=f"o-{k}-{i}", objective_kind=k,
-                 verdict="bypassed" if k == "forbidden" else "held")
+                 verdict="error" if errored else ("bypassed" if k == "forbidden" else "refused"))
             for k in combo for i in range(_KINDS.index(k) + 1)]
     meta = _meta_div(build_html_report(rows))
     md_counts, md_order = _counts(_objectives_line(build_report(rows)))
@@ -261,7 +264,7 @@ def test_objectives_breakdown_names_present_kinds_in_both_renderers():
     """The gate must not swallow a kind that IS present, and the HTML separators stay well-formed."""
     rows = [_row(objective_id="o1", objective_kind="forbidden"),
             _row(objective_id="oc", objective_kind="control"),
-            _row(objective_id="ol", objective_kind="prompt-leak", verdict="held")]
+            _row(objective_id="ol", objective_kind="prompt-leak", verdict="refused")]
     line, meta = _objectives_line(build_report(rows)), _meta_div(build_html_report(rows))
     assert "1 forbidden, 1 control, 1 prompt-leak" in line
     assert "1 forbidden \u00b7 1 control \u00b7 1 prompt-leak objectives" in meta
@@ -283,3 +286,19 @@ def test_all_errored_kind_is_disclosed_in_both_renderers(kind, heading, note):
     md, html = build_report(rows), build_html_report(rows)
     assert heading in md and heading in html, kind
     assert note in md and note in html, kind
+
+
+@pytest.mark.parametrize("kind,note", [
+    ("prompt-leak", "All prompt-leak trials errored"),
+    ("trust-escalation", "All trust-escalation trials errored"),
+    ("unsafe-output", "All unsafe-output trials errored"),
+])
+def test_errored_note_is_absent_when_trials_succeeded(kind, note):
+    """The disclosure must not appear over real numbers. Gating the note on the raw kind list alone
+    prints 'All <kind> trials errored' directly above that kind's results — a self-contradicting
+    report that no positive assertion can catch."""
+    rows = [_row(objective_id="o1", objective_kind="forbidden", verdict="refused"),
+            _row(objective_id=f"o-{kind}", objective_kind=kind, verdict="refused")]
+    md, html = build_report(rows), build_html_report(rows)
+    assert note not in md, kind
+    assert note not in html, kind
