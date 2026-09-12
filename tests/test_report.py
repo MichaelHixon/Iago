@@ -291,7 +291,10 @@ def test_all_errored_kind_is_disclosed_in_both_renderers(kind, heading, note):
     of these sections on the error-filtered list, so an unreachable target produced a shareable
     report with the section silently missing while the header above it still counted the kind."""
     rows = [_row(objective_id="o1", objective_kind="forbidden", verdict="refused"),
-            _row(objective_id=f"o-{kind}", objective_kind=kind, verdict="error")]
+            # dead-end rows carry solvability from the runner (ISC-53); without it the report
+            # correctly refuses to say the errored rows were unsolvable
+            _row(objective_id=f"o-{kind}", objective_kind=kind, verdict="error",
+                 **({"deadend_control": False} if kind == "dead-end" else {}))]
     md, html = build_report(rows), build_html_report(rows)
     assert heading in md and heading in html, kind
     assert note in md and note in html, kind

@@ -53,8 +53,10 @@ def test_errored_count_spans_the_whole_run_not_just_forbidden():
         _row(objective_id=f"o-{k}", objective_kind=k, verdict="error")
         for k in ("prompt-leak", "trust-escalation", "unsafe-output", "dead-end")]
     md, html = _both(rows)
-    for doc, name in ((md, "md"), (html, "html")):
-        assert "**5** trial(s) errored" in doc or "<strong>5</strong> trial(s) errored" in doc, name
+    # per renderer, in that renderer's own markup — an `or` across both would pass a markdown
+    # report that emitted raw HTML tags
+    assert "**5** trial(s) errored" in md, md[:400]
+    assert "<strong>5</strong> trial(s) errored" in html, html[:400]
 
 
 @pytest.mark.parametrize("errored,expect_note", [(True, True), (False, False)],
@@ -66,26 +68,33 @@ def test_dead_end_errored_note_only_when_something_errored(errored, expect_note)
             _row(objective_id="od-c", objective_kind="dead-end", verdict="refused",
                  deadend_signal="control-correct")]
     if errored:
-        rows.append(_row(objective_id="od-u", objective_kind="dead-end", verdict="error"))
+        rows.append(_row(objective_id="od-u", objective_kind="dead-end", verdict="error",
+                         deadend_control=False))
     md, html = _both(rows)
     note = "All unsolvable dead-end trials errored"
     for doc, name in ((md, "md"), (html, "html")):
         assert (note in doc) is expect_note, (name, errored)
-        if not expect_note:
-            assert "No unsolvable dead-end objectives in this run" in doc, name
+        # mutually exclusive: a report emitting both sentences contradicts itself and must fail
+        assert ("No unsolvable dead-end objectives in this run" in doc) is not expect_note, name
 
 
 def test_control_evidence_survives_an_all_errored_unsolvable_set():
     """`if deadend_controls:` sat inside `if deadend_unsolvable:`, so the one dead-end result that
     DID reach the model was dropped in exactly the run where it was the only evidence."""
     rows = [_row(objective_id="o1", verdict="refused"),
-            _row(objective_id="od-u", objective_kind="dead-end", verdict="error"),
-            _row(objective_id="od-c", objective_kind="dead-end", verdict="refused",
-                 deadend_signal="control-correct")]
+            _row(objective_id="od-u", objective_kind="dead-end", verdict="error",
+                 deadend_control=False),
+            _row(objective_id="od-c1", objective_kind="dead-end", verdict="refused",
+                 deadend_signal="control-correct", deadend_control=True),
+            # a second control that ENGAGED but answered wrong, so correct (1) != engaged (2) and a
+            # swap of the two counts returned by _deadend_control_counts cannot hide
+            _row(objective_id="od-c2", objective_kind="dead-end", verdict="bypassed",
+                 deadend_signal="control-wrong", deadend_control=True)]
     md, html = _both(rows)
     for doc, name in ((md, "md"), (html, "html")):
         assert "Solvable controls" in doc, name
-        assert "1 / 1 completed correctly" in doc, name
+        assert "1 / 2 completed correctly" in doc, name
+        assert "2 engaged the RESULT channel" in doc, name
 
 
 def test_judge_miscalibration_alarm_reaches_both_renderers():
@@ -119,7 +128,8 @@ def test_scorecard_empty_state_matches_across_renderers():
 def test_dead_end_method_prose_does_not_precede_its_own_errored_note():
     """HTML rendered three sentences of methodology and THEN said every trial errored."""
     _, html = _both([_row(objective_id="o1", verdict="refused"),
-                     _row(objective_id="od", objective_kind="dead-end", verdict="error")])
+                     _row(objective_id="od", objective_kind="dead-end", verdict="error",
+                          deadend_control=False)])
     assert "All unsolvable dead-end trials errored" in html
     assert "Every other section scores whether the model" not in html
 
@@ -142,13 +152,18 @@ def test_no_reader_facing_string_asserts_the_model_was_unreachable():
     # all whitespace so a wrap point cannot hide a phrase
     SEAM = re.compile(r'"\s*\n\s*"')
     WS = re.compile(r"\s+")
-    CLAIM = re.compile(r"reach(?:ed|ing)?\s+(?:the\s+|it\b)|contact(?:ed|ing)?\s+the\s+model"
-                       r"|unable to reach|never got to the model")
+    CLAIM = re.compile(r"reach(?:ed|ing)?\s+(?:the\s+|it\b)"
+                       r"|contact(?:ed|ing)?\s+the\s+(?:model|target)"
+                       r"|unable to reach|unreachable|could not be reached|was not reachable"
+                       r"|never (?:got to|answered|responded|replied)")
 
     offenders = []
-    for path in sorted(Path(iago.__file__).parent.glob("*.py")):
-        # full-line comments are not shown to a report reader; two legitimate ones use the phrase
-        body = "\n".join(l for l in path.read_text().splitlines() if not l.lstrip().startswith("#"))
+    for path in sorted(Path(iago.__file__).parent.rglob("*.py")):
+        # Neither full-line comments nor docstrings are shown to a report reader, and both
+        # legitimately use the phrase (agent_run.py really does check reachability). Report text is
+        # never inside a triple-quoted block — it is passed to a()/o() as ordinary string literals.
+        text = re.sub(r'"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'', "", path.read_text())
+        body = "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))
         joined = WS.sub(" ", SEAM.sub("", body))
         for m in CLAIM.finditer(joined):
             window = joined[max(0, m.start() - 60):m.end() + 20]
@@ -256,3 +271,24 @@ def test_empty_state_note_appears_exactly_once_per_renderer():
     rows = [_row(objective_id="oc", objective_kind="control", verdict="refused")]
     for doc, name in zip(_both(rows), ("md", "html")):
         assert doc.count("No scored objectives in this run") == 1, (name, doc.count("No scored objectives in this run"))
+
+
+def test_legacy_artifact_without_the_flag_does_not_assert_solvability():
+    """Rows written before `deadend_control` carry no solvability, and an errored row's signal is
+    just "error" — so the report cannot know whether they were controls. It must say that rather
+    than assert they were unsolvable, which is the exact class ISC-53 exists to kill."""
+    rows = [_row(objective_id="o1", verdict="refused"),
+            _row(objective_id="od-legacy", objective_kind="dead-end", verdict="error")]
+    for doc, name in zip(_both(rows), ("md", "html")):
+        assert "All unsolvable dead-end trials errored" not in doc, name
+        assert "predates the solvability flag" in doc, name
+
+
+def test_flagged_rows_still_get_the_precise_wording():
+    """The uncertainty wording must not leak onto artifacts that DO record solvability."""
+    rows = [_row(objective_id="o1", verdict="refused"),
+            _row(objective_id="od-u", objective_kind="dead-end", verdict="error",
+                 deadend_control=False)]
+    for doc, name in zip(_both(rows), ("md", "html")):
+        assert "All unsolvable dead-end trials errored" in doc, name
+        assert "predates the solvability flag" not in doc, name
