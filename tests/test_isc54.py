@@ -279,3 +279,73 @@ def test_every_figure_in_a_report_is_internally_consistent(renderer):
 
     for conf in re.findall(r"\bconfidence[^0-9]{0,20}(\d+\.\d+)", doc):
         assert 0.0 <= float(conf) <= 1.0, f"confidence {conf} outside [0, 1]"
+
+
+# --- ISC-55: each section's own headline, and the surfaces one renderer lacks -----------------
+
+# Headings markdown emits that HTML does not, each with the reason it is absent. This is the
+# allowlist ISC-54's anti-criterion called for and did not have: `_SHARED_LABELS` is an inclusion
+# list, so a one-copy surface was invisible to it rather than named.
+_MARKDOWN_ONLY_HEADINGS = {
+    # (Judge calibration and Decode-gating are markdown H3s, not sections — HTML renders the same
+    # figures inline in the executive summary, and test_isc53.py pins both.)
+    "Bypass Rate by Category": "no HTML equivalent — the shared copy has no category breakdown",
+    "Bypass Rate by Technique": "no HTML equivalent — the shared copy has no technique breakdown",
+    "Evidence — Strongest Harmful-Content Bypasses":
+        "HTML carries its excerpts inside each finding section instead of one evidence section",
+}
+
+
+def _headings(doc: str, is_html: bool) -> list[str]:
+    if is_html:
+        return re.findall(r"<h2>(.*?)</h2>", doc)
+    # H2 only: H3s are sub-parts, and the numbered evidence items are H3s per item
+    return [h.strip() for h in re.findall(r"^## (.+)$", doc, re.M)]
+
+
+def _section_headline(doc: str, heading: str, is_html: bool) -> tuple[str, ...] | None:
+    """(numerator, denominator, rate) from a section's headline claim, or None if absent.
+
+    Both renderers open every finding section with the same `a / b … p%` shape, then diverge in
+    wording ("exfiltrated the canary — 50%" vs "leaked (50%…)"), so the figures are compared and
+    the prose is not. Scoped to the headline claim rather than the whole section on purpose:
+    markdown legitimately carries sub-tables HTML does not, and folding those in would force the
+    copies together on a real structural difference — where the tempting fix is deleting the
+    markdown table rather than adding it to HTML."""
+    key = f"<h2>{heading}</h2>" if is_html else f"## {heading}"
+    if key not in doc:
+        return None
+    text = _plain(doc.split(key, 1)[1][:5000])
+    m = re.search(r"(\d+) / (\d+)[^.]{0,80}?(\d+)%", text)
+    return m.groups() if m else None
+
+
+def test_the_markdown_only_allowlist_matches_what_the_renderers_emit():
+    """The allowlist is only honest if it is checked against reality. A section added to HTML later
+    must not sit silently in the exemption list, and one added to markdown must not bypass the
+    differential by being forgotten."""
+    rows = _fixture()
+    md_h = set(_headings(build_report(rows), is_html=False))
+    html_h = set(_headings(build_html_report(rows), is_html=True))
+    assert set(_MARKDOWN_ONLY_HEADINGS) == md_h - html_h, {
+        "listed but now shared or gone": set(_MARKDOWN_ONLY_HEADINGS) - (md_h - html_h),
+        "markdown-only but unlisted": (md_h - html_h) - set(_MARKDOWN_ONLY_HEADINGS),
+    }
+    assert not html_h - md_h, f"HTML-only headings are not expected: {html_h - md_h}"
+
+
+@pytest.mark.parametrize("heading", [
+    "System-Prompt Extraction (OWASP LLM07)",
+    "Trust Escalation — Fabricated Provenance (OWASP LLM01)",
+    "Unsafe Output Handling (OWASP LLM05)",
+    "Dead-End Scope-Holding (fabricated task completion)",
+])
+def test_each_section_headline_agrees_with_the_other_renderer(heading):
+    """Every per-section headline restates its executive-summary figure, and all four were
+    unpinned. A divergence does not just print a wrong number — it makes the shared page
+    contradict itself, "1 / 1 trials leaked" at the top and "5 / 10" four sections down."""
+    rows = _fixture()
+    md = _section_headline(build_report(rows), heading, is_html=False)
+    html = _section_headline(build_html_report(rows), heading, is_html=True)
+    assert md, f"no figures parsed from the markdown {heading} headline"
+    assert md == html, (heading, md, html)
