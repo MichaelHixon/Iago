@@ -52,5 +52,8 @@ iago/calibration/*.local.jsonl
 ISA.html
 .checkpoint-state.json
 
-# Claude Code local config — never ship (may carry paths and machine-local settings)
-.claude/
+# Claude Code local config — never ship (may carry paths and machine-local settings).
+# settings.json is the exception: shared build/test permissions, no paths, no identity.
+# Note the trailing /* — git cannot re-include a file under an excluded directory.
+.claude/*
+!.claude/settings.json
