@@ -2,20 +2,23 @@
   <title id="t">The Iago loop</title>
   <desc id="d">Target model, attack library, run, judge, report, then harden and run again. The judge is grounded in a planted secret word, an action token, or the tool calls the model made. The report gives a bypass rate with a 95% confidence interval and hardening recommendations.</desc>
   <style>
-    .box { fill: #0d1117; stroke: #e6edf3; stroke-width: 1.5; rx: 8; }
-    .judge { fill: #2a2000; stroke: #d29922; stroke-width: 2; }
-    .lbl { font: 600 15px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #e6edf3; text-anchor: middle; }
-    .sub { font: 12px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #9198a1; text-anchor: middle; }
-    .arrow { stroke: #e6edf3; stroke-width: 1.5; fill: none; marker-end: url(#a); }
-    .loop { stroke: #d29922; stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; marker-end: url(#b); }
-    .looplbl { font: italic 12px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #d29922; text-anchor: middle; }
+    .bg { fill: #201B1C; }
+    .box { fill: none; stroke: #EEE7D5; stroke-width: 1.5; rx: 4; }
+    .judge { fill: #C5293B; stroke: #C5293B; stroke-width: 1.5; }
+    .lbl { font: 600 16px Georgia, "Iowan Old Style", "Times New Roman", serif; fill: #EEE7D5; text-anchor: middle; letter-spacing: 0.02em; }
+    .lbljudge { fill: #EEE7D5; }
+    .sub { font: 12.5px Georgia, "Iowan Old Style", "Times New Roman", serif; fill: #B9B2A2; text-anchor: middle; }
+    .arrow { stroke: #EEE7D5; stroke-width: 1.5; fill: none; marker-end: url(#a); }
+    .loop { stroke: #C5293B; stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; marker-end: url(#b); }
+    .looplbl { font: italic 12.5px Georgia, "Iowan Old Style", "Times New Roman", serif; fill: #C5293B; text-anchor: middle; }
+    .foot { font: italic 12.5px Georgia, "Iowan Old Style", "Times New Roman", serif; fill: #B9B2A2; text-anchor: middle; }
   </style>
   <defs>
-    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#e6edf3"/></marker>
-    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d29922"/></marker>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#EEE7D5"/></marker>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#C5293B"/></marker>
   </defs>
+  <rect class="bg" x="0" y="0" width="900" height="250" rx="12"/>
 
-  <!-- boxes: x = 20, 200, 380, 560, 740 ; w = 140 ; y = 60 ; h = 56 -->
   <rect class="box" x="20" y="60" width="140" height="56"/>
   <text class="lbl" x="90" y="94">Target model</text>
   <text class="sub" x="90" y="140">local, via Ollama</text>
@@ -32,7 +35,7 @@
   <text class="sub" x="450" y="156">pinned seed</text>
 
   <rect class="box judge" x="560" y="60" width="140" height="56"/>
-  <text class="lbl" x="630" y="94">Judge</text>
+  <text class="lbl lbljudge" x="630" y="94">Judge</text>
   <text class="sub" x="630" y="140">planted secret word</text>
   <text class="sub" x="630" y="156">action token</text>
   <text class="sub" x="630" y="172">tool calls made</text>
@@ -42,16 +45,13 @@
   <text class="sub" x="810" y="140">bypass rate ± 95% CI</text>
   <text class="sub" x="810" y="156">hardening recs</text>
 
-  <!-- forward arrows -->
   <path class="arrow" d="M160 88 H198"/>
   <path class="arrow" d="M340 88 H378"/>
   <path class="arrow" d="M520 88 H558"/>
   <path class="arrow" d="M700 88 H738"/>
 
-  <!-- return loop: report → target -->
   <path class="loop" d="M810 60 V30 H90 V58"/>
   <text class="looplbl" x="450" y="24">harden the guardrail, run again</text>
 
-  <!-- footer -->
-  <text class="sub" x="450" y="225">held or bypassed is decided on evidence, not on a keyword match</text>
+  <text class="foot" x="450" y="222">held or bypassed is decided on evidence, not on a keyword match</text>
 </svg>
