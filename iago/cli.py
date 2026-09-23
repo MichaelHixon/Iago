@@ -16,6 +16,7 @@ from .campaign import DEFAULT_SURFACES
 from .config import (
     ARTIFACTS_DIR,
     BASE_SEED,
+    CATEGORIES,
     DEFAULT_ADAPTIVE_TURNS,
     DEFAULT_AGENT_STEPS,
     DEFAULT_MODEL,
@@ -99,6 +100,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             authorized=args.authorized,
             technique_limit=tech_limit,
             objective_limit=obj_limit,
+            category=getattr(args, "category", None),
             shots=args.shots,
             progress=True,
             determinism_check=getattr(args, "determinism_check", True),
@@ -296,7 +298,7 @@ def _cmd_defense_delta(args: argparse.Namespace) -> int:
     try:
         base = build_target(args.target, model=model)
         guards = build_guards(args.guard)
-    except ValueError as exc:
+    except (ValueError, GuardBackendUnavailable) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     if not guards:
@@ -310,7 +312,7 @@ def _cmd_defense_delta(args: argparse.Namespace) -> int:
     common = dict(
         trials=trials, temperature=args.temperature, base_seed=args.base_seed,
         authorized=args.authorized, technique_limit=tech_limit, objective_limit=obj_limit,
-        shots=args.shots, progress=True,
+        category=getattr(args, "category", None), shots=args.shots, progress=True,
     )
 
     print(f"Iago defense-delta → raw {base.name}  vs  guarded {guarded.name}")
@@ -322,6 +324,14 @@ def _cmd_defense_delta(args: argparse.Namespace) -> int:
         guarded_path = run(guarded, **common)
     except AuthorizationError as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
+    except GuardBackendUnavailable as exc:
+        # Same contract as `run`: a guard backend that dies mid-matrix fails the command loudly
+        # rather than fabricating "held" verdicts for the trials it never scored.
+        print(f"ERROR: guard backend failed mid-run: {exc}", file=sys.stderr)
+        return 2
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
     raw_rows = load_artifacts(raw_path)
@@ -1011,6 +1021,9 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
     r.add_argument("--limit-techniques", type=int, default=None, dest="limit_techniques")
     r.add_argument("--limit-objectives", type=int, default=None, dest="limit_objectives")
+    r.add_argument("--category", choices=CATEGORIES, default=None,
+                   help="only techniques in this category (one row of `iago library`); with "
+                        "--smoke, the first technique of that category")
     r.add_argument("--shots", type=int, default=None,
                    help="override fabricated-shot count for many-shot techniques (e.g. 64, 128) "
                         "to exercise long-context scaling")
@@ -1113,6 +1126,8 @@ def build_parser() -> argparse.ArgumentParser:
     dd.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
     dd.add_argument("--limit-techniques", type=int, default=None, dest="limit_techniques")
     dd.add_argument("--limit-objectives", type=int, default=None, dest="limit_objectives")
+    dd.add_argument("--category", choices=CATEGORIES, default=None,
+                    help="only techniques in this category (one row of `iago library`)")
     dd.add_argument("--shots", type=int, default=None, help="override many-shot fabricated-shot count")
     dd.add_argument("--smoke", action="store_true", help="tiny paired proof (1x1x1 each side)")
     dd.add_argument("--authorized", action="store_true",

@@ -359,6 +359,19 @@ def _render_scorecard(a, forbidden_valid: list[dict], leak_valid: list[dict],
     a("")
 
 
+def scope_disclosure(manifest: dict | None) -> str:
+    """One line naming a partial run, or "" for a full one.
+
+    Same class as ISC-50 below: `--category` reached the manifest and reached no reader, so a
+    report covering 5 of 72 techniques rendered exactly like a full sweep — summary, by-category
+    table and hardening recommendations, with nothing saying what was left out."""
+    scope = (manifest or {}).get("category")
+    if not scope:
+        return ""
+    return (f"_⚠️ **Partial run:** only the `{scope}` category was fired (`--category {scope}`). "
+            "Every number below describes that slice of the attack library, not the whole of it._")
+
+
 def determinism_disclosure(manifest: dict | None) -> str:
     """One sentence telling the report's reader what the run measured about its own host.
 
@@ -589,6 +602,9 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
     # THIS run's numbers, and a disclosure folded behind a <details> is one the reader can miss
     # (ISC-50). The generic statistical caveats stay tucked; this one leads.
     a(determinism_disclosure(manifest))
+    if scope_disclosure(manifest):
+        a("")
+        a(scope_disclosure(manifest))
     a("")
     a("<details>")
     a(f"<summary>{_HOWTOREAD_SUMMARY}</summary>")
@@ -1518,6 +1534,8 @@ def build_html_report(rows: list[dict], manifest: dict | None = None) -> str:
     # The determinism disclosure is the one caveat markdown keeps OUTSIDE the collapsible so the
     # reader cannot miss it, and `iago report --html` emits only the HTML. It had no HTML home.
     o(f"<p>{_inline_md_to_html(determinism_disclosure(manifest))}</p>")
+    if scope_disclosure(manifest):
+        o(f"<p>{_inline_md_to_html(scope_disclosure(manifest))}</p>")
 
     # Judge calibration on the benign control — the alarm that says the run's forbidden numbers
     # cannot be trusted. It had no HTML home at all (#152).

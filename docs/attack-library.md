@@ -1,6 +1,6 @@
 # Attack library
 
-68 bypass techniques stored as data, in 18 attack categories, plus 4 `dead-end` checks that test whether a model makes things up instead of stopping (so `iago library` reports 72 techniques). Each technique is tagged with the matching [OWASP LLM Top 10](https://owasp.org/www-project-top-10-for-large-language-model-applications/) risk. When a technique hides the request in a cipher or a rare language, Iago first checks that it can decode the reply; a reply it cannot decode is never counted as the guardrail holding.
+72 techniques stored as data, in 19 categories. Four of them, the `dead-end` category, test whether a model stops instead of making something up; the other 68 are bypass techniques. `iago library` lists them all, and `iago run --category <name>` restricts a run to one row of that listing. Each technique is tagged with the matching [OWASP LLM Top 10](https://owasp.org/www-project-top-10-for-large-language-model-applications/) risk. When a technique hides the request in a cipher or a rare language, Iago first checks that it can decode the reply; a reply it cannot decode is never counted as the guardrail holding.
 
 ## Families
 

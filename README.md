@@ -35,6 +35,7 @@ uv run iago run --smoke
 # 5. Full run — writes a findings report to reports/
 uv run iago run                 # whole library, default 3 trials/pair
 uv run iago run --trials 5      # more trials → a narrower confidence interval
+uv run iago run --category prompt-extraction --trials 3   # one surface only
 
 # 6. Agent surfaces — test what a tool-calling agent DOES, not just what it says
 uv run iago agent-run --smoke   # one of eight agent surfaces
@@ -52,7 +53,7 @@ Pick the backend with `--target` (default `ollama`) and the model with `--model`
 </picture>
 
 1. **Target connector** — a small interface to the model under test (local, through Ollama; other backends can be added).
-2. **Attack library** — 68 bypass techniques stored as data, in 18 attack categories plus 4 `dead-end` checks that test whether a model makes things up instead of stopping. `iago library` counts all 72 together. Techniques range from direct asks and role-play through encoding, many-shot transcripts, stacked techniques, and forged conversation history, to attacks that arrive through retrieved documents, agent tool calls, and MCP servers. The full list: [docs/attack-library.md](docs/attack-library.md).
+2. **Attack library** — 72 techniques stored as data, in 19 categories. Four of them, the `dead-end` category, test whether a model stops instead of making something up; the other 68 are bypass techniques. `iago library` lists them all. Techniques range from direct asks and role-play through encoding, many-shot transcripts, stacked techniques, and forged conversation history, to attacks that arrive through retrieved documents, agent tool calls, and MCP servers. The full list: [docs/attack-library.md](docs/attack-library.md).
 3. **Runner** — fires each technique against a set of forbidden requests, several trials per pair, and records the replies.
 4. **Judge** — decides, per attempt, whether the guardrail **held** or was **bypassed**, grounded in facts where it can be: a planted secret word, an action token the model only emits if it crosses a line, or the tool calls it actually made. A pattern-based judge runs by default; `iago regrade` re-scores with a Claude judge that reads the content against a written rubric.
 5. **Report** — a markdown report: a summary (X of Y bypassed), results by category, the prompt-and-reply evidence, and **hardening recommendations**, which is the defensive payoff.
