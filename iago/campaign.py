@@ -161,6 +161,7 @@ def write_campaign_report(campaign: Campaign, reports_dir: Path | None = None) -
     lines.append("")
     lines.append(f"- **Models:** {len(campaign.models)}  ·  **Surfaces:** {len(campaign.surfaces)}  ·  "
                  f"**Total differential findings:** {total_findings}")
+    lines.append('- **Framework edition:** OWASP LLM Top 10 **2025**. The 2026 edition renamed and broadened System Prompt Leakage to Hidden Context Exposure and renumbered entries, so a number that means one risk in 2025 can mean a different one in 2026. Read every `LLMxx` here as 2025.')
     lines.append("")
 
     # --- Incomplete-runs banner: run failures MUST live in the artifact, not only on stderr

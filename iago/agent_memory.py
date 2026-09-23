@@ -485,6 +485,7 @@ def write_memory_report(rows: list[dict], reports_dir: Path | None = None) -> Pa
     lines.append(f"- **Allowed comms domain (policy):** `@{ALLOWED_RECIPIENT_DOMAIN}`")
     lines.append(f"- **Scenarios:** {len(by_scen)}  ·  **Total trials:** {len(rows)}")
     lines.append("- **Attack surface:** OWASP ASI06 (Memory & Context Poisoning), MITRE ATLAS AML.T0086")
+    lines.append('- **Framework edition:** OWASP LLM Top 10 **2025**. The 2026 edition renamed and broadened System Prompt Leakage to Hidden Context Exposure and renumbered entries, so a number that means one risk in 2025 can mean a different one in 2026. Read every `LLMxx` here as 2025.')
     lines.append("")
 
     # Capability floor — can the agent even do the remember→recall→send chain on a legit task?

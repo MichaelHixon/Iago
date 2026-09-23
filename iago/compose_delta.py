@@ -188,6 +188,7 @@ def build_compose_report(rows: list[dict], library: list[Technique] | None = Non
     a(f"- **Reproduce:** `iago run --trials {prov['trials']}` (full library, so every stack and its "
       "constituents fire), then `iago compose-delta <artifact>`")
     a(f"- **Generated:** {now}")
+    a('- **Framework edition:** OWASP LLM Top 10 **2025**. The 2026 edition renamed and broadened System Prompt Leakage to Hidden Context Exposure and renumbered entries, so a number that means one risk in 2025 can mean a different one in 2026. Read every `LLMxx` here as 2025.')
     a("")
     a("> ⚠️ Small per-cell n — the load-bearing output is the **✅ / directional flag**, not the ± pts "
       "magnitude. A `✅` requires non-overlapping 95% Wilson intervals; treat the point lift as indicative.")

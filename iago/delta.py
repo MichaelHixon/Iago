@@ -110,6 +110,7 @@ def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict]) -> str:
     a(f"- **Raw target:** `{raw_model}`")
     a(f"- **Guarded target:** `{guarded_model}`")
     a(f"- **Generated:** {now}")
+    a('- **Framework edition:** OWASP LLM Top 10 **2025**. The 2026 edition renamed and broadened System Prompt Leakage to Hidden Context Exposure and renumbered entries, so a number that means one risk in 2025 can mean a different one in 2026. Read every `LLMxx` here as 2025.')
     a("")
 
     a("## Headline — bypass-rate delta")

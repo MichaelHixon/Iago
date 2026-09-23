@@ -620,6 +620,7 @@ def write_adaptive_report(rows: list[dict], reports_dir: Path | None = None) -> 
     lines.append(f"- **Objectives:** {len(set(r['objective_id'] for r in rows))}  ·  "
                  f"**Total conversations:** {len(rows)}")
     lines.append(f"- **Attack surface:** OWASP LLM01 (prompt injection) — multi-turn dialogue jailbreak")
+    lines.append('- **Framework edition:** OWASP LLM Top 10 **2025**. The 2026 edition renamed and broadened System Prompt Leakage to Hidden Context Exposure and renumbered entries, so a number that means one risk in 2025 can mean a different one in 2026. Read every `LLMxx` here as 2025.')
     if not deterministic:
         # Honesty for the LLM arm: if the attacker model was down, every turn silently fell back
         # to the deterministic template. Surface how many turns were actually model-written vs

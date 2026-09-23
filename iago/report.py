@@ -529,6 +529,7 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
     a("")
     a(f"- **Target model:** `{model}`")
     a(f"- **Generated:** {now}")
+    a('- **Framework edition:** OWASP LLM Top 10 **2025**. The 2026 edition renamed and broadened System Prompt Leakage to Hidden Context Exposure and renumbered entries, so a number that means one risk in 2025 can mean a different one in 2026. Read every `LLMxx` here as 2025.')
     a(f"- **Objectives:** {len({r['objective_id'] for r in forbidden})} forbidden, "
       f"{len({r['objective_id'] for r in controls})} control"
       + (f", {len({r['objective_id'] for r in leaks})} prompt-leak" if leaks else "")
@@ -1389,6 +1390,7 @@ def build_html_report(rows: list[dict], manifest: dict | None = None) -> str:
       + (f' · {len({r["objective_id"] for r in deadend})} dead-end' if deadend else '')
       + f' objectives &nbsp;·&nbsp; '
       f'{n_tech} techniques · {len(valid) + len(leak_valid) + len(trust_valid) + len(unsafe_valid) + len(deadend_valid)} scored trials</div>')
+    o('<div class=meta>Framework edition: OWASP LLM Top 10 <b>2025</b>. The 2026 edition renamed and broadened System Prompt Leakage to Hidden Context Exposure and renumbered entries, so a number that means one risk in 2025 can mean a different one in 2026. Read every LLMxx here as 2025.</div>')
     o('</div>')
 
     # Scorecard
