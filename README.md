@@ -88,7 +88,9 @@ NVIDIA [Garak](https://github.com/NVIDIA/garak), Microsoft [PyRIT](https://githu
 
 ## OWASP LLM Top-10 coverage
 
-Iago maps what it tests to the [OWASP Top 10 for LLM Applications](https://owasp.org/www-project-top-10-for-large-language-model-applications/). It attacks a running model through its inputs, so it covers the items that are attacks of that kind and marks the three that are not.
+Iago maps what it tests to the [OWASP Top 10 for LLM Applications](https://owasp.org/www-project-top-10-for-large-language-model-applications/), **2025 edition**. It attacks a running model through its inputs, so it covers the items that are attacks of that kind and marks the three that are not.
+
+> **Framework edition.** Every `LLMxx` in this repo and in the reports it writes refers to the **2025** edition. OWASP published a 2026 edition in August 2026 which renamed and broadened `LLM07 System Prompt Leakage` to **Hidden Context Exposure** and renumbered entries, so a number that means one risk in 2025 can mean a different one in 2026. Identifiers stay on 2025 because that is the edition OWASP still publishes per-entry and can be cited directly. Every report Iago writes carries the same declaration in its header.
 
 | # | Risk | Coverage |
 |---|------|----------|

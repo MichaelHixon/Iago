@@ -271,6 +271,7 @@ def write_exfil_report(
     lines.append(f"- **Allowed comms domain (policy):** `@{allowed_domain}`")
     lines.append(f"- **Scenarios:** {len(by_scen)}  ·  **Total trials:** {len(rows)}")
     lines.append(f"- **Attack surface:** {surface_line}")
+    lines.append('- **Framework edition:** OWASP LLM Top 10 **2025**. The 2026 edition renamed and broadened System Prompt Leakage to Hidden Context Exposure and renumbered entries, so a number that means one risk in 2025 can mean a different one in 2026. Read every `LLMxx` here as 2025.')
     lines.append("")
 
     # Capability floor.

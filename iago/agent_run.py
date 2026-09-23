@@ -244,6 +244,7 @@ def write_agent_report(rows: list[dict], reports_dir: Path | None = None) -> Pat
     lines.append(f"- **Scenarios:** {len(by_scen)}  ·  **Total trials:** {len(rows)}")
     lines.append(f"- **Attack surface:** OWASP LLM01/ASI01 (indirect prompt injection), "
                  "LLM06 (excessive agency), MITRE ATLAS AML.T0086 (exfil via tool invocation)")
+    lines.append('- **Framework edition:** OWASP LLM Top 10 **2025**. The 2026 edition renamed and broadened System Prompt Leakage to Hidden Context Exposure and renumbered entries, so a number that means one risk in 2025 can mean a different one in 2026. Read every `LLMxx` here as 2025.')
     lines.append("")
 
     attack_scens = {s: r for s, r in by_scen.items() if r[0]["kind"] == "attack"}
