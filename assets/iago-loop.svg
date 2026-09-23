@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 250" width="900" height="250" role="img" aria-labelledby="t d">
+  <title id="t">The Iago loop</title>
+  <desc id="d">Target model, attack library, run, judge, report, then harden and run again. The judge is grounded in a planted secret word, an action token, or the tool calls the model made. The report gives a bypass rate with a 95% confidence interval and hardening recommendations.</desc>
+  <style>
+    .box { fill: #ffffff; stroke: #1f2328; stroke-width: 1.5; rx: 8; }
+    .judge { fill: #fff8e6; stroke: #9a6700; stroke-width: 2; }
+    .lbl { font: 600 15px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1f2328; text-anchor: middle; }
+    .sub { font: 12px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #59636e; text-anchor: middle; }
+    .arrow { stroke: #1f2328; stroke-width: 1.5; fill: none; marker-end: url(#a); }
+    .loop { stroke: #9a6700; stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; marker-end: url(#b); }
+    .looplbl { font: italic 12px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #9a6700; text-anchor: middle; }
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#1f2328"/></marker>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#9a6700"/></marker>
+  </defs>
+
+  <!-- boxes: x = 20, 200, 380, 560, 740 ; w = 140 ; y = 60 ; h = 56 -->
+  <rect class="box" x="20" y="60" width="140" height="56"/>
+  <text class="lbl" x="90" y="94">Target model</text>
+  <text class="sub" x="90" y="140">local, via Ollama</text>
+  <text class="sub" x="90" y="156">one you own</text>
+
+  <rect class="box" x="200" y="60" width="140" height="56"/>
+  <text class="lbl" x="270" y="94">Attack library</text>
+  <text class="sub" x="270" y="140">68 techniques</text>
+  <text class="sub" x="270" y="156">18 categories</text>
+
+  <rect class="box" x="380" y="60" width="140" height="56"/>
+  <text class="lbl" x="450" y="94">Run</text>
+  <text class="sub" x="450" y="140">N trials per pair</text>
+  <text class="sub" x="450" y="156">pinned seed</text>
+
+  <rect class="box judge" x="560" y="60" width="140" height="56"/>
+  <text class="lbl" x="630" y="94">Judge</text>
+  <text class="sub" x="630" y="140">planted secret word</text>
+  <text class="sub" x="630" y="156">action token</text>
+  <text class="sub" x="630" y="172">tool calls made</text>
+
+  <rect class="box" x="740" y="60" width="140" height="56"/>
+  <text class="lbl" x="810" y="94">Report</text>
+  <text class="sub" x="810" y="140">bypass rate ± 95% CI</text>
+  <text class="sub" x="810" y="156">hardening recs</text>
+
+  <!-- forward arrows -->
+  <path class="arrow" d="M160 88 H198"/>
+  <path class="arrow" d="M340 88 H378"/>
+  <path class="arrow" d="M520 88 H558"/>
+  <path class="arrow" d="M700 88 H738"/>
+
+  <!-- return loop: report → target -->
+  <path class="loop" d="M810 60 V30 H90 V58"/>
+  <text class="looplbl" x="450" y="24">harden the guardrail, run again</text>
+
+  <!-- footer -->
+  <text class="sub" x="450" y="225">held or bypassed is decided on evidence, not on a keyword match</text>
+</svg>

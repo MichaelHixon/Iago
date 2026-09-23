@@ -12,7 +12,7 @@ Rows carry `schema_version` and `surface` so a reader can refuse the wrong artif
 artifacts used to write an empty "no divergence" report). Legacy artifacts (no manifest, no
 `surface`) still load: readers infer the surface from the row shape and warn.
 
-Reproducibility is claimed only to the extent this file records it — see README § Reproducibility.
+Reproducibility is claimed only to the extent this file records it — see docs/reproducibility.md.
 """
 
 from __future__ import annotations

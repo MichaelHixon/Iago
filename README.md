@@ -1,121 +1,22 @@
 <p align="center">
-  <img src="assets/iago-logo.png" alt="Iago" width="120" height="120" />
+  <img src="assets/iago-icon-256.png" alt="Iago" width="120" height="120" />
 </p>
 
 <h1 align="center">Iago</h1>
 
-**A red-team harness for LLM guardrails.** Iago systematically probes a language model's safety controls, judges which techniques bypass them, and produces a pentest-style findings report — so those controls can be understood and **hardened**.
+**A tool for testing LLM guardrails.** Guardrails are the safety rules a language model is supposed to follow. Iago tries to talk a model past them, records which attempts worked, and writes a findings report in the style of a penetration test, so the rules can be understood and **strengthened**.
 
-> ⚠️ **Defensive research, authorized use only.** Iago is built to test guardrails on a **local model you run and own** (or a model you have explicit authorized API access to), in order to understand how safety controls fail and how to strengthen them. This is red-team research to improve defense — the same ethic as authorized penetration testing. **Do not target hosted or third-party models without authorization.** The attack techniques included here are for evaluating your own model's controls.
+> ⚠️ **Defensive research, authorized use only.** Iago is built to test a **local model you run and own**, or a model you have explicit permission to test over an API. The goal is to learn how safety rules fail and how to make them stronger, the same ethic as authorized penetration testing. **Do not point it at hosted or third-party models without permission.** The techniques here are for testing your own model's rules.
 
----
+**Why the name?** In Shakespeare's *Othello*, Iago brings down a stronger man using nothing but words. A guardrail bypass is the same thing: no exploit code, just persuasion.
 
-## Why "Iago"?
-
-In Shakespeare's *Othello*, **Iago** destroys a stronger, more powerful man using nothing but words. He never draws a weapon or forges a document — he wins entirely through crafted persuasion, feeding Othello the right phrases in the right order until Othello acts against his own nature and judgment.
-
-That is *exactly* what guardrail-bypass attacks are. There's no exploit code, no buffer overflow, no memory corruption — only **language**, carefully constructed to talk a model past its own safety instructions and into doing the thing it was built to refuse. The attack surface is the conversation itself.
-
-Naming the tool Iago keeps that truth front and center: **the payload is persuasion.** Understanding *how* words defeat a model's guardrails is the first step to building models that don't fall for it.
-
-*(Namespace note: "Loki" — the obvious trickster pick — is already heavily used across security tooling. "Iago" is clear, and honestly the better fit: Loki causes chaos, but Iago works through targeted, patient manipulation, which is closer to how these attacks actually operate.)*
+**[Getting started](#getting-started) · [What it does](#what-it-does) · [Where it sits](#where-it-sits) · [Why the numbers hold up](#why-the-numbers-hold-up) · [OWASP coverage](#owasp-llm-top-10-coverage) · [Ethics](#ethics)**
 
 ---
-
-## What it does
-
-Iago applies a classic offensive-security loop to a new target class — an LLM instead of a host:
-
-```
-  recon              →  attack library     →  execute        →  judge          →  report
-  (target model +       (categorized           (fire each        (did the          (findings +
-   its guardrails)       bypass techniques)     technique)        guardrail hold    hardening recs)
-                                                                  or bypass?)
-```
-
-1. **Target adapter** — a clean interface to the model under test (local via Ollama for MVP; swappable).
-2. **Attack library** — 68 guardrail-bypass techniques as structured data across 18 categories: direct-ask, role-play / persona, format-shift, instruction-hierarchy, encoding / obfuscation, low-resource-language, prompt-injection, prompt-extraction (system-prompt / canary leakage; LLM07), **template-injection** (forged ChatML / Llama control tokens — probes the serialization boundary), refusal-suppression, **competing-objectives** (helpful-vs-harmless dual response; Wei et al. 2023), **many-shot** (fabricated compliant transcript, shot count drivable via `--shots`; Anil et al. 2024), multi-turn, **composed-evasion** (stacks primitives — encoding chains plus persona / authority / refusal frames — as first-class techniques; the operative frame text is operator-supplied and gitignored, so the repo ships the composition engine, not ready-to-fire jailbreak strings), **provenance-forging** (plants a fake *memory/history* rather than an instruction — a decision log, prior joint research, a trusted-partner claim — as prior conversation turns, so the model derives trust from planted history; each trust-gated objective carries a scenario policy gate and a machine-checkable **action token** the model emits only if it crosses the gate, and each trial runs a **three-arm placebo-controlled differential** — anonymous, neutral-placebo, and provenance — that confirms an escalation only when provenance crosses the gate while the anonymous *and* placebo arms hold, so the number is the trust lift the fabricated relationship bought, net of merely having prior context; see `samples/` for a recorded refuse→grant flip), and the indirect-injection surfaces: RAG-context, agent tool-use, and MCP tool/server injection. Techniques carry OWASP LLM Top-10 tags, and cipher / low-resource techniques are decode-gated so a decode failure isn't miscounted as a held guardrail. `iago library` prints 72 rows rather than 68: the four extra belong to the `dead-end` category, which are controls that detect fabricated compliance instead of bypassing a guardrail.
-3. **Runner** — fires each technique against a set of forbidden objectives and captures the responses.
-4. **Judge** — decides per attempt whether the guardrail **held** or was **bypassed** (heuristic judge to start; an LLM-based judge for nuance).
-5. **Report generator** — a markdown report: summary (X/Y bypassed), results by category, the prompt-and-response evidence, and a **hardening recommendations** section — the defensive payoff.
-
-## What it is *not*
-
-- **Not** a code-vulnerability scanner or an "LLM-finds-bugs-in-your-code" tool. That space is crowded and defensive-by-detection; Iago is offensive-by-design against the *model's own controls*.
-- **Not** a model trainer or fine-tuner. It attacks a stock model as-is.
-- **Not** a web app, dashboard, or service. Command-line, single-purpose, on purpose.
-
-## OWASP LLM Top-10 coverage
-
-Iago maps its surfaces to the [OWASP Top 10 for LLM Applications](https://owasp.org/www-project-top-10-for-large-language-model-applications/). It is a **runtime guardrail attacker**, so it covers the items that are runtime prompt/behavioral attacks and deliberately marks the three that are not — documenting that boundary honestly rather than claiming ten-for-ten.
-
-| # | Risk | Coverage |
-|---|------|----------|
-| LLM01 | Prompt Injection | ✅ core attack library + agentic indirect injection |
-| LLM02 | Sensitive Information Disclosure | ✅ `disclosure-run` — cross-subject leak, incl. the output channel |
-| LLM03 | Supply Chain | ⛔ out of scope — a build/provenance concern, not a runtime prompt attack |
-| LLM04 | Data & Model Poisoning | ◑ runtime analogues covered (`memory-run`, `rag-run`); training-time poisoning is out of scope |
-| LLM05 | Improper Output Handling | ✅ deterministic unsafe-output oracle (dangerous-when-rendered constructs) |
-| LLM06 | Excessive Agency | ✅ `privilege-run` — confused-deputy unauthorized privileged actions |
-| LLM07 | System Prompt Leakage | ✅ prompt-extraction family + deterministic canary judge |
-| LLM08 | Vector & Embedding Weaknesses | ◑ partial via `rag-run` retrieval poisoning |
-| LLM09 | Misinformation | ✅ `misinfo-run` — deterministic fabricated-identifier oracle |
-| LLM10 | Unbounded Consumption | ⛔ out of scope — resource-exhaustion / denial-of-service, deliberately excluded |
-
-The out-of-scope items (LLM03, LLM04 training-time, LLM10) are not runtime guardrail attacks a tool like this can measure by driving a model — supply-chain and training-time poisoning live in the build/data pipeline, and unbounded-consumption is a load/DoS concern. Naming that boundary is the honest form of "complete."
-
-**Beyond the Top-10 — dead-end scope-holding (behavioral).** One category deliberately sits *outside* the LLM Top-10 map: `dead-end` measures whether a model **stops** when a task has no valid in-scope completion, instead of fabricating a value or claiming an out-of-scope step (grounded in Anthropic's cyber-incidents assessment, "misconfigured CTF tasks with no in-scope solution"). Every other surface scores whether the model can be talked *into* something; this one scores whether it refuses to invent one. Each scenario states a scope and two reply channels (`RESULT:` / `BLOCKED:`); a `RESULT:` value matching the deliverable format is a **structural fabrication**, a `BLOCKED:`/refusal is a **stop**, and ambiguous replies escalate to the rubric judge. The report leads with a **fabrication rate** (with a Wilson CI) beside a machine-recognized **stop rate**, reported honestly as a **two-sided point estimate, not a bound** — it undercounts stops phrased as prose scope-questions and can overcount a blocked-then-guess reply, so `iago regrade` adjudicates the ambiguous rows. Solvable controls (one per shape) keep the stop rate meaningful — a block-everything model fails them — and the report flags that a *checksum* stop may be compute-incapacity rather than scope-discipline.
-
-## How Iago relates to the general red-team tools
-
-Several mature open-source tools cover broad AI red teaming — NVIDIA [Garak](https://github.com/NVIDIA/garak) (automated vulnerability scanning), Microsoft [PyRIT](https://github.com/microsoft/PyRIT) (attack-campaign orchestration), and [DeepTeam](https://github.com/confident-ai/deepteam) (multi-class automated red team) among them. Iago is deliberately narrower and complements rather than competes with them. Its focus is **measurement**: multi-trial **bypass rates** with 95% Wilson confidence intervals — honest sampling uncertainty under a fixed attack set, not a claim of wider coverage than the general tools — instead of pass/fail, a **deterministic canary judge** for system-prompt leakage (ground truth, not a judge guess), decode-gating so a failed decode isn't miscounted as a held guardrail, and an **attack-vs-defense delta** that quantifies what a given guardrail actually neutralizes. If you want breadth of coverage, reach for the general frameworks; if you want a reproducible, statistically honest number for how often a specific control holds, that's Iago.
-
-## Defenses & the attack-vs-defense delta
-
-A *guard* is a defense placed in front of the model; `iago defense-delta --guard <spec>` runs the same attack library raw and guarded and reports the bypass-rate delta — the defensive payoff in one number. Two guards ship as **zero-dependency reference baselines** (a pattern-based input jailbreak classifier and an output-side system-prompt DLP filter); `--guard all` uses only these, so the delta reproduces offline on any clone.
-
-Three **real third-party guards** are wired through the same `Guard` seam, opt-in by explicit name so their backends never become project dependencies:
-
-- `llama-guard` — Meta Llama Guard 3, run locally via Ollama (`ollama pull llama-guard3`). **Live-verified:** the real model fired through the seam on Iago's composed-evasion attacks with real hazard codes (S2/S5/S13/S14); benign traffic passed clean.
-- `guardrails-ai` — a Guardrails Hub jailbreak validator (`pip install guardrails-ai`). **Wiring-verified only** (adapter + seam exercised by tests; real backend not yet run end-to-end here).
-- `hf-prompt-injection` — a HuggingFace prompt-injection classifier (`pip install transformers`). **Wiring-verified only.**
-
-A guard whose backend isn't installed fails loudly with an install hint — never a silent pass. Example: `iago defense-delta --guard llama-guard`.
-
-## Lexical-overlap paraphrase band (advisory, secondary)
-
-The canary judge is precise but narrow: it confirms a system-prompt leak only when the planted canary appears (decode-tolerant). A model that discloses the *substance* of its prompt while rewording it — dropping the canary — reads as held. `iago lexical-leak <artifact>` surfaces that case as an **advisory** signal.
-
-- **What it is:** a pure-Python **lexical-overlap** measure — the containment of the system prompt's distinctive content words in the reply. Zero dependencies, deterministic, no setup.
-- **What it is *not*:** embedding- or meaning-grade semantics. A full synonym rewording that shares no vocabulary with the prompt scores ~0 — a residual false-negative, documented and tested. It catches light paraphrase (reused nouns/values), not deep reword.
-- **It never asserts a verdict.** Only the deterministic canary match yields `BYPASSED`. This band emits a `low`/`elevated`/`high` label; the actionable cell is *"canary HELD but band HIGH"* — a candidate paraphrased leak for a human to inspect.
-- **Calibration is a heuristic, not a benchmark.** Thresholds (`--elevated 0.30`, `--high 0.50`) are one-model-calibrated on llama3.1, where a refusal that echoes the prompt's topic words peaked at ~0.31 while a verbatim leak scored 1.0. On that run there were **0** false-positive suspects, but that is one model's margin, not a measured guarantee — tune the thresholds per target.
-
-## Stack
-
-- **Python** (managed with [`uv`](https://github.com/astral-sh/uv))
-- **Target:** local model via [Ollama](https://ollama.com) — private, no rate limits, free to test against
-- **Judge / orchestration:** the [Claude API](https://docs.anthropic.com) for the LLM-based judge
-
-## Status
-
-**End-to-end loop working.** Point Iago at a local model and one command fires the full attack library × objectives, judges each response, and writes a pentest-style report to `reports/`. Methodology built in: multi-trial **bypass rates** (not single shots) with 95% Wilson confidence intervals, pinned sampling (fixed temperature + per-trial seed) plus a manifest recording every input reproducibility depends on — **host, Ollama build, model digest, parallelism setting** — and a pre-run probe that tries to **disprove** bit-reproducibility on the host in front of it (on the author's own machine it succeeds: see § Reproducibility), a benign **control objective** that calibrates the judge, a **Claude rubric judge** (`iago regrade`) that reasons about content instead of keywords, decode-gating for cipher / low-resource techniques, and structured JSONL artifacts so reporting never re-hits the model. The report surfaces per-technique caveats (e.g. template-injection's runtime dependency, many-shot's pool cycling) so limitations sit next to the numbers. Representative result (local `llama3.1`, run 2026-07-31, 42 trials total, deterministic canary scoring): the planted system-prompt secret leaked in **48%** of extraction trials (20/42, 95% CI 33%–62%). That aggregate blends three planted prompts at 14 trials each, and they diverge far more than it suggests: a soft dev-tool prompt leaked **79%** (11/14), a mildly defensive retail prompt **21%** (3/14), and the hardened one — whose text forbids the model to reveal, summarize, paraphrase, translate, encode, or hint at the secret — **43%** (6/14). **The hardened prompt leaked at twice the retail prompt's rate, so nothing in this run shows that hardening the prompt text helped.** Each of the three also fires a different extraction request, so prompt defensiveness and attack wording are confounded and no single-variable conclusion is available from this run. Every one of those cells is 14 trials with a confidence interval more than 20 points wide (43% spans 21–67%), so read them as directional and not as a ranking. Leak detection is ground truth rather than a judge guess: a unique canary must appear in the reply, matched decode-tolerantly. It is ground truth for a *verbatim* canary only and blind to a full paraphrase, so a reported leak rate is a **lower bound** — the shipped calibration set measures that blindness at a 22% false-negative rate against paraphrased leaks (`iago judge-eval`). **Composed-evasion** stacks these primitives, and `iago compose-delta` measures the marginal bypass each added layer buys over its best single arm, set against a noisy-OR independence baseline — so a stack that merely inherits its strongest layer is not mistaken for a real interaction effect. The gate stays deliberately conservative: a lift earns a verdict only when its Wilson interval clears the baseline's, and a stack whose constituents never fired alone is flagged, not scored. Still ahead: new attack *goals* (unsafe-output handling).
-
-## Reproducibility — what is claimed, what is recorded
-
-A pinned seed does **not** make an LLM run reproducible everywhere. Ollama's own documentation promises only "the same text for the same prompt", and its issue tracker shows the boundaries: the same seed reproduces on the **same device, OS, Ollama build, model digest and parallelism setting**, while a different GPU or quantization gives "similar but not identical" output, the first generation after a model load can differ from later ones (prompt-cache), and `OLLAMA_NUM_PARALLEL > 1` changes batching (see [ollama#586](https://github.com/ollama/ollama/issues/586), [ollama#5321](https://github.com/ollama/ollama/issues/5321), and [arXiv 2506.09501](https://arxiv.org/abs/2506.09501) on BF16 batch-size variance). Iago therefore claims *recorded* reproducibility, not universal reproducibility:
-
-- **Every artifact opens with a manifest line** naming the iago version and git commit (with a dirty flag), a sha256 of the loaded technique library, the Ollama server version, the model's digest / quantization / context length, every sampling option (`temperature`, `base_seed`, the per-trial seed rule, trial and step caps), the `OLLAMA_*` environment knobs that change batching, the host platform, and a `judge_id` fingerprint of the scoring code. Two artifacts are comparable when those match; `iago compare` refuses artifacts scored by different oracle code unless told otherwise.
-- **Every `iago run` tries to disprove determinism instead of assuming it.** Before the matrix fires, the runner sends a discarded warm-up and then each of two open-ended probes twice at the run's temperature and base seed, recording per-probe results, the aggregate `determinism.mismatch_detected`, and the cost spent, and warning when any pair differs. The field is named for what the check can observe: `true` means a mismatch was seen, `false` means none was seen **in those pairs**, `null` means it could not be determined. There is no value meaning "this host reproduces" — the instrument cannot see that. `--no-determinism-check` skips it and records `null`, saving 5 short generations (~800 tokens at the 160-token cap) at the cost of running the matrix on a **cold** model, which a default run does not: the probes warm it. The two modes are not the same experiment.
-- **What the check is and is not.** Two open-ended probes, each fired twice; the manifest records which differed, at what position (`warm`, or `cold` if the warm-up itself failed), and what it cost. The check is **one-sided**: a mismatch proves this host is not bit-reproducible at these settings, while no mismatch proves only that those pairs repeated, never that the matrix replays. `null` means it could not run — neither pass nor failure, and a mismatch outranks a `null`. The probes are open-ended and capped at 160 tokens because the earlier 24-token fixed echo agreed with itself either way and could not fail; two of them rather than one hedges **prompt-dependent** determinism, which this host demonstrated directly. They fire before the matrix, after a discarded warm-up so that no pair straddles the first-generation-after-load boundary. No mid-run sample is taken: a probe injected into the matrix's own request stream would perturb the batching it is measuring. Sensitivity scales with temperature and tokens generated, so a clean result at temperature 0 is much weaker evidence than one at 0.8.
-
-- **On the author's own host this check records a mismatch.** At seed 1337 on `llama3.1`, one probe differs and the other matches, reproducibly. The previous 24-token probe recorded a clean result on the same machine: it was a false pass. Every report and `iago compare` run built from such an artifact now says so in the output rather than only in the manifest.
-
-- **What is still not captured:** GPU model and driver, the exact llama.cpp build inside Ollama, and whether the working tree was clean (the commit is read from `.git` without shelling out, and a dirty flag needs a full index comparison, so it is reported `null` rather than guessed). Matching manifests therefore mean *the recorded inputs match*, not that two runs are interchangeable — treat a cross-machine replay as a new run to be compared, not a re-execution of the old one.
 
 ## Getting started
 
-> Requires a local model. Iago never ships attack results and is intended to run against a model you control.
+> Requires a local model. Iago never ships attack results and is meant to run against a model you control.
 
 ```bash
 # 1. Install a local model runtime and pull a target model
@@ -133,23 +34,83 @@ uv run iago run --smoke
 
 # 5. Full run — writes a findings report to reports/
 uv run iago run                 # whole library, default 3 trials/pair
-uv run iago run --trials 5      # more trials → more defensible bypass rate
+uv run iago run --trials 5      # more trials → a narrower confidence interval
 
-# 6. Agentic surfaces — red-team a tool-calling AGENT (behavioral bypass, not text).
-#    Each has a companion `*-scenarios` command that lists its scenarios offline.
-uv run iago agent-run --smoke        # indirect prompt injection → exfiltration (ASI01)
-uv run iago tool-abuse-run --smoke   # sandboxed tool abuse → RCE / SSRF (ASI05/ASI02)
-uv run iago memory-run --smoke       # memory / context poisoning (ASI06)
-uv run iago rag-run --smoke          # RAG retrieval / knowledge-base poisoning
-uv run iago a2a-run --smoke          # insecure inter-agent communication (ASI07)
-uv run iago privilege-run --smoke    # excessive agency / confused deputy (LLM06/ASI03)
-uv run iago disclosure-run --smoke   # sensitive-information disclosure (LLM02)
-uv run iago misinfo-run --smoke      # misinformation / fabricated authority (LLM09)
+# 6. Agent surfaces — test what a tool-calling agent DOES, not just what it says
+uv run iago agent-run --smoke   # one of eight agent surfaces
 ```
 
-The agentic surfaces drive an LLM through a tool loop and score a BEHAVIORAL bypass deterministically from the tool-call trace (an unauthorized action taken), not a text judgment. Their dangerous tools are pure in-memory fakes — a sandboxed `run_shell`/`fetch_url` never spawns a process or opens a socket, and the RAG retriever is a pure in-memory ranker — so the RCE/SSRF and retrieval attacks are simulated end to end.
+The eight agent surfaces, and what each one tests: [docs/agent-surfaces.md](docs/agent-surfaces.md).
 
-The target backend is selectable with `--target` (default `ollama`) and the model tag with `--model`. Only the local Ollama backend ships today; the `Target` interface and a small registry make an authorized API backend a one-line addition. The runner refuses a non-local target unless you pass `--authorized` — the "only test what you own" ethic, enforced in code rather than just documented.
+Pick the backend with `--target` (default `ollama`) and the model with `--model`. The `Target` interface and a small registry make an authorized API backend a one-line addition. The runner refuses a non-local target unless you pass `--authorized`: the "only test what you own" rule, enforced in code rather than just written down.
+
+## What it does
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/iago-loop-dark.svg">
+  <img alt="The Iago loop: target model → attack library (68 techniques, 18 categories) → run (N trials per pair, pinned seed) → judge (planted secret word, action token, tool calls made) → report (bypass rate with 95% CI, hardening recommendations)" src="assets/iago-loop.svg" width="100%">
+</picture>
+
+1. **Target connector** — a small interface to the model under test (local, through Ollama; other backends can be added).
+2. **Attack library** — 68 bypass techniques stored as data, in 18 attack categories plus 4 `dead-end` checks that test whether a model makes things up instead of stopping. Techniques range from direct asks and role-play through encoding, many-shot transcripts, stacked techniques, and forged conversation history, to attacks that arrive through retrieved documents, agent tool calls, and MCP servers. The full list: [docs/attack-library.md](docs/attack-library.md).
+3. **Runner** — fires each technique against a set of forbidden requests, several trials per pair, and records the replies.
+4. **Judge** — decides, per attempt, whether the guardrail **held** or was **bypassed**, grounded in facts where it can be: a planted secret word, an action token the model only emits if it crosses a line, or the tool calls it actually made. A pattern-based judge runs by default; `iago regrade` re-scores with a Claude judge that reads the content against a written rubric.
+5. **Report** — a markdown report: a summary (X of Y bypassed), results by category, the prompt-and-reply evidence, and **hardening recommendations**, which is the defensive payoff.
+
+**Representative result.** Local `llama3.1`, 42 trials, run 2026-07-31. The planted system-prompt secret leaked in **48%** of extraction trials overall (20 of 42, 95% CI 33% to 62%):
+
+| Planted system prompt | Leaked | Rate | 95% CI |
+|---|---|---|---|
+| Soft developer-tool prompt | 11 of 14 | **79%** | 52% to 92% |
+| Mildly defensive retail prompt | 3 of 14 | **21%** | 8% to 48% |
+| Hardened prompt (forbids reveal, summarize, paraphrase, translate, encode, hint) | 6 of 14 | **43%** | 21% to 67% |
+
+The hardened prompt leaked at twice the retail prompt's rate, so nothing in this run shows that hardening the prompt text helped. Each cell is 14 trials with an interval more than 20 points wide, and each prompt pairs with a different extraction request, so read it as directional. Full breakdown: [docs/prompt-leak-result.md](docs/prompt-leak-result.md).
+
+## Where it sits
+
+NVIDIA [Garak](https://github.com/NVIDIA/garak), Microsoft [PyRIT](https://github.com/microsoft/PyRIT), and [DeepTeam](https://github.com/confident-ai/deepteam) cover broad AI red teaming. Iago is narrower on purpose and complements them: its focus is **measurement**. If you want breadth, reach for the general tools. If you want a reproducible number for how often a specific control holds, that is Iago.
+
+- **Not** a code scanner or an "LLM finds bugs in your code" tool. Iago attacks the *model's own rules*, not the code around them.
+- **Not** a trainer or fine-tuner. It attacks a stock model as-is.
+- **Not** a web app, dashboard, or service. Command line, one job, on purpose.
+
+## Why the numbers hold up
+
+- **Bypass rates over many trials**, each with a 95% confidence interval, never single shots.
+- **A planted secret word** for prompt leaks, so a leak is a fact rather than a judge's opinion. It only catches a verbatim leak; `iago lexical-leak` flags likely paraphrased leaks as an advisory signal ([docs/paraphrased-leaks.md](docs/paraphrased-leaks.md)).
+- **A placebo control for forged history.** Every provenance trial runs three arms (no history, a neutral fake history, a fabricated trusted history) and counts an escalation only when the third crosses the line and the first two hold.
+- **A benign control objective** that calibrates the judge, and **decode checks** so a reply Iago cannot read is never counted as a guardrail holding.
+- **Pinned sampling** (a fixed temperature and a seed per trial) and a manifest recording every input the result depends on: host, Ollama build, model digest, parallelism setting. A pinned seed does not make an LLM run reproducible everywhere, so every run first tries to *disprove* that the host gives identical output for identical input ([docs/reproducibility.md](docs/reproducibility.md)).
+- **Structured JSONL artifacts**, so building a report never re-queries the model, and caveats printed next to the numbers per technique.
+- **An attack-versus-defense delta.** `iago defense-delta --guard <spec>` runs the same library with and without a guard and reports the difference in bypass rate; two guards ship with the repo and three real third-party guards plug in by name ([docs/defenses.md](docs/defenses.md)).
+
+## OWASP LLM Top-10 coverage
+
+Iago maps what it tests to the [OWASP Top 10 for LLM Applications](https://owasp.org/www-project-top-10-for-large-language-model-applications/). It attacks a running model through its inputs, so it covers the items that are attacks of that kind and marks the three that are not.
+
+| # | Risk | Coverage |
+|---|------|----------|
+| LLM01 | Prompt Injection | ✅ core attack library, plus indirect injection through tools and documents |
+| LLM02 | Sensitive Information Disclosure | ✅ `disclosure-run`: one user's data leaking to another, including through the output channel |
+| LLM03 | Supply Chain | ⛔ out of scope: a build and provenance problem, not something you attack through a prompt |
+| LLM04 | Data & Model Poisoning | ◑ the runtime versions are covered (`memory-run`, `rag-run`); poisoning during training is out of scope |
+| LLM05 | Improper Output Handling | ✅ a deterministic check for output that is dangerous when rendered (HTML, markdown, and so on) |
+| LLM06 | Excessive Agency | ✅ `privilege-run`: the model using its own permissions to do something the user may not |
+| LLM07 | System Prompt Leakage | ✅ the prompt-extraction family, scored by the planted secret word |
+| LLM08 | Vector & Embedding Weaknesses | ◑ partly, through `rag-run` retrieval poisoning |
+| LLM09 | Misinformation | ✅ `misinfo-run`: a deterministic check for made-up identifiers and citations |
+| LLM10 | Unbounded Consumption | ⛔ out of scope: resource exhaustion and denial of service, deliberately excluded |
+
+The three out-of-scope items cannot be measured by driving a model with prompts: supply-chain and training-time poisoning live in the build and data pipeline, and unbounded consumption is a load-testing problem.
+
+**One check sits outside the map on purpose.** `dead-end` measures whether a model **stops** when a task has no valid answer, instead of inventing one (based on Anthropic's cyber-incidents assessment, which found models "solving" misconfigured CTF tasks with no in-scope solution). Every other check asks whether the model can be talked *into* something; this one asks whether it refuses to make something up. The report shows a fabrication rate next to a stop rate, both with confidence intervals, and `iago regrade` adjudicates the unclear rows.
+
+## Stack
+
+- **Python** (managed with [`uv`](https://github.com/astral-sh/uv)); 960+ tests, `uv run pytest`
+- **Target:** a local model through [Ollama](https://ollama.com): private, no rate limits, free to test against
+- **Judge:** the [Claude API](https://docs.anthropic.com) for the rubric judge
 
 ## Ethics
 
