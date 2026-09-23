@@ -35,7 +35,7 @@ from .attacks import (
     Technique,
     load_library,
 )
-from .config import ARTIFACTS_DIR, BASE_SEED, DEFAULT_TEMPERATURE, DEFAULT_TRIALS
+from .config import ARTIFACTS_DIR, BASE_SEED, CATEGORIES, DEFAULT_TEMPERATURE, DEFAULT_TRIALS
 from .decode import decode_recovered, is_decode_gated
 from .judge import _trust_arm_signal, judge, judge_deadend, judge_leak, judge_trust, judge_unsafe_output
 from .objectives import Objective, load_objectives
@@ -295,6 +295,7 @@ def run(
     authorized: bool = False,
     technique_limit: int | None = None,
     objective_limit: int | None = None,
+    category: str | None = None,
     shots: int | None = None,
     artifacts_dir: Path | None = None,
     techniques: list[Technique] | None = None,
@@ -320,10 +321,23 @@ def run(
             "only for a model you own or are explicitly authorized to test"
         )
 
+    if category is not None and category not in CATEGORIES:
+        raise ValueError(f"unknown category {category!r}; known: {', '.join(CATEGORIES)}")
+
     lib = techniques if techniques is not None else load_library()
     objs = objectives if objectives is not None else load_objectives()
+    if category is not None:
+        # Filter techniques BEFORE the positional limit, so --limit-techniques / --smoke take the
+        # first technique OF THIS CATEGORY.
+        lib = [t for t in lib if t.category == category]
     if technique_limit is not None:
         lib = lib[:technique_limit]
+    if category is not None:
+        # Drop objectives no SURVIVING technique fires at — after the slice, not before, so the
+        # pairing is structural rather than a property of library order. Before this ran last,
+        # --smoke could keep an objective that only a discarded technique fired at and then raise
+        # the very "no pairs fire" error this filter exists to prevent.
+        objs = [o for o in objs if any(_fires(t, o) for t in lib)]
     if objective_limit is not None:
         objs = objs[:objective_limit]
 
@@ -346,7 +360,7 @@ def run(
         # the exit-0-measured-nothing failure (ISC-31). Say so before touching the disk.
         raise ValueError(
             "no technique/objective pairs fire: every loaded technique is scoped to an objective "
-            "kind absent from the loaded objectives (check --limit-* / applies_to scoping)"
+            "kind absent from the loaded objectives (check --category / --limit-* / applies_to scoping)"
         )
     total = compatible * trials
     done = 0
@@ -369,7 +383,7 @@ def run(
             extra={"technique_library_sha256": sha256_text(json.dumps([asdict(t) for t in lib],
                                                                       sort_keys=True, default=str)),
                    "techniques": len(lib), "objectives": len(objs), "compatible_pairs": compatible,
-                   "determinism": determinism}))
+                   "category": category, "determinism": determinism}))
         # Round-robin by trial: each round (batch_id) fires the whole matrix once, so a
         # config's repeated trials are spread across the run instead of fired back-to-back.
         # That exposes non-stationarity (refusal drift over the run) rather than burying it

@@ -34,7 +34,7 @@ class _T(Target):
 
 def _run_args(**kw):
     base = dict(target="ollama", model="llama3.1", trials=1, temperature=0.8, base_seed=1,
-                limit_techniques=None, limit_objectives=None, shots=None, guard=None, smoke=True,
+                limit_techniques=None, limit_objectives=None, category=None, shots=None, guard=None, smoke=True,
                 html=False, log=False, authorized=False, determinism_check=False)
     base.update(kw)
     return types.SimpleNamespace(**base)
