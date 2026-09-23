@@ -997,7 +997,7 @@ def _cmd_library(_args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="iago", description="Authorized LLM guardrail red-team harness.")
+    p = argparse.ArgumentParser(prog="iago", description="An authorized tool for testing LLM guardrails.")
     from . import __version__
     p.add_argument("--version", action="version", version=f"iago {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
@@ -1121,7 +1121,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sl = sub.add_parser("lexical-leak",
                         help="advisory lexical-overlap paraphrased-leak band over an artifact "
-                             "(NOT embeddings; SECONDARY to the deterministic canary oracle — see README)")
+                             "(NOT embeddings; SECONDARY to the deterministic canary oracle — see docs/paraphrased-leaks.md)")
     sl.add_argument("artifacts", nargs="+", help="one or more run artifact JSONL files")
     sl.add_argument("--elevated", type=float, default=0.30, help="elevated-band threshold (default 0.30)")
     sl.add_argument("--high", type=float, default=0.50,

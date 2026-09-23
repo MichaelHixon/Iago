@@ -306,7 +306,7 @@ def run(
 
     `determinism_check` fires each open-ended probe TWICE (same temperature + base seed) before
     the matrix and records per-probe matches, the aggregate, and the generations spent in the
-    manifest — the README claims same-host reproducibility, and this measures it per run instead
+    manifest — docs/reproducibility.md claims same-host reproducibility, and this measures it per run instead
     of assuming it (ISC-34, strengthened by ISC-49). Skipping it records `null`, not a pass.
 
     `technique_limit` / `objective_limit` cap the matrix for a fast smoke run

@@ -73,12 +73,37 @@ def test_agent_path_pins_seed_per_trial(tmp_path):
     assert {o["temperature"] for o in seen} == {0.3}
 
 
-def test_readme_states_the_bounded_claim():
-    text = Path(__file__).resolve().parents[1].joinpath("README.md").read_text()
-    assert "## Reproducibility" in text
-    assert re.search(r"host, Ollama build, model digest", text)
-    assert "does **not** make an LLM run reproducible everywhere" in text
-    # ISC-50: the headline may not present the probe as a warrant that the run DOES reproduce.
-    assert "tries to **disprove** bit-reproducibility" in text
-    assert "The check is **one-sided**" in text
-    assert 'There is no value meaning "this host reproduces"' in text
+_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_reproducibility_doc_states_the_bounded_claim():
+    # The full claim lives in docs/; the README carries a one-line pointer to it (2026-09-23).
+    # Short anchors, not sentences or markup: the wording is free to change, the claims are not.
+    text = _ROOT.joinpath("docs", "reproducibility.md").read_text()
+    assert "# Reproducibility" in text
+    assert re.search(r"Ollama build, model digest,? and parallelism setting", text)
+    assert "reproducible everywhere" in text
+    # ISC-50: the probe may not be presented as a warrant that the run DOES reproduce.
+    assert re.search(r"\bdisprove determinism\b", text)
+    assert re.search(r"\bone-sided\b", text)
+    assert re.search(r"this host reproduces", text)
+    # The negative half: the field ISC-50 renamed away must never reappear, and the doc must
+    # name the one-sided field that replaced it.
+    assert "exact_match" not in text
+    assert "mismatch_detected" in text
+
+
+def test_readme_keeps_the_credibility_anchors():
+    # Short anchors, not sentences: the wording is free to change, the claims are not.
+    text = _ROOT.joinpath("README.md").read_text()
+    for anchor in ("--authorized", "95% CI", "planted secret", "three arms", "docs/reproducibility.md"):
+        assert anchor in text, anchor
+    assert re.search(r"\bdirectional\b", text)            # not satisfied by "bidirectional"
+    # Every docs/ link on the page must point at a file that ships with the repo.
+    links = re.findall(r"\]\((?:\./)?(docs/[\w-]+\.md)(?:\s+\"[^\"]*\")?\)", text)
+    assert links, "README lost every docs/ link"
+    for rel in set(links):
+        assert _ROOT.joinpath(rel).is_file(), rel
+    # ISC-50 on the front page: the probe is framed as a disproof, never as a pass.
+    assert re.search(r"\bdisprove\b", text)
+    assert "exact_match" not in text
