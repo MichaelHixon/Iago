@@ -48,7 +48,7 @@ Pick the backend with `--target` (default `ollama`) and the model with `--model`
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/iago-loop-dark.svg">
-  <img alt="The Iago loop: target model → attack library (68 techniques, 18 categories) → run (N trials per pair, pinned seed) → judge (planted secret word, action token, tool calls made) → report (bypass rate with 95% CI, hardening recommendations)" src="assets/iago-loop.svg" width="100%">
+  <img alt="The Iago loop: target model → attack library (72 techniques, 19 categories) → run (N trials per pair, pinned seed) → judge (planted secret word, action token, tool calls made) → report (bypass rate with 95% CI, hardening recommendations)" src="assets/iago-loop.svg" width="100%">
 </picture>
 
 1. **Target connector** — a small interface to the model under test (local, through Ollama; other backends can be added).

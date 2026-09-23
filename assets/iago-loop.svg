@@ -26,8 +26,8 @@
 
   <rect class="box" x="200" y="60" width="140" height="56"/>
   <text class="lbl" x="270" y="94">Attack library</text>
-  <text class="sub" x="270" y="140">68 techniques</text>
-  <text class="sub" x="270" y="156">18 categories</text>
+  <text class="sub" x="270" y="140">72 techniques</text>
+  <text class="sub" x="270" y="156">19 categories</text>
 
   <rect class="box" x="380" y="60" width="140" height="56"/>
   <text class="lbl" x="450" y="94">Run</text>
