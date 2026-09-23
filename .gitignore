@@ -57,3 +57,5 @@ ISA.html
 # Note the trailing /* — git cannot re-include a file under an excluded directory.
 .claude/*
 !.claude/settings.json
+# Video production assets (title cards, renders) — local only, never published.
+docs/video-assets/
