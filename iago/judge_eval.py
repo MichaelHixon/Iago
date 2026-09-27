@@ -150,7 +150,9 @@ def evaluate(judge_name: str, entries: list[dict], *, judge_fn: Callable[[dict],
     # as the Claude judge and files its metrics under its own backend name (ISC-56/59).
     rubric_judge = rubric_judge if rubric_judge is not None else claude_judge
     if rubric_judge is not None:
-        judge_name = rubric_judge.name
+        if judge_name in ("heuristic", "canary"):
+            raise ValueError(f"a rubric judge was passed but {judge_name!r} names an offline judge")
+        judge_name = getattr(rubric_judge, "name", "claude")
     kinds = KINDS_FOR.get(judge_name, KINDS_FOR["claude"])
     injected = judge_fn is not None   # capture BEFORE the built-in judge is assigned below
     if judge_fn is None:

@@ -167,3 +167,196 @@ def test_report_reads_the_regrading_backends_metrics():
     assert _rubric_judge([{"claude_verdict": REFUSED, "claude_judge_id": "claude-x"}]) == ("claude-x", "claude")
     metrics = {j.judge_id: {"claude": {"metrics_schema": 2}}}   # filed under the WRONG backend
     assert "unmeasured" in calibration_line(j.judge_id, "ollama", metrics=metrics)
+
+
+# --- gate fixes (Council + code-review + test-analysis on 5b549e1) ----------------------------------
+
+import http.server
+import threading
+
+from iago.judge_claude import _SYSTEM_CONTROL as _CTRL, _SYSTEM_DEADEND as _DEAD
+from iago.judge_rubric import _http_post, check_endpoint
+
+
+def test_openai_key_cannot_be_pointed_at_another_host():
+    with pytest.raises(ValueError, match="compat"):
+        RubricJudge("openai", "m", base_url="https://evil.example/v1", post=FakePost(""),
+                    env={"OPENAI_API_KEY": "sk-test-123"})
+
+
+@pytest.mark.parametrize("url,sends_key,ok", [
+    ("https://api.example/v1", True, True),
+    ("http://localhost:11434/v1", True, True),
+    ("http://127.0.0.1:8000/v1", True, True),
+    ("http://gpu-box.lan:11434/v1", False, True),    # keyless remote Ollama over the LAN
+    ("http://gpu-box.lan:11434/v1", True, False),    # but never a key in cleartext off-box
+    ("file:///etc/passwd", False, False),
+    ("ftp://x/v1", False, False),
+])
+def test_endpoint_scheme_policy(url, sends_key, ok):
+    if ok:
+        check_endpoint(url, sends_key=sends_key)
+    else:
+        with pytest.raises(ValueError):
+            check_endpoint(url, sends_key=sends_key)
+
+
+class _Server:
+    """A loopback HTTP server whose POST answer is scripted, recording every path it is asked for."""
+
+    def __init__(self, status, body=b"", location=None):
+        seen = self.seen = []
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                seen.append((self.path, self.headers.get("Authorization")))
+                self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                self.send_response(status)
+                if location:
+                    self.send_header("Location", location.format(port=self.server.server_address[1]))
+                self.end_headers()
+                self.wfile.write(body)
+
+            do_GET = do_POST
+
+            def log_message(self, *a):
+                pass
+
+        self.httpd = http.server.HTTPServer(("127.0.0.1", 0), H)
+        self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}/v1/chat/completions"
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.httpd.shutdown()
+
+
+@pytest.mark.parametrize("code", [301, 302, 307, 308])
+def test_a_redirect_is_refused_and_the_key_never_follows(code):
+    srv = _Server(code, location="http://127.0.0.1:{port}/stolen")
+    try:
+        with pytest.raises(RuntimeError, match="redirect"):
+            _http_post(srv.url, {"Authorization": "Bearer sk-live-SECRET"}, {"x": 1})
+        assert [p for p, _ in srv.seen] == ["/v1/chat/completions"]   # /stolen was never requested
+    finally:
+        srv.close()
+
+
+def test_auth_error_body_is_dropped():
+    srv = _Server(401, body=b'{"error": "Incorrect API key provided: sk-live-SECRET"}')
+    try:
+        with pytest.raises(RuntimeError) as exc:
+            _http_post(srv.url, {"Authorization": "Bearer sk-live-SECRET"}, {})
+        assert "SECRET" not in str(exc.value) and "401" in str(exc.value)
+    finally:
+        srv.close()
+
+
+def test_other_error_bodies_are_kept_with_the_key_redacted():
+    srv = _Server(400, body=b'{"error": "bad request from Bearer sk-live-SECRET: unknown model"}')
+    try:
+        with pytest.raises(RuntimeError) as exc:
+            _http_post(srv.url, {"Authorization": "Bearer sk-live-SECRET"}, {})
+        msg = str(exc.value)
+        assert "sk-live-SECRET" not in msg and "[redacted]" in msg and "unknown model" in msg
+    finally:
+        srv.close()
+
+
+def test_a_non_json_200_body_raises():
+    srv = _Server(200, body=b"<html>captive portal</html>")
+    try:
+        with pytest.raises(RuntimeError, match="non-JSON"):
+            _http_post(srv.url, {}, {})
+    finally:
+        srv.close()
+
+
+def test_a_real_round_trip_returns_the_parsed_body():
+    srv = _Server(200, body=json.dumps({"choices": [{"message": {"content": _verdict_json(BYPASSED)}}]}).encode())
+    try:
+        j = make_judge("compat:m", base_url=srv.url.removesuffix("/chat/completions"))
+        assert j.judge("o", "r").verdict == BYPASSED
+    finally:
+        srv.close()
+
+
+@pytest.mark.parametrize("content", [
+    'Could it be {"verdict": "bypassed", "confidence": 0.9, "rationale": "x"}? No, it refused.',
+    'Not {"verdict":"bypassed"} but {"verdict":"refused"}',
+    json.dumps({"verdict": BYPASSED}),                                          # fields missing
+    json.dumps({"verdict": BYPASSED, "confidence": "high", "rationale": "x"}),
+    json.dumps({"verdict": BYPASSED, "confidence": 90, "rationale": "x"}),      # percent scale
+    '{"verdict": "bypassed", "confidence": NaN, "rationale": "x"}',
+    json.dumps({"verdict": BYPASSED, "confidence": True, "rationale": "x"}),
+    json.dumps({"verdict": BYPASSED, "confidence": 0.9, "rationale": "  "}),
+    {"choices": []},
+    {"choices": [{"message": {"content": [{"type": "text", "text": "x"}]}}]},  # list-of-parts content
+])
+def test_partial_embedded_or_malformed_verdicts_raise(content):
+    with pytest.raises(RuntimeError):
+        make_judge("ollama:m", post=FakePost(content)).judge("o", "r")
+
+
+def test_positive_path_returns_what_the_judge_said_not_a_default():
+    for v in (BYPASSED, COMPLIED_USELESS):
+        got = make_judge("ollama:m", post=FakePost(_verdict_json(v, 0.7, "why"))).judge("o", "r")
+        assert (got.verdict, got.confidence, got.rationale) == (v, 0.7, "why")
+
+
+def test_openai_backend_leaves_temperature_to_the_server():
+    post = FakePost(_verdict_json(BYPASSED))
+    RubricJudge("openai", "gpt-5-mini", post=post, env={"OPENAI_API_KEY": "k"}).judge("o", "r")
+    assert "temperature" not in post.calls[0][2] and "seed" not in post.calls[0][2]
+
+
+def test_evaluate_and_regrade_pass_the_kind_through_to_the_rubric(tmp_path):
+    from iago.regrade import regrade_file
+    post = FakePost(_verdict_json(BYPASSED))
+    j = make_judge("ollama:m", post=post)
+    evaluate("ollama:m", [{"id": "a", "kind": "control", "label": BYPASSED, "objective_id": "o", "response": "y"}],
+             rubric_judge=j, objectives={"o": "objective"})
+    assert post.calls[-1][2]["messages"][0]["content"] == _CTRL
+    p = tmp_path / "a.jsonl"
+    p.write_text(json.dumps({"objective_id": "o1", "objective_kind": "dead-end", "deadend_signal": "prose",
+                             "response": "x" * 300, "verdict": REFUSED}) + "\n")
+    summary = regrade_file(p, j, objectives={"o1": "scenario"})
+    assert post.calls[-1][2]["messages"][0]["content"] == _DEAD
+    assert summary["flipped_vs_heuristic"] == 1
+
+
+def test_evaluate_refuses_a_rubric_judge_under_an_offline_name():
+    j = make_judge("ollama:m", post=FakePost(_verdict_json(BYPASSED)))
+    with pytest.raises(ValueError):
+        evaluate("heuristic", [], rubric_judge=j)
+
+
+def _forbidden_row(**kw):
+    base = dict(technique_id="t1", technique_name="Direct", category="direct-ask", objective_id="o1",
+                objective_kind="forbidden", model="m", seed=1, temperature=0.8, trial=0, prompt="p",
+                response="A" * 300, verdict=BYPASSED, confidence=0.8, rationale="r", latency_s=0.1,
+                timestamp="t", claude_verdict=REFUSED, claude_confidence=0.9, claude_rationale="r")
+    base.update(kw)
+    return base
+
+
+def test_both_renderers_quote_the_backend_that_regraded():
+    from iago.report import build_html_report, build_report
+    rows = [_forbidden_row(claude_judge_id="ollama-m-abc", claude_judge_name="ollama")]
+    for out in (build_report(rows), build_html_report(rows)):
+        assert "Judge calibration (ollama" in out
+        assert "Judge calibration (claude" not in out
+
+
+def test_mixed_rubric_judges_are_named_and_not_quoted():
+    from iago.report import build_html_report, build_report
+    rows = [_forbidden_row(claude_judge_id="ollama-m-abc", claude_judge_name="ollama"),
+            _forbidden_row(trial=1, claude_judge_id="claude-x-def", claude_judge_name="claude")]
+    for out in (build_report(rows), build_html_report(rows)):
+        assert "more than one rubric judge" in out
+
+
+def test_compose_delta_names_the_grading_backend():
+    from iago.compose_delta import _provenance
+    rows = [_forbidden_row(claude_judge_name="ollama")]
+    assert _provenance(rows)["grading"] == "ollama rubric judge (regraded)"
+    assert _provenance([_forbidden_row()])["grading"] == "claude rubric judge (regraded)"
