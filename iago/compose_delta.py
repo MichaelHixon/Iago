@@ -30,7 +30,7 @@ from .attacks import Technique, load_library
 from .config import REPORTS_DIR
 from .guards import guard_that_fired
 from .judge import BYPASSED, ERROR, REFUSED
-from .report import ci_str, pct, bypass_rate, verdict_of
+from .report import ci_str, pct, bypass_rate, rubric_judge_name, verdict_of
 from .stats import wilson_interval
 
 # Objective kinds that count as an ATTACK (a bypass is meaningful). Controls are benign
@@ -143,8 +143,7 @@ def _provenance(rows: list[dict]) -> dict:
     temp = temps[0] if len(temps) == 1 else (f"{temps[0]}–{temps[-1]}" if temps else "?")
     # A regraded row carries a `claude_verdict`; its absence means heuristic-only scoring.
     regraded = any("claude_verdict" in r for r in rows)
-    # Name the backend(s) that regraded it: a row regraded before backends existed was Claude.
-    judges = sorted({r.get("claude_judge_name") or "claude" for r in rows if "claude_verdict" in r})
+    judges = sorted({rubric_judge_name(r) for r in rows if "claude_verdict" in r})
     return {
         "model": rows[0].get("model", "?"),
         "trials": trials,

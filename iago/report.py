@@ -32,13 +32,17 @@ def verdict_of(r: dict) -> str:
     return r.get("claude_verdict") or r["verdict"]
 
 
+def rubric_judge_name(r: dict) -> str:
+    """The backend that regraded a row. The name picks which backend's metrics a calibration line
+    reads (ISC-59); a row regraded before backends existed carries no name and was scored by Claude."""
+    return r.get("claude_judge_name") or "claude"
+
+
 def _rubric_judge(rows: list[dict]) -> tuple[str | None, str]:
-    """(judge_id, backend name) of the rubric judge that regraded these rows. The name picks which
-    backend's metrics the calibration line reads (ISC-59); rows regraded before backends existed
-    carry no name and were all scored by Claude."""
+    """(judge_id, backend name) of the first rubric-stamped row."""
     for r in rows:
         if r.get("claude_judge_id"):
-            return r["claude_judge_id"], r.get("claude_judge_name") or "claude"
+            return r["claude_judge_id"], rubric_judge_name(r)
     return None, "claude"
 
 
@@ -46,14 +50,15 @@ def _rubric_calibration(rows: list[dict]) -> str:
     """The rubric judge's calibration line — or, when rows were regraded by more than one judge
     (a partial re-regrade leaves skipped rows with their old stamp), a refusal to quote any one
     judge's error rate for verdicts it did not all produce."""
-    judges = sorted({(r.get("claude_judge_id") or "", r.get("claude_judge_name") or "claude")
+    judges = sorted({(r.get("claude_judge_id") or "", rubric_judge_name(r))
                      for r in rows if r.get("claude_verdict")})
     if len(judges) > 1:
         names = ", ".join(f"{n} `{i or 'unstamped'}`" for i, n in judges)
         return (f"**Judge calibration (rubric):** rows were regraded by more than one rubric judge "
                 f"({names}); no single judge's error rate describes these verdicts, so none is quoted. "
                 "Regrade the whole artifact with one judge.")
-    return calibration_line(*_rubric_judge(rows))
+    judge_id, name = judges[0] if judges else ("", "claude")
+    return calibration_line(judge_id or None, name)
 
 
 def _conf(r: dict) -> float:

@@ -1,16 +1,19 @@
-"""ISC-56..59: the vendor-neutral rubric judge.
+"""ISC-56..60: the pluggable rubric judge.
 
-Every test injects a fake transport, so none needs a server, a model, or a key.
+Most tests inject a fake transport; the transport tests run a loopback HTTP server. None needs a
+model or a real key.
 """
 
+import http.server
 import json
+import threading
 
 import pytest
 
 from iago.judge import BYPASSED, COMPLIED_USELESS, REFUSED
 from iago.judge_claude import _SYSTEM_CONTROL, _SYSTEM_DEADEND, _SYSTEM_FORBIDDEN, ClaudeJudge
 from iago.judge_eval import calibration_line, evaluate
-from iago.judge_rubric import RubricJudge, is_rubric_spec, make_judge
+from iago.judge_rubric import RubricJudge, _http_post, check_endpoint, is_rubric_spec, make_judge
 
 
 class FakePost:
@@ -104,9 +107,7 @@ def test_judge_id_changes_with_model_and_endpoint():
 
 def test_claude_judge_id_is_unchanged():
     # The id at 91affaa, before backends existed. Adding backends must not move it: a moved id
-    # orphans every stored Claude metric and regraded row. (The shipped judge_metrics.json still
-    # holds ...-0145f33e1d68, measured before ISC-52 added the dead-end rubric; that row has not been
-    # quoted since 2026-09-12 and needs a fresh `iago judge-eval --judge claude`.)
+    # orphans every stored Claude metric and regraded row.
     assert ClaudeJudge().judge_id == "claude-claude-haiku-4-5-20251001-d20f9d24826c"
 
 
@@ -171,12 +172,6 @@ def test_report_reads_the_regrading_backends_metrics():
 
 # --- gate fixes (Council + code-review + test-analysis on 5b549e1) ----------------------------------
 
-import http.server
-import threading
-
-from iago.judge_claude import _SYSTEM_CONTROL as _CTRL, _SYSTEM_DEADEND as _DEAD
-from iago.judge_rubric import _http_post, check_endpoint
-
 
 def test_openai_key_cannot_be_pointed_at_another_host():
     with pytest.raises(ValueError, match="compat"):
@@ -226,58 +221,49 @@ class _Server:
         self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}/v1/chat/completions"
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
     def close(self):
         self.httpd.shutdown()
 
 
 @pytest.mark.parametrize("code", [301, 302, 307, 308])
 def test_a_redirect_is_refused_and_the_key_never_follows(code):
-    srv = _Server(code, location="http://127.0.0.1:{port}/stolen")
-    try:
+    with _Server(code, location="http://127.0.0.1:{port}/stolen") as srv:
         with pytest.raises(RuntimeError, match="redirect"):
             _http_post(srv.url, {"Authorization": "Bearer sk-live-SECRET"}, {"x": 1})
         assert [p for p, _ in srv.seen] == ["/v1/chat/completions"]   # /stolen was never requested
-    finally:
-        srv.close()
 
 
 def test_auth_error_body_is_dropped():
-    srv = _Server(401, body=b'{"error": "Incorrect API key provided: sk-live-SECRET"}')
-    try:
+    with _Server(401, body=b'{"error": "Incorrect API key provided: sk-live-SECRET"}') as srv:
         with pytest.raises(RuntimeError) as exc:
             _http_post(srv.url, {"Authorization": "Bearer sk-live-SECRET"}, {})
         assert "SECRET" not in str(exc.value) and "401" in str(exc.value)
-    finally:
-        srv.close()
 
 
 def test_other_error_bodies_are_kept_with_the_key_redacted():
-    srv = _Server(400, body=b'{"error": "bad request from Bearer sk-live-SECRET: unknown model"}')
-    try:
+    with _Server(400, body=b'{"error": "bad request from Bearer sk-live-SECRET: unknown model"}') as srv:
         with pytest.raises(RuntimeError) as exc:
             _http_post(srv.url, {"Authorization": "Bearer sk-live-SECRET"}, {})
         msg = str(exc.value)
         assert "sk-live-SECRET" not in msg and "[redacted]" in msg and "unknown model" in msg
-    finally:
-        srv.close()
 
 
 def test_a_non_json_200_body_raises():
-    srv = _Server(200, body=b"<html>captive portal</html>")
-    try:
+    with _Server(200, body=b"<html>captive portal</html>") as srv:
         with pytest.raises(RuntimeError, match="non-JSON"):
             _http_post(srv.url, {}, {})
-    finally:
-        srv.close()
 
 
 def test_a_real_round_trip_returns_the_parsed_body():
-    srv = _Server(200, body=json.dumps({"choices": [{"message": {"content": _verdict_json(BYPASSED)}}]}).encode())
-    try:
+    with _Server(200, body=json.dumps({"choices": [{"message": {"content": _verdict_json(BYPASSED)}}]}).encode()) as srv:
         j = make_judge("compat:m", base_url=srv.url.removesuffix("/chat/completions"))
         assert j.judge("o", "r").verdict == BYPASSED
-    finally:
-        srv.close()
 
 
 @pytest.mark.parametrize("content", [
@@ -315,12 +301,12 @@ def test_evaluate_and_regrade_pass_the_kind_through_to_the_rubric(tmp_path):
     j = make_judge("ollama:m", post=post)
     evaluate("ollama:m", [{"id": "a", "kind": "control", "label": BYPASSED, "objective_id": "o", "response": "y"}],
              rubric_judge=j, objectives={"o": "objective"})
-    assert post.calls[-1][2]["messages"][0]["content"] == _CTRL
+    assert post.calls[-1][2]["messages"][0]["content"] == _SYSTEM_CONTROL
     p = tmp_path / "a.jsonl"
     p.write_text(json.dumps({"objective_id": "o1", "objective_kind": "dead-end", "deadend_signal": "prose",
                              "response": "x" * 300, "verdict": REFUSED}) + "\n")
     summary = regrade_file(p, j, objectives={"o1": "scenario"})
-    assert post.calls[-1][2]["messages"][0]["content"] == _DEAD
+    assert post.calls[-1][2]["messages"][0]["content"] == _SYSTEM_DEADEND
     assert summary["flipped_vs_heuristic"] == 1
 
 
@@ -369,23 +355,17 @@ _LONG_KEY = "sk-" + "A" * 161
 
 @pytest.mark.parametrize("status", [400, 500])
 def test_a_key_echoed_near_the_truncation_point_is_fully_redacted(status):
-    srv = _Server(status, body=b"x" * 280 + _LONG_KEY.encode())
-    try:
+    with _Server(status, body=b"x" * 280 + _LONG_KEY.encode()) as srv:
         with pytest.raises(RuntimeError) as exc:
             _http_post(srv.url, {"Authorization": f"Bearer {_LONG_KEY}"}, {})
         assert "sk-AAAA" not in str(exc.value)
-    finally:
-        srv.close()
 
 
 def test_a_non_json_200_echoing_the_key_is_redacted():
-    srv = _Server(200, body=b"debug: " + _LONG_KEY.encode())
-    try:
+    with _Server(200, body=b"debug: " + _LONG_KEY.encode()) as srv:
         with pytest.raises(RuntimeError) as exc:
             _http_post(srv.url, {"Authorization": f"Bearer {_LONG_KEY}"}, {})
         assert "sk-AAAA" not in str(exc.value) and "[redacted]" in str(exc.value)
-    finally:
-        srv.close()
 
 
 def test_a_reply_without_a_message_echoing_the_key_is_redacted():
