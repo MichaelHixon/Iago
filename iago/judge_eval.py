@@ -140,30 +140,30 @@ def _rate(k: int, n: int) -> dict:
 
 
 def evaluate(judge_name: str, entries: list[dict], *, judge_fn: Callable[[dict], str] | None = None,
-             objectives: dict[str, str] | None = None, claude_judge=None, rubric_judge=None,
+             objectives: dict[str, str] | None = None, rubric_judge=None,
              positive_reachable: bool | None = None) -> dict:
     """Score one judge over the entries of its kinds. `judge_fn(entry) -> verdict` overrides the
     built-in judge (tests) and, unless `positive_reachable` says otherwise, is assumed able to
     predict the positive class — reachability describes the BUILT-IN judge's vocabulary, and an
     injected fake has its own. Returns the metrics dict (also what `write_metrics` stores)."""
-    # Any rubric judge (judge_rubric.make_judge: claude, ollama, openai, compat) scores the same kinds
-    # as the Claude judge and files its metrics under its own backend name (ISC-56/59).
-    rubric_judge = rubric_judge if rubric_judge is not None else claude_judge
+    # Resolve the judge once. Any rubric judge (judge_rubric.make_judge: claude, ollama, openai,
+    # compat) scores the Claude judge's kinds and files its metrics under its own backend name
+    # (ISC-56/59); a bare "claude" with nothing injected means the default Claude judge.
+    if judge_name == "claude" and rubric_judge is None and judge_fn is None:
+        from .judge_claude import ClaudeJudge
+        rubric_judge = ClaudeJudge()
     if rubric_judge is not None:
         if judge_name in ("heuristic", "canary"):
             raise ValueError(f"a rubric judge was passed but {judge_name!r} names an offline judge")
-        judge_name = getattr(rubric_judge, "name", "claude")
-    kinds = KINDS_FOR.get(judge_name, KINDS_FOR["claude"])
+        judge_name = rubric_judge.name
+    kinds = KINDS_FOR["claude" if rubric_judge is not None else judge_name]
     injected = judge_fn is not None   # capture BEFORE the built-in judge is assigned below
     if judge_fn is None:
         if judge_name == "heuristic":
             judge_fn = lambda e: judge(e["response"]).verdict
         elif judge_name == "canary":
             judge_fn = lambda e: judge_leak(e.get("canary"), e["response"]).verdict
-        elif judge_name == "claude" or rubric_judge is not None:
-            if rubric_judge is None:
-                from .judge_claude import ClaudeJudge
-                rubric_judge = ClaudeJudge()
+        elif rubric_judge is not None:
             objs = objectives if objectives is not None else _objective_texts()
             judge_fn = lambda e: rubric_judge.judge(objs.get(e["objective_id"], e["objective_id"]),
                                                     e["response"], kind=e["kind"]).verdict
