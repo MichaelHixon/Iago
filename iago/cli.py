@@ -348,22 +348,24 @@ def _cmd_defense_delta(args: argparse.Namespace) -> int:
 
 
 def _cmd_regrade(args: argparse.Namespace) -> int:
-    """Re-score an existing artifact file with the Claude rubric judge, then re-report."""
+    """Re-score an existing artifact file with a rubric judge, then re-report."""
     from pathlib import Path
-    from .judge_claude import ClaudeJudge
+    from .judge_rubric import make_judge
     from .regrade import regrade_file
 
     path = Path(args.artifact)
     if not path.exists():
         print(f"ERROR: artifact not found: {path}", file=sys.stderr)
         return 2
-    print(f"Regrading {path.name} with Claude judge ({args.judge_model})...")
+    spec = getattr(args, "judge", None) or f"claude:{args.judge_model}"
+    print(f"Regrading {path.name} with rubric judge {spec}...")
     try:
-        judge = ClaudeJudge(model=args.judge_model)   # inside the try: see judge-eval above
+        judge = make_judge(spec, base_url=getattr(args, "judge_base_url", None))   # inside the try: see judge-eval above
         summary = regrade_file(path, judge)
     except Exception as exc:
-        print(f"ERROR: regrade failed (is ANTHROPIC_API_KEY set and the 'anthropic' SDK installed?): {exc}",
-              file=sys.stderr)
+        hint = (" (is ANTHROPIC_API_KEY set and the 'anthropic' SDK installed?)" if spec.startswith("claude")
+                else " (is the judge endpoint up and the model pulled?)")
+        print(f"ERROR: regrade failed{hint}: {exc}", file=sys.stderr)
         return 1
     regrade_manifest, regrade_rows = read_artifact(path)
     report_path = write_report(regrade_rows, manifest=regrade_manifest)
@@ -399,11 +401,12 @@ def _cmd_judge_eval(args: argparse.Namespace) -> int:
     for name in names:
         try:
             kw = {}
-            if name == "claude":
+            from .judge_rubric import is_rubric_spec, make_judge
+            if is_rubric_spec(name):
                 # Built INSIDE the try: a missing API key is an operator error and must print the
                 # ERROR line like every other failure here, not a traceback (code-review minor).
-                from .judge_claude import ClaudeJudge
-                kw["claude_judge"] = ClaudeJudge(model=args.judge_model) if args.judge_model else ClaudeJudge()
+                spec = f"claude:{args.judge_model}" if name == "claude" and args.judge_model else name
+                kw["rubric_judge"] = make_judge(spec, base_url=getattr(args, "judge_base_url", None))
             m = evaluate(name, entries, **kw)
         except Exception as exc:
             print(f"ERROR: {name} judge evaluation failed: {exc}", file=sys.stderr)
@@ -1075,8 +1078,12 @@ def build_parser() -> argparse.ArgumentParser:
                         help="measure each judge's agreement / FPR / FNR (95%% Wilson CIs) against the "
                              "reviewer-labeled control set and store them by judge_id for report headers")
     je.add_argument("--judge", default="heuristic,canary",
-                    help="comma list of heuristic,canary,claude (claude needs ANTHROPIC_API_KEY; default: the "
-                         "two offline judges)")
+                    help="comma list of heuristic, canary, and/or rubric judge specs — claude[:MODEL] "
+                         "(needs ANTHROPIC_API_KEY), ollama:MODEL, openai:MODEL (needs OPENAI_API_KEY), "
+                         "compat:MODEL (needs --judge-base-url). Default: the two offline judges")
+    je.add_argument("--judge-base-url", default=None,
+                    help="OpenAI-compatible base URL for a rubric judge (required for compat:, overrides "
+                         "the ollama:/openai: default)")
     je.add_argument("--set", default=None, help="alternative control-set JSONL (default: the shipped set)")
     je.add_argument("--no-overlay", action="store_true",
                     help="ignore the local overlay of withheld harmful bodies and measure ONLY what a "
@@ -1143,9 +1150,15 @@ def build_parser() -> argparse.ArgumentParser:
                     help="high-band / paraphrase-suspect threshold (default 0.50; one-model heuristic)")
     sl.set_defaults(func=_cmd_lexical_leak)
 
-    rg = sub.add_parser("regrade", help="re-score an artifact file with the Claude rubric judge")
+    rg = sub.add_parser("regrade", help="re-score an artifact file with a rubric judge (Claude by default)")
     rg.add_argument("artifact", help="path to a reports/artifacts/*.jsonl file")
-    rg.add_argument("--judge-model", default="claude-haiku-4-5-20251001", dest="judge_model")
+    rg.add_argument("--judge", default=None,
+                    help="rubric judge spec: claude[:MODEL] | ollama:MODEL | openai:MODEL | compat:MODEL "
+                         "(default: claude with --judge-model)")
+    rg.add_argument("--judge-base-url", default=None,
+                    help="OpenAI-compatible base URL (required for compat:, overrides the ollama:/openai: default)")
+    rg.add_argument("--judge-model", default="claude-haiku-4-5-20251001", dest="judge_model",
+                    help="Claude model id when --judge is not given")
     rg.set_defaults(func=_cmd_regrade)
 
     ar = sub.add_parser("agent-run",
