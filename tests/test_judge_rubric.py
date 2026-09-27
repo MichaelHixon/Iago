@@ -360,3 +360,59 @@ def test_compose_delta_names_the_grading_backend():
     rows = [_forbidden_row(claude_judge_name="ollama")]
     assert _provenance(rows)["grading"] == "ollama rubric judge (regraded)"
     assert _provenance([_forbidden_row()])["grading"] == "claude rubric judge (regraded)"
+
+
+# --- second fix wave (re-review of 96c62b6): redact before truncating, on every path ---------------
+
+_LONG_KEY = "sk-" + "A" * 161
+
+
+@pytest.mark.parametrize("status", [400, 500])
+def test_a_key_echoed_near_the_truncation_point_is_fully_redacted(status):
+    srv = _Server(status, body=b"x" * 280 + _LONG_KEY.encode())
+    try:
+        with pytest.raises(RuntimeError) as exc:
+            _http_post(srv.url, {"Authorization": f"Bearer {_LONG_KEY}"}, {})
+        assert "sk-AAAA" not in str(exc.value)
+    finally:
+        srv.close()
+
+
+def test_a_non_json_200_echoing_the_key_is_redacted():
+    srv = _Server(200, body=b"debug: " + _LONG_KEY.encode())
+    try:
+        with pytest.raises(RuntimeError) as exc:
+            _http_post(srv.url, {"Authorization": f"Bearer {_LONG_KEY}"}, {})
+        assert "sk-AAAA" not in str(exc.value) and "[redacted]" in str(exc.value)
+    finally:
+        srv.close()
+
+
+def test_a_reply_without_a_message_echoing_the_key_is_redacted():
+    j = RubricJudge("compat", "m", base_url="https://x.example/v1",
+                    post=FakePost({"echo": {"Authorization": f"Bearer {_LONG_KEY}"}}),
+                    env={"IAGO_JUDGE_API_KEY": _LONG_KEY})
+    with pytest.raises(RuntimeError) as exc:
+        j.judge("o", "r")
+    assert "sk-AAAA" not in str(exc.value)
+
+
+def test_a_key_with_inner_whitespace_is_refused_without_being_printed():
+    j = RubricJudge("compat", "m", base_url="https://x.example/v1", post=FakePost(""),
+                    env={"IAGO_JUDGE_API_KEY": "sk-abc\rdef"})
+    with pytest.raises(RuntimeError) as exc:
+        j.judge("o", "r")
+    assert "sk-abc" not in str(exc.value)
+
+
+def test_a_crlf_trailing_key_is_trimmed_and_sent():
+    post = FakePost(_verdict_json(BYPASSED))
+    RubricJudge("compat", "m", base_url="https://x.example/v1", post=post,
+                env={"IAGO_JUDGE_API_KEY": "sk-abc\r\n"}).judge("o", "r")
+    assert post.calls[0][1]["Authorization"] == "Bearer sk-abc"
+
+
+def test_an_unhashable_verdict_is_a_runtime_error():
+    content = json.dumps({"verdict": ["bypassed"], "confidence": 0.9, "rationale": "x"})
+    with pytest.raises(RuntimeError):
+        make_judge("ollama:m", post=FakePost(content)).judge("o", "r")

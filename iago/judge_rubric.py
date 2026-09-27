@@ -1,4 +1,4 @@
-"""Vendor-neutral rubric judge: the Claude judge's rubric, served by any OpenAI-compatible endpoint.
+"""Pluggable rubric judge: the Claude judge's rubric, served by any OpenAI-compatible endpoint.
 
 The Claude judge (judge_claude.py) is one backend; this module adds the rest. Ollama, OpenAI,
 vLLM, LM Studio and OpenRouter all speak the same `/v1/chat/completions` shape, so ONE client
@@ -13,7 +13,11 @@ Design notes:
 - A reply that is not a valid verdict RAISES (ISC-58). A judge that defaulted an unparseable
   reply to `refused` would silently lower every bypass rate it touched.
 - The API key is read from an environment variable and sent only in the Authorization header,
-  never in the URL, and never echoed into an error message.
+  never in the URL. Every error message built from server text passes through `_redact` BEFORE it
+  is truncated, since truncating first can leave most of an echoed key intact.
+- Reasoning models must return their reasoning OUTSIDE `content` (Ollama and OpenAI do for
+  gpt-oss). A server that inlines `<think>...</think>` into `content` makes every verdict fail to
+  parse, loudly, rather than having its reasoning read as the verdict.
 """
 
 from __future__ import annotations
@@ -71,6 +75,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
     another host or plain http. A judge endpoint has no reason to redirect, so any 3xx is an error."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        fp.close()
         raise RuntimeError(f"judge endpoint redirected (HTTP {code}); refusing to follow")
 
 
@@ -89,6 +94,14 @@ def check_endpoint(url: str, *, sends_key: bool) -> None:
                      f"got {parts.scheme or 'no'}:// for host {parts.hostname!r}")
 
 
+def _redact(text: str, key: str | None, limit: int) -> str:
+    """Remove the key from server text, THEN bound it. The reverse order lets a key echoed near the
+    cut survive as a long prefix."""
+    if key:
+        text = text.replace(key, "[redacted]")
+    return text[:limit]
+
+
 def _http_post(url: str, headers: dict, body: dict, timeout: float = 300.0) -> dict:
     check_endpoint(url, sends_key="Authorization" in headers)
     req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers, method="POST")
@@ -102,17 +115,19 @@ def _http_post(url: str, headers: dict, body: dict, timeout: float = 300.0) -> d
             raise RuntimeError(f"judge endpoint returned HTTP {exc.code}: check the API key") from None
         # Other bodies name the problem (unknown model, bad schema) and are kept, with the key
         # redacted in case a server echoes the request.
-        detail = exc.read(300).decode(errors="replace")
-        key = headers.get("Authorization", "").removeprefix("Bearer ")
-        if key:
-            detail = detail.replace(key, "[redacted]")
+        detail = _redact(exc.read(65536).decode(errors="replace"), _key_of(headers), 300)
         raise RuntimeError(f"judge endpoint returned HTTP {exc.code}: {detail}") from None
     if len(raw) > MAX_REPLY_BYTES:
         raise RuntimeError(f"judge endpoint reply exceeds {MAX_REPLY_BYTES} bytes")
     try:
         return json.loads(raw.decode())
     except (UnicodeDecodeError, json.JSONDecodeError):
-        raise RuntimeError(f"judge endpoint returned a non-JSON body: {raw[:120]!r}") from None
+        text = raw.decode(errors="replace")
+        raise RuntimeError(f"judge endpoint returned a non-JSON body: {_redact(text, _key_of(headers), 120)!r}") from None
+
+
+def _key_of(headers: dict) -> str | None:
+    return headers.get("Authorization", "").removeprefix("Bearer ") or None
 
 
 _FENCE = re.compile(r"\A```(?:json)?\s*(\{.*\})\s*```\Z", re.DOTALL)
@@ -145,7 +160,7 @@ def _strict_verdict(data: dict) -> Verdict:
     if missing:
         raise RuntimeError(f"judge verdict is missing {missing}")
     verdict = data["verdict"]
-    if verdict not in _VALID:
+    if not isinstance(verdict, str) or verdict not in _VALID:
         raise RuntimeError(f"judge returned invalid verdict {verdict!r}")
     conf = data["confidence"]
     if isinstance(conf, bool) or not isinstance(conf, (int, float)) or not (0.0 <= conf <= 1.0):
@@ -218,14 +233,17 @@ class RubricJudge:
             # reject any non-default temperature, so there the server default stands.
             body.update(temperature=0, seed=0)
         headers = {"Content-Type": "application/json"}
-        key = self._env.get(self._key_env) if self._key_env else None
+        key = (self._env.get(self._key_env) or "").strip() if self._key_env else ""
         if key:
+            if any(c.isspace() for c in key):
+                # http.client's "Invalid header value" error would quote the whole Bearer string.
+                raise RuntimeError(f"{self._key_env} contains whitespace; refusing to send it")
             headers["Authorization"] = f"Bearer {key}"
         reply = self._post(f"{self.base_url}/chat/completions", headers, body)
         try:
             content = reply["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError):
-            raise RuntimeError(f"judge endpoint returned no message: {str(reply)[:200]}") from None
+            raise RuntimeError(f"judge endpoint returned no message: {_redact(str(reply), key, 200)}") from None
         return _strict_verdict(_parse_json_object(content))
 
 
