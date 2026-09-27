@@ -107,7 +107,9 @@ def test_judge_id_changes_with_model_and_endpoint():
 
 def test_claude_judge_id_is_unchanged():
     # The id at 91affaa, before backends existed. Adding backends must not move it: a moved id
-    # orphans every stored Claude metric and regraded row.
+    # orphans every stored Claude metric and regraded row. (The shipped judge_metrics.json still
+    # holds ...-0145f33e1d68, measured before ISC-52 added the dead-end rubric; that row has not been
+    # quoted since 2026-09-12 and needs a fresh `iago judge-eval --judge claude`.)
     assert ClaudeJudge().judge_id == "claude-claude-haiku-4-5-20251001-d20f9d24826c"
 
 
@@ -159,13 +161,14 @@ def test_regrade_stamps_the_backend_on_each_row(tmp_path):
     assert (row["claude_verdict"], row["claude_judge_name"], row["claude_judge_id"]) == (REFUSED, "ollama", j.judge_id)
 
 
-def test_report_reads_the_regrading_backends_metrics():
-    from iago.report import _rubric_judge
+def test_report_reads_the_regrading_backends_metrics(monkeypatch):
+    from iago import report
+    monkeypatch.setattr(report, "calibration_line", lambda judge_id, judge_name, **kw: f"CAL[{judge_id}|{judge_name}]")
     j = make_judge("ollama:m", post=FakePost(""))
-    rows = [{"claude_verdict": REFUSED, "claude_judge_id": j.judge_id, "claude_judge_name": "ollama"}]
-    assert _rubric_judge(rows) == (j.judge_id, "ollama")
+    assert report._rubric_calibration([{"claude_verdict": REFUSED, "claude_judge_id": j.judge_id,
+                                        "claude_judge_name": "ollama"}]) == f"CAL[{j.judge_id}|ollama]"
     # A pre-backend artifact carries no name: it was Claude.
-    assert _rubric_judge([{"claude_verdict": REFUSED, "claude_judge_id": "claude-x"}]) == ("claude-x", "claude")
+    assert report._rubric_calibration([{"claude_verdict": REFUSED, "claude_judge_id": "claude-x"}]) == "CAL[claude-x|claude]"
     metrics = {j.judge_id: {"claude": {"metrics_schema": 2}}}   # filed under the WRONG backend
     assert "unmeasured" in calibration_line(j.judge_id, "ollama", metrics=metrics)
 
@@ -396,3 +399,27 @@ def test_an_unhashable_verdict_is_a_runtime_error():
     content = json.dumps({"verdict": ["bypassed"], "confidence": 0.9, "rationale": "x"})
     with pytest.raises(RuntimeError):
         make_judge("ollama:m", post=FakePost(content)).judge("o", "r")
+
+
+# --- review of a90f7b7 ------------------------------------------------------------------------------
+
+def test_unknown_offline_judge_names_itself():
+    with pytest.raises(ValueError, match="unknown judge 'foo'"):
+        evaluate("foo", [], judge_fn=lambda e: REFUSED)
+
+
+def test_regrade_progress_line_names_the_resolved_claude_model(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+    from iago import cli
+    seen = []
+    def _no_judge(args, spec):   # a spy that also stops before any judge is built or called
+        seen.append(spec)
+        raise RuntimeError("stop")
+    monkeypatch.setattr(cli, "_rubric_judge_from", _no_judge)
+    p = tmp_path / "a.jsonl"
+    p.write_text("")
+    rc = cli._cmd_regrade(SimpleNamespace(artifact=str(p), judge=None, judge_model="m-x"))
+    out, err = capsys.readouterr()
+    assert "rubric judge claude:m-x..." in out
+    # The spy fired (so no real judge was built), with the same spec the line printed.
+    assert seen == ["claude:m-x"] and rc == 1 and "stop" in err

@@ -156,19 +156,19 @@ def evaluate(judge_name: str, entries: list[dict], *, judge_fn: Callable[[dict],
         if judge_name in ("heuristic", "canary"):
             raise ValueError(f"a rubric judge was passed but {judge_name!r} names an offline judge")
         judge_name = rubric_judge.name
-    kinds = KINDS_FOR["claude" if rubric_judge is not None else judge_name]
+    kinds = KINDS_FOR.get("claude" if rubric_judge is not None else judge_name)
+    if kinds is None:
+        raise ValueError(f"unknown judge {judge_name!r}")
     injected = judge_fn is not None   # capture BEFORE the built-in judge is assigned below
     if judge_fn is None:
         if judge_name == "heuristic":
             judge_fn = lambda e: judge(e["response"]).verdict
         elif judge_name == "canary":
             judge_fn = lambda e: judge_leak(e.get("canary"), e["response"]).verdict
-        elif rubric_judge is not None:
+        else:   # a rubric judge: passed in, or the default ClaudeJudge resolved above
             objs = objectives if objectives is not None else _objective_texts()
             judge_fn = lambda e: rubric_judge.judge(objs.get(e["objective_id"], e["objective_id"]),
                                                     e["response"], kind=e["kind"]).verdict
-        else:
-            raise ValueError(f"unknown judge {judge_name!r}")
     positives_by_kind: dict[str, int] = {}
     positives_with_body: dict[str, int] = {}
     scoped = [e for e in entries if e["kind"] in kinds]

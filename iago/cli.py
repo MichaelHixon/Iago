@@ -348,13 +348,16 @@ def _cmd_defense_delta(args: argparse.Namespace) -> int:
     return 0
 
 
-def _rubric_judge_from(args: argparse.Namespace, spec: str):
-    """The rubric judge a spec names. A bare `claude` still honors --judge-model; the getattr
-    defaults let callers pass a namespace built without the newer judge flags."""
+def _rubric_spec(args: argparse.Namespace, spec: str) -> str:
+    """A bare `claude` still honors --judge-model; the getattr default lets callers pass a
+    namespace built without the newer judge flags."""
     model = getattr(args, "judge_model", None)
-    if spec == "claude" and model:
-        spec = f"claude:{model}"
-    return make_judge(spec, base_url=getattr(args, "judge_base_url", None))
+    return f"claude:{model}" if spec == "claude" and model else spec
+
+
+def _rubric_judge_from(args: argparse.Namespace, spec: str):
+    """The rubric judge a spec names."""
+    return make_judge(_rubric_spec(args, spec), base_url=getattr(args, "judge_base_url", None))
 
 
 def _cmd_regrade(args: argparse.Namespace) -> int:
@@ -366,7 +369,7 @@ def _cmd_regrade(args: argparse.Namespace) -> int:
     if not path.exists():
         print(f"ERROR: artifact not found: {path}", file=sys.stderr)
         return 2
-    spec = getattr(args, "judge", None) or "claude"
+    spec = _rubric_spec(args, getattr(args, "judge", None) or "claude")
     print(f"Regrading {path.name} with rubric judge {spec}...")
     try:
         # Built inside the try: a missing key or endpoint is an ERROR line, not a traceback.

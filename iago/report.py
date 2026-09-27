@@ -38,14 +38,6 @@ def rubric_judge_name(r: dict) -> str:
     return r.get("claude_judge_name") or "claude"
 
 
-def _rubric_judge(rows: list[dict]) -> tuple[str | None, str]:
-    """(judge_id, backend name) of the first rubric-stamped row."""
-    for r in rows:
-        if r.get("claude_judge_id"):
-            return r["claude_judge_id"], rubric_judge_name(r)
-    return None, "claude"
-
-
 def _rubric_calibration(rows: list[dict]) -> str:
     """The rubric judge's calibration line — or, when rows were regraded by more than one judge
     (a partial re-regrade leaves skipped rows with their old stamp), a refusal to quote any one
