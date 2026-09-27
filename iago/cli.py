@@ -357,7 +357,9 @@ def _cmd_regrade(args: argparse.Namespace) -> int:
     if not path.exists():
         print(f"ERROR: artifact not found: {path}", file=sys.stderr)
         return 2
-    spec = getattr(args, "judge", None) or f"claude:{args.judge_model}"
+    spec = getattr(args, "judge", None) or "claude"
+    if spec == "claude":   # a bare `--judge claude` still honors --judge-model
+        spec = f"claude:{args.judge_model}"
     print(f"Regrading {path.name} with rubric judge {spec}...")
     try:
         judge = make_judge(spec, base_url=getattr(args, "judge_base_url", None))   # inside the try: see judge-eval above

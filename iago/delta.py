@@ -134,7 +134,7 @@ def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict]) -> str:
     a("")
     a("> A negative delta with **non-overlapping 95% Wilson intervals** is a defensible reduction;")
     a("> an overlapping-interval delta is directional only (too few trials to assert it). Bypass")
-    a("> counts use the effective verdict (`iago regrade` promotes the Claude judge if present).")
+    a("> counts use the effective verdict (`iago regrade` promotes the rubric judge if present).")
     a("")
     # Honesty: what "0%" on the LLM07 line actually measures (Council blockers, 2026-08-09).
     a('> **What the LLM07 "0%" means — read before quoting it.** This is a *verbatim / canary*')

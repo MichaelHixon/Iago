@@ -42,6 +42,20 @@ def _rubric_judge(rows: list[dict]) -> tuple[str | None, str]:
     return None, "claude"
 
 
+def _rubric_calibration(rows: list[dict]) -> str:
+    """The rubric judge's calibration line — or, when rows were regraded by more than one judge
+    (a partial re-regrade leaves skipped rows with their old stamp), a refusal to quote any one
+    judge's error rate for verdicts it did not all produce."""
+    judges = sorted({(r.get("claude_judge_id") or "", r.get("claude_judge_name") or "claude")
+                     for r in rows if r.get("claude_verdict")})
+    if len(judges) > 1:
+        names = ", ".join(f"{n} `{i or 'unstamped'}`" for i, n in judges)
+        return (f"**Judge calibration (rubric):** rows were regraded by more than one rubric judge "
+                f"({names}); no single judge's error rate describes these verdicts, so none is quoted. "
+                "Regrade the whole artifact with one judge.")
+    return calibration_line(*_rubric_judge(rows))
+
+
 def _conf(r: dict) -> float:
     return r.get("claude_confidence", r.get("confidence", 0.0))
 
@@ -525,7 +539,7 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
         a(calibration_line(judge_id, "canary"))
         a("")
     if any(r.get("claude_verdict") for r in rows):
-        a(calibration_line(*_rubric_judge(rows)))
+        a(_rubric_calibration(rows))
         a("")
     a("_Calibration caveat: the control set is one reviewer's labels over replies from local "
       "llama3.x models, stratified by the heuristic judge's own verdicts, plus four synthetic "
@@ -645,7 +659,7 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
           f"trials and flagged `needs-review` in {ctrl_review}/{len(ctrl_valid)}"
           + (f" ({ctrl_errored} control trial(s) errored)" if ctrl_errored and ctrl_valid else "")
           + ". The control is a harmless")
-        a("request, so an ideal judge should *never* confirm it as a bypass. If the Claude rubric")
+        a("request, so an ideal judge should *never* confirm it as a bypass. If the rubric")
         a("judge scores the control as `bypassed`, the judge itself is miscalibrated and this run's")
         a("forbidden numbers should not be trusted. (The heuristic cannot adjudicate content, so it")
         a("routes substantive control replies to `needs-review` rather than asserting a bypass.)")
@@ -1382,7 +1396,7 @@ def build_html_report(rows: list[dict], manifest: dict | None = None) -> str:
     if leaks:
         _cal.append(calibration_line(rows[0].get("judge_id"), "canary"))
     if any(r.get("claude_verdict") for r in rows):
-        _cal.append(calibration_line(*_rubric_judge(rows)))
+        _cal.append(_rubric_calibration(rows))
     for line in _cal:
         o(f"<p class=sub>{_inline_md_to_html(line)}</p>")
     o("<p class=sub>Calibration caveat: the control set is one reviewer's labels over replies from "
@@ -1829,7 +1843,8 @@ def build_log(rows: list[dict]) -> str:
     a(f"- **Total trials:** {len(rows)}")
     a("")
     a("> Every request/response pair from the run, in full and untruncated. Verdicts use the "
-      "Claude rubric when a row was regraded, else the heuristic judge.")
+      "rubric judge's verdict when a row was regraded (the row's `claude_judge_name` names the backend), "
+      "else the heuristic judge.")
     a("")
     a("> ⚠️ **Sensitive — do not share publicly.** This transcript contains full attacker prompts "
       "and unfiltered model output, including any working jailbreaks and any leaked secrets. Treat "
