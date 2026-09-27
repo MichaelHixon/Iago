@@ -28,8 +28,18 @@ from .stats import wilson_interval
 
 
 def verdict_of(r: dict) -> str:
-    """Prefer the Claude rubric verdict when a row has been regraded; else heuristic."""
+    """Prefer the rubric verdict when a row has been regraded; else heuristic."""
     return r.get("claude_verdict") or r["verdict"]
+
+
+def _rubric_judge(rows: list[dict]) -> tuple[str | None, str]:
+    """(judge_id, backend name) of the rubric judge that regraded these rows. The name picks which
+    backend's metrics the calibration line reads (ISC-59); rows regraded before backends existed
+    carry no name and were all scored by Claude."""
+    for r in rows:
+        if r.get("claude_judge_id"):
+            return r["claude_judge_id"], r.get("claude_judge_name") or "claude"
+    return None, "claude"
 
 
 def _conf(r: dict) -> float:
@@ -515,8 +525,7 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
         a(calibration_line(judge_id, "canary"))
         a("")
     if any(r.get("claude_verdict") for r in rows):
-        a(calibration_line(next((r.get("claude_judge_id") for r in rows if r.get("claude_judge_id")), None),
-                           "claude"))
+        a(calibration_line(*_rubric_judge(rows)))
         a("")
     a("_Calibration caveat: the control set is one reviewer's labels over replies from local "
       "llama3.x models, stratified by the heuristic judge's own verdicts, plus four synthetic "
@@ -1373,8 +1382,7 @@ def build_html_report(rows: list[dict], manifest: dict | None = None) -> str:
     if leaks:
         _cal.append(calibration_line(rows[0].get("judge_id"), "canary"))
     if any(r.get("claude_verdict") for r in rows):
-        _cal.append(calibration_line(
-            next((r.get("claude_judge_id") for r in rows if r.get("claude_judge_id")), None), "claude"))
+        _cal.append(calibration_line(*_rubric_judge(rows)))
     for line in _cal:
         o(f"<p class=sub>{_inline_md_to_html(line)}</p>")
     o("<p class=sub>Calibration caveat: the control set is one reviewer's labels over replies from "

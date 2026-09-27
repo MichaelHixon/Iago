@@ -31,7 +31,8 @@ def _objective_text_map() -> dict[str, str]:
 
 
 def regrade_file(path: Path, judge: ClaudeJudge, objectives: dict[str, str] | None = None) -> dict:
-    """Re-judge every row in an artifact file in place. Returns a small summary."""
+    """Re-judge every row in an artifact file in place. Returns a small summary. `judge` is any
+    rubric judge (judge_rubric.make_judge) — ClaudeJudge is the default, not a requirement."""
     path = Path(path)
     obj_map = objectives if objectives is not None else _objective_text_map()
     manifest, rows = read_artifact(path)  # the manifest line is preserved, never judged
@@ -75,6 +76,9 @@ def regrade_file(path: Path, judge: ClaudeJudge, objectives: dict[str, str] | No
             flipped += 1
         row["claude_verdict"] = v.verdict
         row["claude_judge_id"] = getattr(judge, "judge_id", None)
+        # Which backend scored it, so the report reads that backend's metrics (ISC-59). The field
+        # names keep their `claude_` prefix for compatibility with existing artifacts and readers.
+        row["claude_judge_name"] = getattr(judge, "name", "claude")
         row["claude_confidence"] = v.confidence
         row["claude_rationale"] = v.rationale
         regraded += 1

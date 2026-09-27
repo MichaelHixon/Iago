@@ -104,6 +104,9 @@ _VERDICT_TOOL = {
 class ClaudeJudge:
     """Re-scores a (objective, response) pair with Claude reasoning about content."""
 
+    #: Backend name reports file this judge's metrics under (judge_rubric.RubricJudge sets its own).
+    name = "claude"
+
     @property
     def judge_id(self) -> str:
         """Fingerprint of the rubric + model this judge scores with (ISC-33): any change to the

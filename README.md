@@ -55,7 +55,7 @@ Pick the backend with `--target` (default `ollama`) and the model with `--model`
 1. **Target connector** — a small interface to the model under test (local, through Ollama; other backends can be added).
 2. **Attack library** — 72 techniques stored as data, in 19 categories. Four of them, the `dead-end` category, test whether a model stops instead of making something up; the other 68 are bypass techniques. `iago library` lists them all. Techniques range from direct asks and role-play through encoding, many-shot transcripts, stacked techniques, and forged conversation history, to attacks that arrive through retrieved documents, agent tool calls, and MCP servers. The full list: [docs/attack-library.md](docs/attack-library.md).
 3. **Runner** — fires each technique against a set of forbidden requests, several trials per pair, and records the replies.
-4. **Judge** — decides, per attempt, whether the guardrail **held** or was **bypassed**, grounded in facts where it can be: a planted secret word, an action token the model only emits if it crosses a line, or the tool calls it actually made. A pattern-based judge runs by default; `iago regrade` re-scores with a Claude judge that reads the content against a written rubric.
+4. **Judge** — decides, per attempt, whether the guardrail **held** or was **bypassed**, grounded in facts where it can be: a planted secret word, an action token the model only emits if it crosses a line, or the tool calls it actually made. A pattern-based judge runs by default; `iago regrade` re-scores with a rubric judge that reads the content against a written rubric. The rubric judge is pluggable: `--judge claude`, `--judge ollama:MODEL` (a local model, no key), `--judge openai:MODEL`, or `--judge compat:MODEL --judge-base-url URL` for any OpenAI-compatible server. Every backend gets the same rubric and the same three verdicts, and `iago judge-eval --judge <spec>` scores it against the labeled control set before you trust it.
 5. **Report** — a markdown report: a summary (X of Y bypassed), results by category, the prompt-and-reply evidence, and **hardening recommendations**, which is the defensive payoff.
 
 **Representative result.** Local `llama3.1`, 42 trials, run 2026-07-31. The planted system-prompt secret leaked in **48%** of extraction trials overall (20 of 42, 95% CI 33% to 62%):
@@ -113,7 +113,7 @@ The three out-of-scope items cannot be measured by driving a model with prompts:
 
 - **Python** (managed with [`uv`](https://github.com/astral-sh/uv)); 960+ tests, `uv run pytest`
 - **Target:** a local model through [Ollama](https://ollama.com): private, no rate limits, free to test against
-- **Judge:** the [Claude API](https://docs.anthropic.com) for the rubric judge
+- **Judge:** vendor-neutral. The rubric judge runs on the [Claude API](https://docs.anthropic.com) or on any OpenAI-compatible endpoint (a local Ollama model, OpenAI, vLLM, LM Studio), through a stdlib HTTP client with no extra dependency
 
 ## Ethics
 

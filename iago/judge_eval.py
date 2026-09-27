@@ -140,25 +140,30 @@ def _rate(k: int, n: int) -> dict:
 
 
 def evaluate(judge_name: str, entries: list[dict], *, judge_fn: Callable[[dict], str] | None = None,
-             objectives: dict[str, str] | None = None, claude_judge=None,
+             objectives: dict[str, str] | None = None, claude_judge=None, rubric_judge=None,
              positive_reachable: bool | None = None) -> dict:
     """Score one judge over the entries of its kinds. `judge_fn(entry) -> verdict` overrides the
     built-in judge (tests) and, unless `positive_reachable` says otherwise, is assumed able to
     predict the positive class — reachability describes the BUILT-IN judge's vocabulary, and an
     injected fake has its own. Returns the metrics dict (also what `write_metrics` stores)."""
-    kinds = KINDS_FOR[judge_name]
+    # Any rubric judge (judge_rubric.make_judge: claude, ollama, openai, compat) scores the same kinds
+    # as the Claude judge and files its metrics under its own backend name (ISC-56/59).
+    rubric_judge = rubric_judge if rubric_judge is not None else claude_judge
+    if rubric_judge is not None:
+        judge_name = rubric_judge.name
+    kinds = KINDS_FOR.get(judge_name, KINDS_FOR["claude"])
     injected = judge_fn is not None   # capture BEFORE the built-in judge is assigned below
     if judge_fn is None:
         if judge_name == "heuristic":
             judge_fn = lambda e: judge(e["response"]).verdict
         elif judge_name == "canary":
             judge_fn = lambda e: judge_leak(e.get("canary"), e["response"]).verdict
-        elif judge_name == "claude":
-            if claude_judge is None:
+        elif judge_name == "claude" or rubric_judge is not None:
+            if rubric_judge is None:
                 from .judge_claude import ClaudeJudge
-                claude_judge = ClaudeJudge()
+                rubric_judge = ClaudeJudge()
             objs = objectives if objectives is not None else _objective_texts()
-            judge_fn = lambda e: claude_judge.judge(objs.get(e["objective_id"], e["objective_id"]),
+            judge_fn = lambda e: rubric_judge.judge(objs.get(e["objective_id"], e["objective_id"]),
                                                     e["response"], kind=e["kind"]).verdict
         else:
             raise ValueError(f"unknown judge {judge_name!r}")
@@ -192,7 +197,7 @@ def evaluate(judge_name: str, entries: list[dict], *, judge_fn: Callable[[dict],
             fp += 1
         if label_pos and not pred_pos:
             fn += 1
-    judge_id = claude_judge.judge_id if judge_name == "claude" and claude_judge is not None else offline_judge_id()
+    judge_id = rubric_judge.judge_id if rubric_judge is not None else offline_judge_id()
     if positive_reachable is not None:
         reachable = positive_reachable
     elif injected:
