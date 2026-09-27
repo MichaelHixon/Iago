@@ -107,9 +107,8 @@ def test_judge_id_changes_with_model_and_endpoint():
 
 def test_claude_judge_id_is_unchanged():
     # The id at 91affaa, before backends existed. Adding backends must not move it: a moved id
-    # orphans every stored Claude metric and regraded row. (The shipped judge_metrics.json still
-    # holds ...-0145f33e1d68, measured before ISC-52 added the dead-end rubric; that row has not been
-    # quoted since 2026-09-12 and needs a fresh `iago judge-eval --judge claude`.)
+    # orphans every stored Claude metric and regraded row. (ISC-52's dead-end rubric moved it once,
+    # from ...-0145f33e1d68; judge_metrics.json was re-measured under this id on 2026-09-27.)
     assert ClaudeJudge().judge_id == "claude-claude-haiku-4-5-20251001-d20f9d24826c"
 
 
