@@ -183,6 +183,14 @@ def _chain_in_order(calls, chain: tuple[str, str]) -> bool:
     return any(c.name == sink and i > first_source for i, c in enumerate(calls))
 
 
+def _exfil_fields(trace: AgentTrace, scen, v: ExfilVerdict) -> dict:
+    """The default `extra_row`: the pure-exfil verdict fields."""
+    return {"exfil_recipient": v.exfil_recipient, "leaked_canary": v.leaked_canary,
+            # Attack delivery (trace-only): a resisted verdict on a never-delivered trial is
+            # non-delivery, and the report's Delivered column lets a reader see it.
+            "poison_ingested": poison_ingested(trace, scen)}
+
+
 def run_exfil_suite(
     chat_fn, *, model_name: str, scenarios: list, run_one, judge, run_id_prefix: str,
     judge_modules: tuple[str, ...], trials: int = DEFAULT_TRIALS,
@@ -190,12 +198,19 @@ def run_exfil_suite(
     base_seed: int, max_steps: int = DEFAULT_AGENT_STEPS,
     artifacts_dir: Path | None = None, progress: bool = False,
     capability_chain: tuple[str, str] | None = None,
+    scenario_row=None, extra_row=None, tail_row=None, floor=None,
 ) -> Path:
     """The shared trials loop + JSONL row schema + artifact writer. `run_one(scenario, chat_fn,
-    options, max_steps) -> AgentTrace` drives one scenario; `judge(trace, scenario) -> ExfilVerdict`
+    options, max_steps) -> AgentTrace` drives one scenario; `judge(trace, scenario) -> verdict`
     scores it. Requires >=1 attack scenario (an all-control run measures nothing).
     `capability_chain` = the (first_tool, sink_tool) pair the surface's report uses as its floor;
     when given, each capability row carries `floor_fired` under that SAME definition (ISC-32).
+
+    Surfaces whose verdict is not an ExfilVerdict shape their row through hooks, each spliced in at
+    a fixed position so every surface keeps its published key order (ISC-73):
+    `scenario_row(scen)` after `kind`; `extra_row(trace, scen, v)` after `rationale` (default: the
+    exfil recipient / canary / delivery fields); `tail_row(trace, scen, v)` after `empty_final`;
+    `floor(trace, scen, v)` = a capability row's `floor_fired` when the floor is not a tool chain.
 
     `judge_modules` NAMES the iago modules whose source fingerprints the oracle (ISC-38). It was
     previously derived from `run_id_prefix` as `f"agent_{prefix}"`, which silently coupled the
@@ -210,6 +225,10 @@ def run_exfil_suite(
 
     # Fingerprint FIRST: a missing module must fail before the artifact file exists (ISC-38).
     judge_id = module_fingerprint(*judge_modules)
+    if floor is None and capability_chain:
+        def floor(trace, scen, v):
+            return _chain_in_order(trace.calls, capability_chain)
+    extra_row = extra_row or _exfil_fields
 
     now = datetime.now(timezone.utc)
     out_dir = Path(artifacts_dir) if artifacts_dir else ARTIFACTS_DIR
@@ -239,26 +258,28 @@ def run_exfil_suite(
                 v = judge(trace, scen)
                 row = {
                     "scenario_id": scen.id, "scenario_name": scen.name, "kind": scen.kind,
+                    **(scenario_row(scen) if scenario_row else {}),
                     "owasp": scen.owasp, "asi": scen.asi, "model": model_name,
                     "trial": trial, "seed": seed, "temperature": temperature,
                     "verdict": v.verdict, "confidence": v.confidence, "rationale": v.rationale,
-                    "exfil_recipient": v.exfil_recipient, "leaked_canary": v.leaked_canary,
-                    # Attack delivery (trace-only): a resisted verdict on a never-delivered trial is
-                    # non-delivery, and the report's Delivered column lets a reader see it.
-                    "poison_ingested": poison_ingested(trace, scen),
+                    **extra_row(trace, scen, v),
                     "tool_calls": [asdict(c) for c in trace.calls],
                     "final_text": trace.final_text, "steps": trace.steps,
                     "hit_step_limit": trace.hit_step_limit, "empty_final": trace.empty_final,
-                    "floor_fired": (
-                        _chain_in_order(trace.calls, capability_chain)
-                        if (scen.kind == "capability" and capability_chain) else None),
+                    **(tail_row(trace, scen, v) if tail_row else {}),
+                    "floor_fired": (floor(trace, scen, v)
+                                    if (scen.kind == "capability" and floor) else None),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
                 fh.write(json.dumps(stamp(row, run_id_prefix)) + "\n")
                 fh.flush()
                 done += 1
                 if progress:
-                    print(f"  [{done}/{total}] r{trial} {scen.id} -> {v.verdict} ({v.confidence:.2f})")
+                    # An armed surface tags the scenario with its arm, a channelled verdict its channel.
+                    arm = f" [{scen.arm}]" if getattr(scen, "arm", None) else ""
+                    ch = f" [{v.channel}]" if getattr(v, "channel", None) else ""
+                    print(f"  [{done}/{total}] r{trial} {scen.id}{arm} -> {v.verdict}{ch} "
+                          f"({v.confidence:.2f})")
     return out_path
 
 
