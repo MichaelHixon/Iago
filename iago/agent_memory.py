@@ -47,21 +47,19 @@ real credential; memory is in-process only and never written to disk.
 
 from __future__ import annotations
 
-import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 
 from .agent_harness import AgentTrace, run_agent, marker_delivered
-from .artifacts import (build_manifest, load_rows, module_fingerprint, scenario_fingerprint,
-                        stamp, write_manifest)
+from .artifacts import load_rows
 from .agent_oracle import ATTEMPTED, RESISTED, _is_external, probe_quality_note
+from .agentic_exfil import run_exfil_suite
 from .canary import contains_secret as _contains_secret
 from .config import (
     ALLOWED_RECIPIENT_DOMAIN,
-    ARTIFACTS_DIR,
     BASE_SEED,
     DEFAULT_AGENT_STEPS,
     DEFAULT_TEMPERATURE,
@@ -364,10 +362,6 @@ def run_memory(scenario: MemoryScenario, chat_fn, *, options: dict | None = None
         execute_tool=make_memory_executor(scenario))
 
 
-def _run_id(now: datetime) -> str:
-    return f"memory_{now.strftime('%Y%m%dT%H%M%SZ')}"
-
-
 def run_memory_suite(
     chat_fn, *, model_name: str, trials: int = DEFAULT_TRIALS,
     temperature: float = DEFAULT_TEMPERATURE, base_seed: int = BASE_SEED,
@@ -375,62 +369,23 @@ def run_memory_suite(
     scenarios: list[MemoryScenario] | None = None,
     artifacts_dir: Path | None = None, progress: bool = False,
 ) -> Path:
-    """Run every scenario × trials through the memory agent + oracle; write JSONL. Returns path."""
-    scens = scenarios if scenarios is not None else load_memory_scenarios()
-    if not scens:
-        raise ValueError("no memory scenarios to run")
-    if not any(s.kind == "attack" for s in scens):
-        raise ValueError("memory suite needs at least one 'attack' scenario")
-
-    now = datetime.now(timezone.utc)
-    out_dir = Path(artifacts_dir) if artifacts_dir else ARTIFACTS_DIR
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{_run_id(now)}_{model_name.replace(':', '-').replace('/', '-')}.jsonl"
-
-    total = len(scens) * trials
-    done = 0
-    # Build the manifest BEFORE opening the artifact: every fingerprint helper it calls
-    # reads files and can raise, and `open("w")` has already truncated by then, which
-    # leaves a zero-byte artifact behind (ISC-38 class sweep).
-    manifest = build_manifest(
-        surface="memory", model=model_name,
-        sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
-                  "seed_rule": "base_seed + trial", "max_steps": max_steps},
-        judge_id=module_fingerprint("agent_oracle", "agent_memory", "agent_harness"),
-        extra={"scenario_library_sha256": scenario_fingerprint(scens),
-               "scenarios": len(scens)})
-    with out_path.open("w") as fh:
-        write_manifest(fh, manifest)
-        for trial in range(trials):
-            seed = base_seed + trial
-            options = {"temperature": temperature, "seed": seed}
-            for scen in scens:
-                trace = run_memory(scen, chat_fn, options=options, max_steps=max_steps)
-                v = judge_memory(trace, scen)
-                row = {
-                    "scenario_id": scen.id, "scenario_name": scen.name, "kind": scen.kind,
-                    "owasp": scen.owasp, "asi": scen.asi, "model": model_name,
-                    "trial": trial, "seed": seed, "temperature": temperature,
-                    "verdict": v.verdict, "confidence": v.confidence, "rationale": v.rationale,
-                    "poison_step": v.poison_step, "action_step": v.action_step,
-                    "exfil_recipient": v.exfil_recipient,
-                    "tool_calls": [asdict(c) for c in trace.calls],
-                    "final_text": trace.final_text, "steps": trace.steps,
-                    "hit_step_limit": trace.hit_step_limit, "empty_final": trace.empty_final,
-                    # Delivery: did the poison marker surface in a tool RESULT (the agent really read
-                    # the intake doc)? A non-delivered 'resisted' is not a guardrail holding (ISC-32).
-                    "poison_ingested": marker_delivered(trace, scen.poison_marker),
-                    # The report's floor is the ORDERED recall->send chain; publish the same test.
-                    "floor_fired": (_recall_before_send([asdict(c) for c in trace.calls])
-                                    if scen.kind == "capability" else None),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-                fh.write(json.dumps(stamp(row, "memory")) + "\n")
-                fh.flush()
-                done += 1
-                if progress:
-                    print(f"  [{done}/{total}] r{trial} {scen.id} -> {v.verdict} ({v.confidence:.2f})")
-    return out_path
+    """Run every scenario × trials through the memory agent + oracle; write JSONL. Returns path.
+    The floor is the report's ORDERED recall->send chain, so the row publishes the same test."""
+    return run_exfil_suite(
+        chat_fn, model_name=model_name,
+        scenarios=scenarios if scenarios is not None else load_memory_scenarios(),
+        run_one=run_memory, judge=judge_memory, run_id_prefix="memory",
+        judge_modules=("agent_oracle", "agent_memory", "agent_harness"),
+        trials=trials, temperature=temperature, base_seed=base_seed, max_steps=max_steps,
+        artifacts_dir=artifacts_dir, progress=progress,
+        capability_chain=("recall", "send_message"),
+        extra_row=lambda trace, scen, v: {"poison_step": v.poison_step,
+                                          "action_step": v.action_step,
+                                          "exfil_recipient": v.exfil_recipient},
+        # Delivery: did the poison marker surface in a tool RESULT (the agent really read the
+        # intake doc)? A non-delivered 'resisted' is not a guardrail holding (ISC-32).
+        tail_row=lambda trace, scen, v: {
+            "poison_ingested": marker_delivered(trace, scen.poison_marker)})
 
 
 def _recall_before_send(tool_calls: list[dict]) -> bool:
