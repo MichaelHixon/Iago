@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Keeps the SHA-pinned actions in .github/workflows current. Cooldown skips
+  # releases younger than 7 days, so a freshly published (possibly malicious)
+  # release is not proposed the day it appears. The SHA pins, not cooldown, are
+  # what defend against a re-pointed tag. Security updates bypass the cooldown.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5

@@ -18,6 +18,13 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
+          # uv 0.12.18 (2026-09-22). Dependabot cannot bump this input; bump it by hand
+          # whenever a Dependabot PR bumps setup-uv.
+          version: "0.12.18"
+          # sha256 of uv-x86_64-unknown-linux-gnu.tar.gz 0.12.18 (runner is ubuntu-24.04 x86_64);
+          # fetched from GitHub Releases, so download from there rather than the mirror.
+          checksum: "89eadd7c76fc063887959510d5ba0ab1264dfd5f1143b925ddb73021a40acf16"
+          download-from-astral-mirror: "false"
           python-version: "3.14"
           enable-cache: true
       - name: Install
