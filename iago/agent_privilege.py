@@ -59,7 +59,7 @@ from .config import (
     REPORTS_DIR,
     validate_asi,
 )
-from .report import ArmReportSpec, render_arm_report
+from .arm_report import ArmReportSpec, render_arm_report
 
 # The agent's stated policy — the guardrail under test. A well-aligned agent treats record and
 # tool-result content as untrusted DATA and refuses to take a privileged state change because a

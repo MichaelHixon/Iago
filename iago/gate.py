@@ -108,9 +108,7 @@ def library_note(cur_manifest: dict | None, base_manifest: dict | None, *,
     Raises GateError on a known mismatch unless overridden; an unknown side (legacy manifest) is
     a note, not a pass."""
     cur, base = _library(cur_manifest), _library(base_manifest)
-    known, unknown = fingerprint_status({"current": cur, "baseline": base})
-    if len(known) > 1:
-        assert cur and base
+    if cur and base and cur != base:
         if not allow_library_mismatch:
             raise GateError(f"the artifacts fired different technique libraries (current "
                             f"{cur[:12]}, baseline {base[:12]}), so a delta would measure the attack "
@@ -118,11 +116,18 @@ def library_note(cur_manifest: dict | None, base_manifest: dict | None, *,
                             "--allow-library-mismatch.")
         return (f"NOTE: technique libraries differ (current {cur[:12]}, baseline {base[:12]}; "
                 "--allow-library-mismatch given): a category delta may be the attack text.")
-    if unknown:
-        return (f"NOTE: no technique_library_sha256 in the {' and '.join(unknown)} manifest "
-                "(pre-fingerprint artifact): whether both runs fired the same attack text is "
-                "UNKNOWN, not verified.")
-    return None
+    return _unknown_note("technique_library_sha256", "fired the same attack text",
+                         {"current": cur, "baseline": base})
+
+
+def _unknown_note(key: str, what: str, values: dict[str, str | None]) -> str | None:
+    """The NOTE for a side whose manifest lacks `key` (`fingerprint_status`: unknown is never a
+    match), or None when both carry it."""
+    _, unknown = fingerprint_status(values)
+    if not unknown:
+        return None
+    return (f"NOTE: no {key} in the {' and '.join(unknown)} manifest (pre-fingerprint artifact): "
+            f"whether both runs {what} is UNKNOWN, not verified.")
 
 
 def evaluate(current: Path | str, baseline: Path | str | None = None, *,
@@ -150,20 +155,17 @@ def evaluate(current: Path | str, baseline: Path | str | None = None, *,
         # The offline judge_id follows the shared fingerprint policy: a legacy side with none is
         # UNKNOWN (a note), not a match and not a refusal. Rubric stamps live on every regraded
         # row, so they are always known and compare directly.
-        judges, unknown_judge = fingerprint_status({"current": mine[0], "baseline": theirs[0]})
-        if (len(judges) > 1 or mine[1] != theirs[1]) and not allow_judge_mismatch:
+        judges = {"current": mine[0], "baseline": theirs[0]}
+        if (len(fingerprint_status(judges)[0]) > 1 or mine[1] != theirs[1]) and not allow_judge_mismatch:
             raise GateError(
                 f"the artifacts were scored differently (current: judge {mine[0]}, rubric "
                 f"{sorted(mine[1]) or 'none'}; baseline: judge {theirs[0]}, rubric "
                 f"{sorted(theirs[1]) or 'none'}), so a delta would measure the judge, not the "
                 "model. Regrade both alike, or pass --allow-judge-mismatch.")
-        if unknown_judge and notes is not None:
-            notes.append(f"NOTE: no judge_id in the {' and '.join(unknown_judge)} manifest "
-                         "(pre-fingerprint artifact): whether both runs were scored by the same "
-                         "offline judge is UNKNOWN, not verified.")
-        note = library_note(cur_manifest, base_manifest, allow_library_mismatch=allow_library_mismatch)
-        if note and notes is not None:
-            notes.append(note)
+        found = [_unknown_note("judge_id", "were scored by the same offline judge", judges),
+                 library_note(cur_manifest, base_manifest, allow_library_mismatch=allow_library_mismatch)]
+        if notes is not None:
+            notes.extend(n for n in found if n)
 
     checks = []
     for cat, counts in sorted(cur.items(), key=lambda kv: (kv[0] != OVERALL, kv[0])):

@@ -165,21 +165,18 @@ def _cmd_report(args: argparse.Namespace) -> int:
 def _cmd_delta(args: argparse.Namespace) -> int:
     """Compute the attack-vs-defense delta from an existing raw and guarded artifact."""
     from pathlib import Path
-    from .artifacts import read_artifact
-    from .delta import fingerprint_notes, write_delta_report
+    from .delta import delta_from_artifacts
 
     raw_path, guarded_path = Path(args.raw), Path(args.guarded)
     for p in (raw_path, guarded_path):
         if not p.exists():
             print(f"ERROR: artifact not found: {p}", file=sys.stderr)
             return 2
-    raw_manifest, raw_rows = read_artifact(raw_path)
-    guarded_manifest, guarded_rows = read_artifact(guarded_path)
     try:
-        notes = fingerprint_notes(raw_manifest, guarded_manifest,
-                                  allow_judge_mismatch=getattr(args, "allow_judge_mismatch", False),
-                                  allow_library_mismatch=getattr(args, "allow_library_mismatch", False))
-        out = write_delta_report(raw_rows, guarded_rows, notes=notes)
+        out, raw_rows, guarded_rows = delta_from_artifacts(
+            raw_path, guarded_path,
+            allow_judge_mismatch=getattr(args, "allow_judge_mismatch", False),
+            allow_library_mismatch=getattr(args, "allow_library_mismatch", False))
     except ValueError as exc:  # wrong-surface artifact (ISC-33), or the arms' fingerprints differ
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -317,7 +314,7 @@ def _cmd_compose_delta(args: argparse.Namespace) -> int:
 def _cmd_defense_delta(args: argparse.Namespace) -> int:
     """Paired run: fire the same library at the raw model AND the guarded model (identical
     seeds), then write the attack-vs-defense delta report — the one-command demo."""
-    from .delta import write_delta_report
+    from .delta import delta_from_artifacts
 
     model = None if (args.target != "ollama" and args.model == DEFAULT_MODEL) else args.model
     try:
@@ -359,9 +356,11 @@ def _cmd_defense_delta(args: argparse.Namespace) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
-    raw_rows = load_artifacts(raw_path)
-    guarded_rows = load_artifacts(guarded_path)
-    delta_path = write_delta_report(raw_rows, guarded_rows)
+    try:
+        delta_path, raw_rows, guarded_rows = delta_from_artifacts(raw_path, guarded_path)
+    except ValueError as exc:  # both arms come from this one run, so this means a real defect
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     print(f"\nRaw artifacts:     {raw_path}")
     print(f"Guarded artifacts: {guarded_path}")
     print(f"Delta report:      {delta_path}")
