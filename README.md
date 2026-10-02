@@ -97,7 +97,7 @@ uv run iago run --trials 5 && uv run iago regrade reports/artifacts/<new>.jsonl
 uv run iago gate reports/artifacts/<new>.jsonl --baseline reports/artifacts/<last-good>.jsonl --max-rate 0.25
 ```
 
-It fails (exit 1) when a technique category's harmful-content bypass rate rose **measurably**: its 95% interval now sits entirely above the baseline's, or above the `--max-rate` ceiling. A higher point rate alone never trips it, so trial-to-trial noise does not fail a build. It refuses to judge (exit 2) rather than pass when nothing was measured, when trials are still unresolved (run `iago regrade` first), or when the two artifacts were scored by different judge code.
+It fails (exit 1) when a technique category's harmful-content bypass rate rose **measurably**: its 95% interval now sits entirely above the baseline's, or above the `--max-rate` ceiling. A higher point rate alone never trips it, so trial-to-trial noise does not fail a build. It refuses to judge (exit 2) rather than pass when nothing was measured, when any trial has not been adjudicated by the rubric judge (run `iago regrade` first), when a category in the baseline is no longer measured, or when the two artifacts were scored by different judge code. The rule is conservative: it catches a large rise, not a small one, so more trials make it more sensitive. A category that is new since the baseline has no row of its own to regress against; it still moves the overall rate, and `--max-rate` bounds it directly.
 
 ## OWASP LLM Top-10 coverage
 

@@ -194,8 +194,9 @@ def _cmd_gate(args: argparse.Namespace) -> int:
     try:
         checks = evaluate(args.artifact, args.baseline, max_rate=args.max_rate,
                           allow_judge_mismatch=args.allow_judge_mismatch)
-    except ValueError as exc:  # GateError, or a wrong-surface artifact
-        print(f"ERROR: {exc}", file=sys.stderr)
+    except (ValueError, OSError, KeyError) as exc:  # GateError, wrong surface, unreadable/malformed
+        # Exit 1 means "regressed"; anything that stopped the gate from judging must not read as that.
+        print(f"ERROR: {exc!r}" if isinstance(exc, KeyError) else f"ERROR: {exc}", file=sys.stderr)
         return 2
     print(render(checks, has_baseline=args.baseline is not None))
     return 1 if any(c.failed for c in checks) else 0
@@ -1099,7 +1100,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     gt = sub.add_parser("gate",
                         help="CI regression gate: exit 1 when a harmful-content bypass rate rose "
-                             "measurably (95%% Wilson intervals) against --baseline or above --max-rate")
+                             "measurably (95%% Wilson intervals) against --baseline or above "
+                             "--max-rate; exit 2 when it cannot judge")
     gt.add_argument("artifact", help="the chatbot `run` artifact to gate (regraded)")
     gt.add_argument("--baseline", help="a prior regraded artifact to compare against")
     gt.add_argument("--max-rate", type=float,
