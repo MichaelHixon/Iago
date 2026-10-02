@@ -227,4 +227,5 @@ def write_rag_report(rows: list[dict], reports_dir: Path | None = None) -> Path:
         ],
         reports_dir=reports_dir, report_prefix="rag_report",
         allowed_domain=ALLOWED_RECIPIENT_DOMAIN,
-        instrument="a deterministic retrieval-poisoning oracle", control_label="clean corpus")
+        instrument="a deterministic retrieval-poisoning oracle", control_label="clean corpus",
+        poison_source="the poisoned passage")

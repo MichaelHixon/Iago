@@ -200,4 +200,5 @@ def write_a2a_report(rows: list[dict], reports_dir: Path | None = None) -> Path:
         reports_dir=reports_dir, report_prefix="a2a_report",
         allowed_domain=ALLOWED_RECIPIENT_DOMAIN,
         instrument="a deterministic inter-agent-trust oracle",
-        control_label="benign peer messages")
+        control_label="benign peer messages",
+        poison_source="the poisoned peer message")
