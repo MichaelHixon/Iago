@@ -225,7 +225,8 @@ class HFPromptInjectionGuard(Guard):
             raise ValueError(
                 "positive_labels and negative_labels must be given together — overriding only one "
                 "half of the vocabulary leaves the other half guessing at the same model")
-        if positive_labels is not None and (not list(positive_labels) or not list(negative_labels)):
+        if (positive_labels is not None and negative_labels is not None
+                and (not list(positive_labels) or not list(negative_labels))):
             # `positive_labels=[]` passed both earlier checks and produced a guard that recognized
             # its model and could never block it — the same never-asked-reads-as-held failure the
             # recognition gate exists to prevent, handed over by the escape hatch (code review).

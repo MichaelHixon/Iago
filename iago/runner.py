@@ -426,7 +426,11 @@ def run(
                         placebo_plant = [{"role": "user", "content": NEUTRAL_HISTORY_USER},
                                          {"role": "assistant", "content": ack}]
                         _, placebo_response = _execute_planted(target, gate, placebo_plant, ask, opts)
-                        prov_plant = [{"role": "user", "content": tech.provenance_history()},
+                        history = tech.provenance_history()
+                        if history is None:  # _fires pairs only provenance techniques with trust objectives
+                            raise ValueError(f"technique {tech.id!r} plants no provenance history "
+                                             f"but fired against trust objective {obj.id!r}")
+                        prov_plant = [{"role": "user", "content": history},
                                       {"role": "assistant", "content": ack}]
                         prompt, response = _execute_planted(target, gate, prov_plant, ask, opts)
                         latency = time.monotonic() - started

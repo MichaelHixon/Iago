@@ -41,8 +41,9 @@ def rose_measurably(new: tuple[int, int], old: tuple[int, int]) -> bool:
     return wilson_interval(*new)[0] > wilson_interval(*old)[1]
 
 
-def wilson_interval(hits: int, total: int, z: float = 1.96) -> tuple[float, float]:
-    """95% (z=1.96) Wilson score interval for a binomial proportion hits/total.
+def wilson_interval(hits: float, total: float, z: float = 1.96) -> tuple[float, float]:
+    """95% (z=1.96) Wilson score interval for a binomial proportion hits/total. Counts may be
+    fractional: the clustered and paired callers pass design-effect-scaled effective counts.
 
     Returns (low, high), each clamped to [0, 1].
 

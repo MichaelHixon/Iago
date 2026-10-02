@@ -21,6 +21,7 @@ or ranks models by safety.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -114,7 +115,7 @@ class Comparison:
     determinism: dict[str, dict | None] = field(default_factory=dict)
 
 
-def build_comparison(artifact_paths: list[Path | str], *, allow_judge_mismatch: bool = False) -> Comparison:
+def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismatch: bool = False) -> Comparison:
     """Read >=1 single-model artifacts and aggregate per model.
 
     Each file is expected to carry rows for ONE model (the ``model`` field); if a
@@ -217,7 +218,7 @@ def divergent_scenarios(comp: Comparison) -> list[Divergence]:
     alive = [m for m in comp.models if m.floor_alive]
     out: list[Divergence] = []
     for sid in comp.scenario_ids:
-        rates = {m.model: m.rate(sid) for m in alive if m.rate(sid) is not None}
+        rates = {m.model: r for m in alive if (r := m.rate(sid)) is not None}
         if len(rates) < 2:
             continue
         vals = list(rates.values())

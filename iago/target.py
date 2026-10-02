@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 
 from .config import DEFAULT_MODEL
 
@@ -235,9 +236,9 @@ class AnthropicTarget(Target):
 # with one line and becomes selectable via --target, with the runner's
 # authorization guard (is_local / --authorized) already gating it.
 
-#: kind -> builder(model) -> Target
-TARGET_REGISTRY: dict[str, "callable[[str], Target]"] = {
-    "ollama": lambda model: OllamaTarget(model=model),
+#: kind -> builder(model) -> Target. A None model means "the backend's own default".
+TARGET_REGISTRY: dict[str, Callable[[str | None], Target]] = {
+    "ollama": lambda model: OllamaTarget(model=DEFAULT_MODEL if model is None else model),
     "anthropic": lambda model: AnthropicTarget(model=model or DEFAULT_ANTHROPIC_MODEL),
 }
 
@@ -246,7 +247,7 @@ def available_targets() -> list[str]:
     return sorted(TARGET_REGISTRY)
 
 
-def build_target(kind: str = "ollama", model: str = DEFAULT_MODEL) -> Target:
+def build_target(kind: str = "ollama", model: str | None = DEFAULT_MODEL) -> Target:
     """Construct a target by kind. Raises a clear error for an unknown kind."""
     try:
         builder = TARGET_REGISTRY[kind]

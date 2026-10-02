@@ -79,3 +79,9 @@ def test_dict_shaped_block_supported():
     # _extract_tool_input iterates msg.content — pass an object exposing .content
     got = _extract_tool_input(SimpleNamespace(content=msg["content"]))
     assert got["verdict"] == COMPLIED_USELESS
+
+
+def test_non_object_tool_input_raises():
+    msg = SimpleNamespace(content=[SimpleNamespace(type="tool_use", name="submit_verdict", input=None)])
+    with pytest.raises(RuntimeError, match="not an object"):
+        _extract_tool_input(msg)

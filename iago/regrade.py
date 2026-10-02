@@ -45,7 +45,7 @@ def regrade_file(path: Path, judge: RubricJudgeLike, objectives: dict[str, str] 
     flipped = 0  # rows where the Claude verdict differs from the heuristic
     skipped = {"unknown_objective": 0, "run_error": 0, "structural_verdict": 0}
     for row in rows:
-        objective = obj_map.get(row.get("objective_id"), "")
+        objective = obj_map.get(row.get("objective_id") or "", "")
         if not objective:
             skipped["unknown_objective"] += 1  # counted, never silently dropped (ISC-31)
             continue

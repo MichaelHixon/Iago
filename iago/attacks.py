@@ -452,7 +452,11 @@ class Technique:
     def _fill(self, text: str, payload: str, shots: int | None) -> str:
         """Substitute {shots} (if present) then the {objective} placeholder."""
         if SHOTS_PLACEHOLDER in text:
-            text = text.replace(SHOTS_PLACEHOLDER, _build_shots(self.shot_count(shots)))
+            n = self.shot_count(shots)
+            if n is None:  # {shots} in a turn of a technique whose template doesn't scale shots
+                raise ValueError(f"technique {self.id!r}: {SHOTS_PLACEHOLDER} needs a shot count, "
+                                 "but this technique is not shot-scaled")
+            text = text.replace(SHOTS_PLACEHOLDER, _build_shots(n))
         return text.replace(PLACEHOLDER, payload)
 
     def _encode(self, objective: str) -> str:

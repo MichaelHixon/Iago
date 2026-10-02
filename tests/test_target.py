@@ -44,6 +44,16 @@ def test_factory_builds_ollama_by_default():
     assert "ollama" in available_targets()
 
 
+def test_factory_none_model_means_backend_default():
+    # cli passes model=None for a non-ollama target left on the default tag; every builder
+    # must resolve None to its own default rather than carry None into the target.
+    from iago.config import DEFAULT_MODEL
+    from iago.target import DEFAULT_ANTHROPIC_MODEL
+
+    assert build_target("ollama", model=None).model == DEFAULT_MODEL
+    assert build_target("anthropic", model=None).model == DEFAULT_ANTHROPIC_MODEL
+
+
 def test_factory_unknown_target_raises_with_options():
     with pytest.raises(ValueError, match="unknown target"):
         build_target("gpt-9000")

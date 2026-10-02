@@ -109,7 +109,7 @@ def analyze_file(path: Path, objectives: list[Objective] | None = None,
         # Skip errored trials by verdict (canonical signal) or the response sentinel (belt-and-suspenders).
         if row.get("verdict") == "error" or "<<RUN-ERROR" in (row.get("response") or ""):
             continue
-        obj = obj_map.get(row.get("objective_id"))
+        obj = obj_map.get(row.get("objective_id") or "")
         if obj is None:
             continue
         score = lexical_leak_score(obj.system_prompt, obj.canary, row.get("response"))

@@ -132,16 +132,16 @@ def _beats(composed: dict, baseline: dict) -> bool:
     return composed_lo > baseline_hi
 
 
-def _composed_techniques(library: list[Technique]) -> list[Technique]:
-    """Every technique that declares a composition (names constituent primitives)."""
-    return [t for t in library if t.composes]
+def _composed_techniques(library: list[Technique]) -> list[tuple[Technique, tuple[str, ...]]]:
+    """Every technique that declares a composition, paired with its constituent primitives."""
+    return [(t, t.composes) for t in library if t.composes]
 
 
 def _provenance(rows: list[dict]) -> dict:
     """Operational facts needed to reproduce the headline numbers, read off the artifact:
     per-cell trial count, temperature, seed scheme, grading mode."""
     trials = len({r.get("trial") for r in rows})
-    temps = sorted({r.get("temperature") for r in rows if r.get("temperature") is not None})
+    temps = sorted({t for r in rows if (t := r.get("temperature")) is not None})
     temp = temps[0] if len(temps) == 1 else (f"{temps[0]}–{temps[-1]}" if temps else "?")
     # A regraded row carries a `claude_verdict`; its absence means heuristic-only scoring.
     regraded = any("claude_verdict" in r for r in rows)
@@ -208,12 +208,12 @@ def build_compose_report(rows: list[dict], library: list[Technique] | None = Non
     a("|---|---|---:|:---:|---:|---:|---:|---:|:---:|---:|")
 
     ranked = []
-    for tech in composed:
+    for tech, parts in composed:
         comp = _tech_block(rows, tech.id)
-        best_id, base = _best_single(rows, tech.composes)
+        best_id, base = _best_single(rows, parts)
         over = _overblock_block(rows, tech.id)
-        missing = _missing_baseline(rows, tech.composes)
-        p_exp, n_used = _noisy_or(rows, tech.composes)
+        missing = _missing_baseline(rows, parts)
+        p_exp, n_used = _noisy_or(rows, parts)
         # BASELINE GATE: if any constituent never fired alone here, the baseline is incomplete
         # and the lift is undefined — refuse the ✅ and flag it loudly rather than read an
         # empty/partial baseline as a real one (Council/Reynolds CRITICAL).

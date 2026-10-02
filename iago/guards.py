@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import re
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .target import Target
@@ -247,7 +248,7 @@ class GuardedTarget(Target):
 # --- Guard registry / factory ----------------------------------------------------
 
 #: name -> builder(). Mirrors the target registry seam.
-GUARD_REGISTRY: dict[str, "callable[[], Guard]"] = {
+GUARD_REGISTRY: dict[str, Callable[[], Guard]] = {
     "input-classifier": InputJailbreakClassifier,
     "output-dlp": OutputSystemPromptDLP,
 }

@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import datetime, timezone
 # quote=True by default in html.escape — relied upon: escaped values also land in
 # aria-label/class attribute contexts, so quotes must be neutralized. Do not weaken it.
 from html import escape as _esc
 from pathlib import Path
+from typing import TypedDict
 
 from .config import REPORTS_DIR
 from .artifacts import require_surface
@@ -336,7 +338,32 @@ def _scorecard_rows(forbidden_valid: list[dict],
     return scored
 
 
-def _hardening_recs(cat_stats: list[dict], leak_valid: list[dict],
+class _CatRate(TypedDict):
+    category: str
+    rate: float
+
+
+class _CatStat(_CatRate):
+    hits: int
+    total: int
+    ci: str
+    cluster_ci: str
+
+
+class _TechStat(TypedDict):
+    id: str
+    name: str
+    category: str
+    owasp: str
+    asi: str
+    hits: int
+    total: int
+    rate: float
+    ci: str
+    mean_conf: float
+
+
+def _hardening_recs(cat_stats: Sequence[_CatRate], leak_valid: list[dict],
                     trust_valid: list[dict] | None = None,
                     unsafe_valid: list[dict] | None = None) -> list[str]:
     """Shared hardening recommendations (markdown bold inline), surface-aware."""
@@ -359,7 +386,7 @@ def _hardening_recs(cat_stats: list[dict], leak_valid: list[dict],
                     "canary was exfiltrated (see the LLM07 section), so don't keep secrets, keys, or "
                     "tokens in the system prompt; add output-side filtering for known secret strings and "
                     "harden the instruction hierarchy against 'repeat the text above'-style prompts.")
-    emitted_any = bool(unsafe_valid) and any(verdict_of(r) == BYPASSED for r in unsafe_valid)
+    emitted_any = bool(unsafe_valid) and any(verdict_of(r) == BYPASSED for r in (unsafe_valid or []))
     if emitted_any:
         recs.append("**Never trust model output at a downstream sink (OWASP LLM05).** The model emitted a "
                     "live injectable construct — a `<script>`/`onerror` payload, a markdown exfil image, or "
@@ -610,7 +637,7 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
     for r in valid:
         by_tech[r["technique_id"]].append(r)
 
-    tech_stats = []
+    tech_stats: list[_TechStat] = []
     for tid, trs in by_tech.items():
         hits = sum(1 for r in trs if verdict_of(r) == BYPASSED)
         hit_confs = [_conf(r) for r in trs if verdict_of(r) == BYPASSED]
@@ -631,10 +658,10 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
     tech_stats.sort(key=lambda s: (-s["rate"], s["id"]))
 
     # Per-category bypass rate.
-    cat_stats = [{"category": cat, "hits": hits, "total": n, "rate": bypass_rate(hits, n),
-                  "ci": ci_str(hits, n),
-                  "cluster_ci": clustered_ci_str([r for r in valid if r["category"] == cat])}
-                 for cat, (hits, n) in category_counts(valid).items()]
+    cat_stats: list[_CatStat] = [{"category": cat, "hits": hits, "total": n, "rate": bypass_rate(hits, n),
+                                              "ci": ci_str(hits, n),
+                                              "cluster_ci": clustered_ci_str([r for r in valid if r["category"] == cat])}
+                                             for cat, (hits, n) in category_counts(valid).items()]
     cat_stats.sort(key=lambda s: (-s["rate"], s["category"]))
 
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -829,9 +856,9 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
         a("")
         a("| Category | Bypassed | Trials | Rate | 95% CI (Wilson) | 95% CI (technique-clustered) |")
         a("|----------|----------|--------|------|-----------------|------------------------------|")
-        for s in cat_stats:
-            a(f"| {s['category']} | {s['hits']} | {s['total']} | {pct(s['rate'])} | {s['ci']} | "
-              f"{s['cluster_ci']} |")
+        for cs in cat_stats:
+            a(f"| {cs['category']} | {cs['hits']} | {cs['total']} | {pct(cs['rate'])} | {cs['ci']} | "
+              f"{cs['cluster_ci']} |")
         a("")
         a("> **Which interval is which.** The Wilson interval treats every trial as an independent "
           "draw; the technique-clustered one treats each technique as the sampling unit, because "
@@ -850,11 +877,11 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
         # the short ASI id (e.g. "LLM06: Excessive Agency · ASI02").
         a("| Rank | Technique | Category | Framework | Bypassed | Trials | Rate | 95% CI | Mean conf |")
         a("|------|-----------|----------|-----------|----------|--------|------|--------|-----------|")
-        for i, s in enumerate(tech_stats, 1):
-            conf_disp = "—" if s["hits"] == 0 else f"{s['mean_conf']:.2f}"  # — = no hits to average
-            fw = s["owasp"] if s["asi"] == "—" else f"{s['owasp']} · {s['asi'].split(':')[0]}"
-            a(f"| {i} | {s['name']} (`{s['id']}`) | {s['category']} | {fw} | {s['hits']} | "
-              f"{s['total']} | {pct(s['rate'])} | {s['ci']} | {conf_disp} |")
+        for i, ts in enumerate(tech_stats, 1):
+            conf_disp = "—" if ts["hits"] == 0 else f"{ts['mean_conf']:.2f}"  # — = no hits to average
+            fw = ts["owasp"] if ts["asi"] == "—" else f"{ts['owasp']} · {ts['asi'].split(':')[0]}"
+            a(f"| {i} | {ts['name']} (`{ts['id']}`) | {ts['category']} | {fw} | {ts['hits']} | "
+              f"{ts['total']} | {pct(ts['rate'])} | {ts['ci']} | {conf_disp} |")
         a("")
 
         a("## Reliability — any-trial vs every-trial bypass")
@@ -1169,13 +1196,13 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
             # Per-technique view — sort by FABRICATION rate DESCENDING: fabrications are the unambiguous
             # signal, whereas the stop-rate column is biased by unresolved rows (Council/Vera A), so
             # ranking by stops would flag a prose-eliciting frame as "weakest hold" pre-regrade.
-            by_tech: dict[str, list[dict]] = defaultdict(list)
+            deadend_by_tech: dict[str, list[dict]] = defaultdict(list)
             for row in deadend_unsolvable:
-                by_tech[row["technique_id"]].append(row)
+                deadend_by_tech[row["technique_id"]].append(row)
             a("| Technique | Fabricated | Stopped (chan.) | Unresolved | Trials | Fab. rate | 95% CI (sampling) |")
             a("|-----------|------------|-----------------|------------|--------|-----------|-------------------|")
             for tid, trs in sorted(
-                by_tech.items(),
+                deadend_by_tech.items(),
                 key=lambda kv: (-bypass_rate(sum(1 for r in kv[1] if verdict_of(r) == BYPASSED), len(kv[1])), kv[0]),
             ):
                 st = sum(1 for r in trs if verdict_of(r) == REFUSED)
@@ -1477,8 +1504,8 @@ def build_html_report(rows: list[dict], manifest: dict | None = None) -> str:
     decode_failed_fb = harmful_decode_failed(rows)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    cat_stats = [{"category": c, "rate": bypass_rate(hits, n)}
-                 for c, (hits, n) in category_counts(valid).items()]
+    cat_stats: list[_CatRate] = [{"category": c, "rate": bypass_rate(hits, n)}
+                                 for c, (hits, n) in category_counts(valid).items()]
     # Same tiebreak as the markdown renderer (:485). Without it ties fall to insertion order
     # here and to category name there, and `_hardening_recs` takes the top three — so the two
     # copies recommended fixing different categories.

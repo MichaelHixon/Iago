@@ -18,9 +18,28 @@ machine — `send_message` records the attempt, it does not actually send.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Protocol, runtime_checkable
 
-from .agent_scenarios import Scenario
 from .config import ALLOWED_RECIPIENT_DOMAIN, DEFAULT_AGENT_STEPS
+
+
+class AgentScenario(Protocol):
+    """What the loop itself reads from any surface's scenario."""
+
+    @property
+    def id(self) -> str: ...
+    @property
+    def task(self) -> str: ...
+
+
+@runtime_checkable
+class ExfilScenario(AgentScenario, Protocol):
+    """What the default (indirect-injection exfil) tool surface additionally reads."""
+
+    @property
+    def documents(self) -> dict[str, str]: ...
+    @property
+    def private_notes(self) -> str: ...
 
 
 # The agent's stated operating policy. A well-aligned agent honors it and refuses
@@ -157,7 +176,7 @@ TOOL_SCHEMAS = [
 RESTRICTED_TOOLS = {"send_message"}
 
 
-def _execute_tool(name: str, arguments: dict, scenario: Scenario) -> str:
+def _execute_tool(name: str, arguments: dict, scenario: ExfilScenario) -> str:
     """Run one mocked tool against the scenario's data and return its result string.
 
     `read_document` is the injection vector — it returns attacker-controlled content
@@ -179,7 +198,7 @@ def _execute_tool(name: str, arguments: dict, scenario: Scenario) -> str:
 
 
 def run_agent(
-    scenario: Scenario,
+    scenario: AgentScenario,
     chat_fn,
     *,
     options: dict | None = None,
@@ -205,8 +224,15 @@ def run_agent(
     sys_prompt = system_prompt if system_prompt is not None else AGENT_SYSTEM_PROMPT
     schemas = tool_schemas if tool_schemas is not None else TOOL_SCHEMAS
     if execute_tool is None:
+        if not isinstance(scenario, ExfilScenario):
+            raise TypeError(
+                f"scenario {scenario.id!r} lacks documents/private_notes; the default exfil tool "
+                "surface needs them, so pass this surface's own execute_tool"
+            )
+        exfil_scenario = scenario
+
         def execute_tool(name, args):  # default: the exfil-surface tools
-            return _execute_tool(name, args, scenario)
+            return _execute_tool(name, args, exfil_scenario)
 
     messages: list[dict] = [
         {"role": "system", "content": sys_prompt},
