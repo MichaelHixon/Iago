@@ -15,6 +15,23 @@
 - [x] **Control objective.** → `objectives.yaml` `obj-control` (HTTPS); the report carries a
   judge-calibration note driven by the control's bypass count.
 
+- [x] **Silent-failure and denominator audit (2026-09-11).** → ISC-31…35: a run that measured
+  nothing exits non-zero; guard backends fail loud; "held" is gated on valid rows; n=0 renders
+  "n/a"; normalized `floor_fired` / `hit_step_limit`; decode failures leave the denominator; a run
+  manifest + schema/surface tag on every artifact; a measured determinism probe; `judge-eval`.
+- [x] **Backend capability parity.** → `Target.supported_options` + `sampling.unsupported_controls`
+  in the manifest and the report disclosure (a hosted API with no seed no longer reads as pinned).
+- [ ] **Delivery signal on base, RAG and A2A agent surfaces** — `agent_run.py` and
+  `agentic_exfil.py` write no `poison_ingested`, so a resisted trial cannot be told apart from
+  non-delivery. Record it and render the Delivered column the toolabuse/privilege reports have.
+- [ ] **Complete the provenance manifest** — `artifacts.build_manifest` has no system-prompt
+  sha256 or GPU identity, and agent rows carry no per-row `status` or prompt/response hashes.
+- [ ] **Clustered and paired statistics** — category rates use plain Wilson intervals, and
+  `compare` / `defense-delta` give no CI on the per-technique paired difference (`delta.py` has a
+  McNemar p-value only). Add technique-clustered SEs, a paired-difference CI and a `--power` helper.
+- [ ] **k-of-n reliability rate** — reports give only any-trial bypass; report k-of-n beside it
+  and name which one is the headline.
+
 ## Priority 1 — Judge design
 
 - [x] **Three-way structured verdict, not keyword matching.** → `judge.Verdict{verdict,
@@ -22,6 +39,12 @@
 - [x] **Claude rubric judge.** → `judge_claude.py` — an LLM-based judge (tool-use structured
   output) that reasons about whether the content is actually disallowed; heuristic kept as the
   fast offline fallback. Live-verified: it corrected every decode-only false positive.
+
+- [ ] **Judge error rate in every report** — `calibration_line` is quoted by `report.py` only;
+  `delta.py` and `compose_delta.py` omit the judge FPR/FNR. Quote it in both headers.
+- [ ] **Swallowed judge/decode paths** — `judge_claude.py` turns an unparseable confidence into
+  0.5 (raise, as `judge_rubric.py` does), and `decode.py` treats "no signal words" as decoded
+  (return unknown and count it).
 
 ## Priority 2 — Attack fidelity (real security depth)
 
@@ -46,6 +69,30 @@
   target `is_local` or `authorized=True` (`--authorized`).
 - [x] **Robust response access.** → `_extract_content` handles both the ChatResponse object
   and a dict shape (a dict-only extractor silently swallowed every reply — now regression-tested).
+
+- [ ] **Collapse the copied agent suites** — five near-identical `run_*_suite` functions
+  (privilege, toolabuse, memory, misinfo, disclosure). Route them through
+  `agentic_exfil.run_exfil_suite` with an `extra_row` hook and prove the JSONL is byte-identical.
+- [ ] **Dedupe report renderers** — `write_privilege_report` / `write_toolabuse_report` are
+  near-identical, and `build_report` / `build_html_report` recompute the same aggregates; split
+  aggregate from render.
+- [ ] **One surface registry for the CLI** — `campaign.SURFACE_REGISTRY` holds 4 of 8 surfaces,
+  there are 8 near-identical `_cmd_*_run` handlers, and `scens[:1]` smoke slicing drops the
+  capability floor. One registry, one handler, one smoke slicer.
+- [ ] **CI and lint baseline** — no `.github/`, pre-commit, `py.typed` or ruff/mypy config. A
+  one-job CI running `uv run pytest`, plus minimal ruff + mypy.
+- [ ] **YAML loaders reject null/empty files** — `yaml.safe_load(...) or []` (`attacks.py`,
+  `objectives.py`, the agent scenario loaders) silently contributes zero records. Raise on None
+  or a non-list and name the file.
+- [ ] **Flag inert composed-evasion frames** — the placeholder frames in `attacks.py` feed the
+  `ce-*` techniques unflagged. Expose the inert set, stamp rows, withhold ✅ and warn at run start.
+- [ ] **Remaining swallowed paths** — `agent_run.py` executes a tool call with `name=None`;
+  `adaptive.py` keeps no error text; `lexical_leak.py` skips unknown-objective rows uncounted.
+- [ ] **Test anti-patterns** — weak asserts in `test_judge.py` and `test_unsafe_output.py`;
+  parametrize the conditional precision/recall test in `test_unsafe_output.py`; replace the
+  self-referential expectation in `test_stats.py`.
+- [ ] **`compare` enforces same-surface inputs** — it checks only the agent family, so
+  privilege + toolabuse artifacts can mix. Require one surface and add the test.
 
 ## Roadmap
 
@@ -86,6 +133,8 @@ Deferred: cross-modal / multimodal injection (needs a multimodal target), advers
 ### Not built yet
 - [ ] Parallel / adaptive trial execution — run trials concurrently for speed, and run *more*
   trials where the bypass rate is borderline (tighten only the intervals that matter).
+- [ ] **Regression gate** — `--fail-if` on the CI lower bound of the bypass rate per category,
+  plus a `baselines/` directory of prior manifests per model digest so `compare` flags regressions.
 
 ## Attack Library — Candidate Additions
 
