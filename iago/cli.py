@@ -165,18 +165,22 @@ def _cmd_report(args: argparse.Namespace) -> int:
 def _cmd_delta(args: argparse.Namespace) -> int:
     """Compute the attack-vs-defense delta from an existing raw and guarded artifact."""
     from pathlib import Path
-    from .delta import write_delta_report
+    from .artifacts import read_artifact
+    from .delta import fingerprint_notes, write_delta_report
 
     raw_path, guarded_path = Path(args.raw), Path(args.guarded)
     for p in (raw_path, guarded_path):
         if not p.exists():
             print(f"ERROR: artifact not found: {p}", file=sys.stderr)
             return 2
-    raw_rows = load_artifacts(raw_path)
-    guarded_rows = load_artifacts(guarded_path)
+    raw_manifest, raw_rows = read_artifact(raw_path)
+    guarded_manifest, guarded_rows = read_artifact(guarded_path)
     try:
-        out = write_delta_report(raw_rows, guarded_rows)
-    except ValueError as exc:  # wrong-surface artifact (ISC-33)
+        notes = fingerprint_notes(raw_manifest, guarded_manifest,
+                                  allow_judge_mismatch=getattr(args, "allow_judge_mismatch", False),
+                                  allow_library_mismatch=getattr(args, "allow_library_mismatch", False))
+        out = write_delta_report(raw_rows, guarded_rows, notes=notes)
+    except ValueError as exc:  # wrong-surface artifact (ISC-33), or the arms' fingerprints differ
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     print(f"Delta report: {out}")
@@ -1118,6 +1122,12 @@ def build_parser() -> argparse.ArgumentParser:
     dl = sub.add_parser("delta", help="attack-vs-defense delta from a raw + a guarded artifact")
     dl.add_argument("raw", help="path to the RAW-model reports/artifacts/*.jsonl")
     dl.add_argument("guarded", help="path to the GUARDED-model reports/artifacts/*.jsonl")
+    dl.add_argument("--allow-judge-mismatch", action="store_true",
+                    help="compute the delta even when the two arms were scored by different "
+                         "oracle code (judge_id) — the delta may then be the judge, not the guard")
+    dl.add_argument("--allow-library-mismatch", action="store_true",
+                    help="compute the delta even when the two arms fired different technique "
+                         "libraries (technique_library_sha256) — the delta may then be the attack text")
     dl.set_defaults(func=_cmd_delta)
 
     cmp = sub.add_parser("compare",

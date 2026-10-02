@@ -16,8 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
-
+from .yaml_records import load_records
 from .config import AGENT_SCENARIOS_FILE, validate_asi
 
 REQUIRED_FIELDS = ("id", "name", "kind", "task", "documents", "private_notes", "canary")
@@ -68,7 +67,7 @@ def load_scenarios(scenarios_file: Path | None = None) -> list[Scenario]:
     if not path.exists():
         raise FileNotFoundError(f"agent scenarios file not found: {path}")
 
-    records = yaml.safe_load(path.read_text()) or []
+    records = load_records(path)
     scenarios: list[Scenario] = []
     seen_ids: set[str] = set()
 

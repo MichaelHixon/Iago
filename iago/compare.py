@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED
-from .artifacts import read_artifact, require_surface
+from .artifacts import fingerprint_status, read_artifact, require_surface
 from .config import GROUNDING_FLOOR_MIN_CORRECT, REPORTS_DIR
 from .stats import newcombe_diff_ci, wilson_interval
 
@@ -197,7 +197,7 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
                     continue
                 hj, n = ms.scen.get(sid, (0, 0))
                 ms.scen[sid] = (hj + (1 if verdict == HIJACKED else 0), n + 1)
-    distinct = {j for j in judge_ids.values() if j}
+    distinct, _ = fingerprint_status(judge_ids)
     # A legacy artifact carries no manifest and so no judge_id. It is NOT checkable against the
     # others, and silently treating that as agreement is the failure the guard exists to prevent
     # (code-review major) — the report says so instead.
@@ -210,7 +210,7 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
             + ", ".join(f"{Path(p).name}={j}" for p, j in judge_ids.items())
             + "); re-run the older one, or pass --allow-judge-mismatch to compare anyway"
         )
-    libraries = {lib for lib in library_ids.values() if lib}
+    libraries, _ = fingerprint_status(library_ids)
     if len(libraries) > 1 and not allow_library_mismatch:
         # The same scenario ids over different attack text measure different stimuli (ISC-68
         # rewrote the RAG / A2A poisons under unchanged ids). A legacy manifest carries None and

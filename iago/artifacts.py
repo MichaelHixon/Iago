@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 import platform
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO, overload
@@ -382,6 +383,17 @@ def load_rows(path: Path | str) -> list[dict]:
     """Rows only — the one loader every reader uses, so no reader can mistake the manifest for a
     trial (a manifest row would otherwise KeyError inside every report)."""
     return read_artifact(path)[1]
+
+
+def fingerprint_status(fingerprints: Mapping[str, str | None]) -> tuple[set[str], list[str]]:
+    """(distinct KNOWN values, labels whose value is unknown) for one fingerprint read off several
+    artifacts: the one policy `gate`, `compare` and `delta` share for `judge_id` and the library
+    hashes. More than one known value is a mismatch the caller refuses unless overridden. A
+    missing value (a legacy manifest) is UNKNOWN: never counted as a match, never a refusal on
+    its own, and always named so the reader can say it was not verified."""
+    known = {v for v in fingerprints.values() if v}
+    unknown = [label for label, v in fingerprints.items() if not v]
+    return known, unknown
 
 
 def surface_of(row: dict) -> str:

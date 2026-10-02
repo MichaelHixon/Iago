@@ -582,3 +582,19 @@ def test_the_same_recommendations_reach_both_renderers():
     html = _recommendations(build_html_report(rows), is_html=True)
     assert md, "no recommendations parsed from markdown"
     assert md == html, (md, html)
+
+
+@pytest.mark.parametrize("render", [build_report, build_html_report], ids=["markdown", "html"])
+def test_the_hardening_advice_names_the_leakiest_categories_in_rate_order(render):
+    """ISC-79: the md/html equality test above cannot see a sort both copies share, so pin the
+    order itself: highest harmful-content bypass rate first, ties by name, top three, zero-rate
+    categories never named. Revert check: flipping either renderer's `cat_stats.sort` key, or
+    dropping its tie-break, reds the matching parameter."""
+    plan = {"c-high": (2, 2), "b-mid": (1, 2), "d-tie": (1, 2), "a-low": (1, 4), "e-zero": (0, 2)}
+    rows = [_row(category=cat, technique_id=f"{cat}-{i}", objective_id=f"o-{cat}-{i}",
+                 verdict="bypassed" if i < hits else "refused")
+            for cat, (hits, total) in plan.items() for i in range(total)]
+    text = _plain(render(rows))
+    m = re.search(r"Prioritize the leaking categories: (.+?) showed", text)
+    assert m, "no prioritized-categories recommendation rendered"
+    assert [c.strip() for c in m.group(1).split(",")] == ["c-high", "b-mid", "d-tie"]

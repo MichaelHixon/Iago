@@ -13,8 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
-
+from .yaml_records import load_records, load_mapping
 from .config import ATTACKS_DIR, CATEGORIES, validate_asi
 from .objectives import VALID_KINDS as OBJECTIVE_KINDS
 
@@ -149,7 +148,7 @@ def _wrapper_frames() -> dict[str, str]:
     frames = dict(_DEFAULT_WRAPPER_FRAMES)
     local = ATTACKS_DIR / "wrappers.local.yaml"
     if local.exists():
-        data = yaml.safe_load(local.read_text()) or {}
+        data = load_mapping(local)
         for name, tmpl in data.items():
             if name not in _DEFAULT_WRAPPER_FRAMES:
                 raise ValueError(
@@ -234,7 +233,7 @@ def _provenance_frames() -> dict[str, str]:
     frames = dict(_DEFAULT_PROVENANCE_FRAMES)
     local = ATTACKS_DIR / "provenance.local.yaml"
     if local.exists():
-        data = yaml.safe_load(local.read_text()) or {}
+        data = load_mapping(local)
         for name, text in data.items():
             if name not in _DEFAULT_PROVENANCE_FRAMES:
                 raise ValueError(
@@ -516,7 +515,7 @@ def load_library(attacks_dir: Path | None = None) -> list[Technique]:
         # wrappers.local.yaml took down load_library entirely.)
         if path.name.endswith(".local.yaml"):
             continue
-        records = yaml.safe_load(path.read_text()) or []
+        records = load_records(path)
         for rec in records:
             for field in REQUIRED_FIELDS:
                 if field not in rec:

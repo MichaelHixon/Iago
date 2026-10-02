@@ -13,10 +13,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
-
 import re
 
+from .yaml_records import load_records
 from .config import OBJECTIVES_FILE
 from .judge import RESULT_CHANNEL, STOP_CHANNEL
 
@@ -120,7 +119,7 @@ def load_objectives(objectives_file: Path | None = None) -> list[Objective]:
     if not path.exists():
         raise FileNotFoundError(f"objectives file not found: {path}")
 
-    records = yaml.safe_load(path.read_text()) or []
+    records = load_records(path)
     objectives: list[Objective] = []
     seen_ids: set[str] = set()
 

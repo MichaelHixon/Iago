@@ -11,7 +11,8 @@ unregraded run would always pass); a baseline category the current run no longer
 artifacts scored differently, offline judge or rubric fingerprint, where the delta would measure
 the judge rather than the model (ISC-33); or two artifacts that fired different technique
 libraries (`technique_library_sha256`), where the delta would measure the attack text. A legacy
-manifest without the library hash is reported as unknown — never counted as a match.
+manifest without the judge_id or the library hash is reported as unknown — never counted as a
+match (`artifacts.fingerprint_status`, the policy `compare` and `delta` share).
 
 The rule is deliberately conservative: non-overlapping intervals catch a large rise, not a small
 one, so a gate is only as sensitive as its trial counts. A category new since the baseline has no
@@ -23,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .artifacts import read_artifact, require_surface
+from .artifacts import fingerprint_status, read_artifact, require_surface
 from .report import category_counts, ci_str, harmful_valid
 from .stats import rose_measurably, wilson_interval
 
@@ -107,7 +108,9 @@ def library_note(cur_manifest: dict | None, base_manifest: dict | None, *,
     Raises GateError on a known mismatch unless overridden; an unknown side (legacy manifest) is
     a note, not a pass."""
     cur, base = _library(cur_manifest), _library(base_manifest)
-    if cur and base and cur != base:
+    known, unknown = fingerprint_status({"current": cur, "baseline": base})
+    if len(known) > 1:
+        assert cur and base
         if not allow_library_mismatch:
             raise GateError(f"the artifacts fired different technique libraries (current "
                             f"{cur[:12]}, baseline {base[:12]}), so a delta would measure the attack "
@@ -115,7 +118,6 @@ def library_note(cur_manifest: dict | None, base_manifest: dict | None, *,
                             "--allow-library-mismatch.")
         return (f"NOTE: technique libraries differ (current {cur[:12]}, baseline {base[:12]}; "
                 "--allow-library-mismatch given): a category delta may be the attack text.")
-    unknown = [name for name, lib in (("current", cur), ("baseline", base)) if not lib]
     if unknown:
         return (f"NOTE: no technique_library_sha256 in the {' and '.join(unknown)} manifest "
                 "(pre-fingerprint artifact): whether both runs fired the same attack text is "
@@ -145,12 +147,20 @@ def evaluate(current: Path | str, baseline: Path | str | None = None, *,
             raise GateError(f"the current run no longer measures {', '.join(missing)} (present in "
                             "the baseline), so it cannot show those categories held")
         mine, theirs = _scoring(cur_manifest, cur_rows), _scoring(base_manifest, base_rows)
-        if mine != theirs and not allow_judge_mismatch:
+        # The offline judge_id follows the shared fingerprint policy: a legacy side with none is
+        # UNKNOWN (a note), not a match and not a refusal. Rubric stamps live on every regraded
+        # row, so they are always known and compare directly.
+        judges, unknown_judge = fingerprint_status({"current": mine[0], "baseline": theirs[0]})
+        if (len(judges) > 1 or mine[1] != theirs[1]) and not allow_judge_mismatch:
             raise GateError(
                 f"the artifacts were scored differently (current: judge {mine[0]}, rubric "
                 f"{sorted(mine[1]) or 'none'}; baseline: judge {theirs[0]}, rubric "
                 f"{sorted(theirs[1]) or 'none'}), so a delta would measure the judge, not the "
                 "model. Regrade both alike, or pass --allow-judge-mismatch.")
+        if unknown_judge and notes is not None:
+            notes.append(f"NOTE: no judge_id in the {' and '.join(unknown_judge)} manifest "
+                         "(pre-fingerprint artifact): whether both runs were scored by the same "
+                         "offline judge is UNKNOWN, not verified.")
         note = library_note(cur_manifest, base_manifest, allow_library_mismatch=allow_library_mismatch)
         if note and notes is not None:
             notes.append(note)

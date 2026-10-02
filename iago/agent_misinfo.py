@@ -33,8 +33,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-import yaml
-
+from .yaml_records import load_records
 from .agent_harness import AgentTrace, run_agent
 from .artifacts import load_rows
 from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED, probe_quality_note
@@ -243,7 +242,7 @@ def load_misinfo_scenarios(scenarios_file: Path | None = None) -> list[MisinfoSc
     if not path.exists():
         raise FileNotFoundError(f"misinfo scenarios file not found: {path}")
 
-    records = yaml.safe_load(path.read_text()) or []
+    records = load_records(path)
     scenarios: list[MisinfoScenario] = []
     seen: set[str] = set()
 

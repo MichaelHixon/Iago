@@ -379,3 +379,27 @@ def test_suite_manifest_records_that_the_target_gets_no_system_prompt(tmp_path):
     assert manifest["system_prompt_scope"] == "none"
     assert manifest["system_prompt_sha256"] is None
     assert seen and "system" not in seen
+
+
+def test_report_quotes_the_stop_judges_error_rate_above_the_candidate_rate(tmp_path):
+    """ISC-78: every other rate-bearing report states its judge's measured error rate; the adaptive
+    candidate rate rests on the offline heuristic, so it states that judge's line by its id.
+    Revert check: dropping the `judge_calibration_lines` loop (or the row's `judge_id`) reds this."""
+    from iago.judge_eval import offline_judge_id
+
+    out = run_adaptive_suite(
+        ScriptedTarget([HARD_REFUSAL_REPLY, SUBSTANCE_REPLY]),
+        make_attacker=lambda seed, obj, opts: DeterministicAttacker(seed, obj),
+        attacker_kind="deterministic", deterministic=True, model_name="fake:model",
+        trials=1, max_turns=3, objectives=[FORBIDDEN, CONTROL], artifacts_dir=tmp_path,
+    )
+    rows = load_adaptive_artifacts(out)
+    assert {r["judge_id"] for r in rows} == {offline_judge_id()}
+    text = write_adaptive_report(rows, reports_dir=tmp_path).read_text()
+    cal = text.find(f"**Judge calibration (heuristic `{offline_judge_id()}`)")
+    assert cal != -1, "no heuristic calibration line in the adaptive report"
+    assert cal < text.index("Defensive research")
+
+    legacy = [{k: v for k, v in r.items() if k != "judge_id"} for r in rows]
+    text = write_adaptive_report(legacy, reports_dir=tmp_path).read_text()
+    assert "legacy artifact without a `judge_id`" in text

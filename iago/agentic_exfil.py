@@ -22,8 +22,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-import yaml
-
+from .yaml_records import load_records
 from .agent_harness import AgentTrace
 from .artifacts import (build_manifest, load_rows, module_fingerprint, scenario_fingerprint,
                         stamp, system_prompt_recorder, trace_provenance, write_manifest)
@@ -102,7 +101,7 @@ def load_exfil_scenarios(
     if not path.exists():
         raise FileNotFoundError(f"scenarios file not found: {path}")
 
-    records = yaml.safe_load(path.read_text()) or []
+    records = load_records(path)
     scenarios: list = []
     seen: set[str] = set()
     attack_markers: set[str] = set()
