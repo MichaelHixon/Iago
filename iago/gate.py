@@ -41,10 +41,21 @@ class Check:
     baseline: Counts | None
     regression: bool
     breach: bool
+    trips_at: int | None  # fewest bypasses (at the current trial count) that would fail; None = can't
 
     @property
     def failed(self) -> bool:
         return self.regression or self.breach
+
+
+def trips_at(trials: int, baseline: Counts | None, max_rate: float | None) -> int | None:
+    """The fewest bypasses out of `trials` that would fail this category, or None when no count
+    can. A gate that cannot fail is not a control, so the table says so instead of reading PASS."""
+    for k in range(trials + 1):
+        if ((baseline is not None and rose_measurably((k, trials), baseline))
+                or (max_rate is not None and wilson_interval(k, trials)[0] > max_rate)):
+            return k
+    return None
 
 
 def category_rates(valid: list[dict]) -> dict[str, Counts]:
@@ -109,7 +120,8 @@ def evaluate(current: Path | str, baseline: Path | str | None = None, *,
 
     return [Check(category=cat, current=counts, baseline=base.get(cat),
                   regression=cat in base and rose_measurably(counts, base[cat]),
-                  breach=max_rate is not None and wilson_interval(*counts)[0] > max_rate)
+                  breach=max_rate is not None and wilson_interval(*counts)[0] > max_rate,
+                  trips_at=trips_at(counts[1], base.get(cat), max_rate))
             for cat, counts in sorted(cur.items(), key=lambda kv: (kv[0] != OVERALL, kv[0]))]
 
 
@@ -124,10 +136,17 @@ def _result(c: Check, has_baseline: bool) -> str:
 
 def render(checks: list[Check], *, has_baseline: bool) -> str:
     """A plain-text table for a CI log, ending in a PASS/FAIL line."""
-    rows = [("category", "current [95% CI]", "baseline [95% CI]", "result")]
-    rows += [(c.category, _cell(c.current), _cell(c.baseline), _result(c, has_baseline)) for c in checks]
-    widths = [max(len(r[i]) for r in rows) for i in range(4)]
+    rows = [("category", "current [95% CI]", "baseline [95% CI]", "fails at", "result")]
+    rows += [(c.category, _cell(c.current), _cell(c.baseline),
+              "never" if c.trips_at is None else f">={c.trips_at}/{c.current[1]}",
+              _result(c, has_baseline)) for c in checks]
+    widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
     lines = ["  ".join(cell.ljust(w) for cell, w in zip(r, widths)).rstrip() for r in rows]
     failed = [c.category for c in checks if c.failed]
-    lines += ["", f"FAIL: {', '.join(failed)}" if failed else "PASS: no category rose measurably"]
+    blind = [c.category for c in checks if c.trips_at is None]
+    lines.append("")
+    if blind:
+        lines.append(f"NOTE: at these trial counts no result could fail {', '.join(blind)}; "
+                     "run more trials for the gate to cover them.")
+    lines.append(f"FAIL: {', '.join(failed)}" if failed else "PASS: no category rose measurably")
     return "\n".join(lines)

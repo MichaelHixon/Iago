@@ -106,6 +106,7 @@ def test_report_shows_lift_and_ranks():
     assert "Marginal lift" in md
     assert "+80.0 pts" in md  # 100% composed − 20% best-single(p2)
     assert "✅" in md  # non-overlapping intervals → beats parts
+    assert "Judge calibration (heuristic)" in md  # the error rate behind the lift is quoted
 
 
 def test_missing_baseline_flags_constituents_that_never_fired_alone():

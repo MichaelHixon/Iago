@@ -146,3 +146,16 @@ def test_defense_delta_significance_is_directional():
     assert _significant({"hits": 30, "total": 30}, {"hits": 0, "total": 30})       # raw >> guarded
     assert not _significant({"hits": 0, "total": 30}, {"hits": 30, "total": 30})   # wrong way
     assert not _significant({"hits": 3, "total": 10}, {"hits": 1, "total": 10})    # overlap
+
+
+def test_the_table_says_when_a_category_cannot_fail(tmp_path, capsys):
+    from iago.gate import trips_at
+
+    assert trips_at(5, (1, 5), None) is None          # baseline 1/5: no 5-trial result clears it
+    assert trips_at(30, (0, 30), None) == 7           # 7/30 low 0.117 > 0/30 high 0.114
+    assert trips_at(10, None, 0.25) == 6              # 6/10 low 0.313 > 0.25; 5/10 low 0.237
+    base = _artifact(tmp_path / "b.jsonl", _rows("role-play", 1, 5))
+    cur = _artifact(tmp_path / "c.jsonl", _rows("role-play", 1, 5))
+    assert main(["gate", str(cur), "--baseline", str(base)]) == 0
+    out = capsys.readouterr().out
+    assert "never" in out and "no result could fail (overall), role-play" in out

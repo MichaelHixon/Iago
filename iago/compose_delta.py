@@ -30,7 +30,7 @@ from .attacks import Technique, load_library
 from .config import REPORTS_DIR
 from .guards import guard_that_fired
 from .judge import BYPASSED, ERROR, REFUSED
-from .report import ci_str, pct, bypass_rate, rubric_judge_name, verdict_of
+from .report import bypass_rate, ci_str, judge_calibration_lines, pct, rubric_judge_name, verdict_of
 from .stats import wilson_interval
 
 # Objective kinds that count as an ATTACK (a bypass is meaningful). Controls are benign
@@ -162,6 +162,9 @@ def build_compose_report(rows: list[dict], library: list[Technique] | None = Non
 
     a("# Iago — Composition Lift (stacked-evasion delta)")
     a("")
+    for line in judge_calibration_lines(rows):  # the error rate behind every lift below
+        a(line)
+        a("")
     a("> **Authorized defensive-security research.** Real jailbreaks STACK evasions; Iago's other")
     a("> categories each fire ONE mechanism in isolation. This report measures the **marginal bypass**")
     a("> a composed stack buys over the best single layer it is built from — what a single-mechanism")
