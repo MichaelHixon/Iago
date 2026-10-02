@@ -104,3 +104,13 @@ def test_anthropic_chat_rejects_second_system_message():
         t.chat([{"role": "system", "content": "a"}, {"role": "user", "content": "hi"},
                 {"role": "system", "content": "b"}])
     assert msgs.calls == []
+
+
+def test_anthropic_generate_passes_system_and_temperature():
+    t, msgs = _anthropic()
+    t.generate("hi", system="be terse", options={"temperature": 0.0})
+    t.generate("hi")
+    assert msgs.calls[0]["system"] == "be terse"
+    assert msgs.calls[0]["messages"] == [{"role": "user", "content": "hi"}]
+    assert msgs.calls[0]["temperature"] == 0.0  # 0.0 so an `or 1.0` slip goes red
+    assert msgs.calls[1]["system"] == ""

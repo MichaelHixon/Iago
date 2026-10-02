@@ -323,3 +323,36 @@ def test_suite_rejects_no_in_scope_objectives(tmp_path):
             objectives=leak_only,
             artifacts_dir=tmp_path,
         )
+
+
+
+def _suite(target, tmp_path):
+    return run_adaptive_suite(
+        target,
+        make_attacker=lambda seed, obj, opts: DeterministicAttacker(seed, obj),
+        attacker_kind="deterministic", deterministic=True, model_name="fake:model",
+        trials=1, max_turns=1, objectives=[FORBIDDEN], artifacts_dir=tmp_path,
+    )
+
+
+def test_suite_manifest_names_controls_the_backend_drops(tmp_path, capsys):
+    from iago.artifacts import read_artifact
+
+    class NoSeed(ScriptedTarget):
+        supported_options = frozenset({"temperature"})
+
+    manifest, _ = read_artifact(_suite(NoSeed([HARD_REFUSAL_REPLY]), tmp_path))
+    assert manifest["sampling"]["unsupported_controls"] == ["seed"]
+    assert "ignores seed" in capsys.readouterr().err
+
+    manifest, _ = read_artifact(_suite(ScriptedTarget([HARD_REFUSAL_REPLY]), tmp_path / "pt"))
+    assert manifest["sampling"]["unsupported_controls"] == []
+
+
+def test_suite_run_error_records_exception_class(tmp_path):
+    class Defect(ScriptedTarget):
+        def chat(self, messages, options=None):
+            raise KeyError("missing_field")
+
+    rows = load_adaptive_artifacts(_suite(Defect([]), tmp_path))
+    assert "<<RUN-ERROR: KeyError: " in json.dumps(rows)
