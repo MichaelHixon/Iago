@@ -18,10 +18,15 @@ iago = "iago.cli:main"
 
 [dependency-groups]
 dev = [
-    "mypy>=2.4.0",
+    "mypy>=2.3.1,<2.4",
     "pytest>=8",
     "ruff>=0.14",
 ]
+
+[tool.uv]
+# Supply-chain cooldown: dev tools resolve to releases at least a few weeks old.
+# ast-serialize 0.12.0 (mypy's AST helper) was hours old when this was locked.
+constraint-dependencies = ["ast-serialize<0.12"]
 
 [tool.ruff.lint]
 # Real defects only (unused/undefined names, syntax errors); style is not gated.

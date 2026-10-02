@@ -356,3 +356,26 @@ def test_suite_run_error_records_exception_class(tmp_path):
 
     rows = load_adaptive_artifacts(_suite(Defect([]), tmp_path))
     assert "<<RUN-ERROR: KeyError: " in json.dumps(rows)
+
+
+def test_suite_manifest_records_that_the_target_gets_no_system_prompt(tmp_path):
+    """ISC-69: adaptive sends the target user turns only, so the manifest says "none" — not
+    "unrecorded", which would read as a provenance gap."""
+    target = ScriptedTarget([HARD_REFUSAL_REPLY])
+    seen = []
+    orig = target.chat
+
+    def spy(messages, **kw):
+        seen.extend(m.get("role") for m in messages)
+        return orig(messages, **kw)
+    target.chat = spy
+    out = run_adaptive_suite(
+        target,
+        make_attacker=lambda seed, obj, opts: DeterministicAttacker(seed, obj),
+        attacker_kind="deterministic", deterministic=True, model_name="fake:model",
+        trials=1, max_turns=2, objectives=[FORBIDDEN], artifacts_dir=tmp_path,
+    )
+    manifest = json.loads(out.read_text().splitlines()[0])
+    assert manifest["system_prompt_scope"] == "none"
+    assert manifest["system_prompt_sha256"] is None
+    assert seen and "system" not in seen
