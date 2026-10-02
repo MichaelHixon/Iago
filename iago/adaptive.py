@@ -46,6 +46,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .artifacts import build_manifest, load_rows, module_fingerprint, stamp, write_manifest
+from .judge_eval import offline_judge_id
+from .report import judge_calibration_lines
 from .config import (
     ARTIFACTS_DIR,
     BASE_SEED,
@@ -559,6 +561,7 @@ def run_adaptive_suite(
         judge_id=module_fingerprint("adaptive", "judge", "canary"),
         # The target conversation is user turns only; no system message is ever sent (ISC-69).
         system_prompt_scope="none")
+    scoring_judge_id = offline_judge_id()
     with out_path.open("w") as fh:
         write_manifest(fh, manifest)
         for trial in range(trials):
@@ -585,6 +588,9 @@ def run_adaptive_suite(
                     "final_confidence": tr.final_confidence,
                     "trace": [asdict(t) for t in tr.trace],
                     "timestamp": datetime.now(timezone.utc).isoformat(),
+                    # The stop signal is the offline heuristic, so the row carries that judge's
+                    # id, as chatbot rows do; the report quotes its measured error rate by it.
+                    "judge_id": scoring_judge_id,
                 }
                 fh.write(json.dumps(stamp(row, "adaptive")) + "\n")
                 fh.flush()
@@ -616,6 +622,9 @@ def write_adaptive_report(rows: list[dict], reports_dir: Path | None = None) -> 
     lines: list[str] = []
     lines.append("# Iago — Adaptive Dialogue-Level Attacker Report")
     lines.append("")
+    for line in judge_calibration_lines(rows):  # the error rate behind the candidate rate below
+        lines.append(line)
+        lines.append("")
     lines.append("> Defensive research. A target-adaptive multi-turn search: the attacker reads")
     lines.append("> the target's last refusal and picks its next move from that feedback, across a")
     lines.append("> bounded conversation — not a fixed script.")

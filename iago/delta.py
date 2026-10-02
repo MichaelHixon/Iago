@@ -14,10 +14,11 @@ per-trial comparison. Rate-level deltas hold either way.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .artifacts import require_surface
+from .artifacts import fingerprint_status, require_surface
 from .config import REPORTS_DIR
 from .guards import guard_that_fired
 from .judge import BYPASSED, NEEDS_REVIEW
@@ -140,7 +141,44 @@ def _pair_condition(raw_rows: list[dict], guarded_rows: list[dict]) -> tuple[lis
     return keep(raw_rows), keep(guarded_rows), len(bad)
 
 
-def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict]) -> str:
+# (manifest key, what a difference means, override flag, what the delta would then measure)
+_FINGERPRINTS = (
+    ("judge_id", "were scored by different oracle code", "--allow-judge-mismatch", "the judge"),
+    ("technique_library_sha256", "fired different technique libraries", "--allow-library-mismatch",
+     "the attack text"),
+)
+
+
+def fingerprint_notes(raw_manifest: dict | None, guarded_manifest: dict | None, *,
+                      allow_judge_mismatch: bool = False,
+                      allow_library_mismatch: bool = False) -> list[str]:
+    """The paired delta assumes both arms share the oracle and the attack text, so a known
+    `judge_id` or `technique_library_sha256` difference raises ValueError unless overridden, as
+    `compare` and `gate` refuse it. Returns the report notes: an overridden mismatch, or a side
+    whose manifest has no fingerprint (UNKNOWN, never a match; `artifacts.fingerprint_status`)."""
+    allowed = {"judge_id": allow_judge_mismatch, "technique_library_sha256": allow_library_mismatch}
+    notes = []
+    for key, differs, flag, measures in _FINGERPRINTS:
+        values = {"raw": (raw_manifest or {}).get(key), "guarded": (guarded_manifest or {}).get(key)}
+        known, unknown = fingerprint_status(values)
+        shown = ", ".join(f"{arm} {(v or 'unknown')[:12]}" for arm, v in values.items())
+        if len(known) > 1:
+            if not allowed[key]:
+                raise ValueError(f"the two arms {differs} ({key}: {shown}), so the delta would "
+                                 f"measure {measures}, not the guard. Re-run both arms alike, or "
+                                 f"pass {flag}.")
+            notes.append(f"_⚠️ The two arms {differs} ({key}: {shown}; `{flag}` given): this "
+                         f"delta may measure {measures}, not the guard._")
+        elif unknown:
+            notes.append(f"_⚠️ No `{key}` in the {' and '.join(unknown)} arm's manifest "
+                         "(pre-fingerprint artifact): whether both arms match on it is UNKNOWN, "
+                         "not verified._")
+    return notes
+
+
+def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict],
+                       notes: Sequence[str] = ()) -> str:
+    """`notes` are `fingerprint_notes` lines, printed under the title."""
     require_surface(raw_rows, "chatbot", reader="iago delta")
     require_surface(guarded_rows, "chatbot", reader="iago delta")
     if not raw_rows or not guarded_rows:
@@ -161,6 +199,9 @@ def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict]) -> str:
 
     a("# Iago — Attack-vs-Defense Delta")
     a("")
+    for note in notes:
+        a(note)
+        a("")
     raw_cal, guarded_cal = judge_calibration_lines(raw_rows), judge_calibration_lines(guarded_rows)
     arms = ([("", raw_cal)] if raw_cal == guarded_cal
             else [("Raw arm: ", raw_cal), ("Guarded arm: ", guarded_cal)])
@@ -370,9 +411,9 @@ def _stamp() -> str:
 
 
 def write_delta_report(raw_rows: list[dict], guarded_rows: list[dict],
-                       reports_dir: Path | None = None) -> Path:
+                       reports_dir: Path | None = None, notes: Sequence[str] = ()) -> Path:
     out_dir = Path(reports_dir) if reports_dir else REPORTS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"delta_{_stamp()}.md"
-    out_path.write_text(build_delta_report(raw_rows, guarded_rows))
+    out_path.write_text(build_delta_report(raw_rows, guarded_rows, notes))
     return out_path
