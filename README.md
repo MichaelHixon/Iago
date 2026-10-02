@@ -88,6 +88,17 @@ NVIDIA [Garak](https://github.com/NVIDIA/garak), Microsoft [PyRIT](https://githu
 - **Structured JSONL artifacts**, so building a report never re-queries the model, and caveats printed next to the numbers per technique.
 - **An attack-versus-defense delta.** `iago defense-delta --guard <spec>` runs the same library with and without a guard and reports the difference in bypass rate; two guards ship with the repo and three real third-party guards plug in by name ([docs/defenses.md](docs/defenses.md)).
 
+## Use as a regression gate
+
+A model upgrade or a new system prompt can quietly loosen a guardrail. `iago gate` turns a run into a pass/fail for a pipeline:
+
+```bash
+uv run iago run --trials 5 && uv run iago regrade reports/artifacts/<new>.jsonl
+uv run iago gate reports/artifacts/<new>.jsonl --baseline reports/artifacts/<last-good>.jsonl --max-rate 0.25
+```
+
+It fails (exit 1) when a technique category's harmful-content bypass rate rose **measurably**: its 95% interval now sits entirely above the baseline's, or above the `--max-rate` ceiling. A higher point rate alone never trips it, so trial-to-trial noise does not fail a build. It refuses to judge (exit 2) rather than pass when nothing was measured, when trials are still unresolved (run `iago regrade` first), or when the two artifacts were scored by different judge code.
+
 ## OWASP LLM Top-10 coverage
 
 Iago maps what it tests to the [OWASP Top 10 for LLM Applications](https://owasp.org/www-project-top-10-for-large-language-model-applications/), **2025 edition**. It attacks a running model through its inputs, so it covers the items that are attacks of that kind and marks the three that are not.

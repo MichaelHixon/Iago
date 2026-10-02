@@ -186,6 +186,21 @@ def _cmd_delta(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_gate(args: argparse.Namespace) -> int:
+    """Regression gate for CI: exit 1 when a harmful-content bypass rate rose measurably against
+    a baseline artifact or above an absolute ceiling; exit 2 when it cannot judge."""
+    from .gate import GateError, evaluate, render
+
+    try:
+        checks = evaluate(args.artifact, args.baseline, max_rate=args.max_rate,
+                          allow_judge_mismatch=args.allow_judge_mismatch)
+    except (GateError, ValueError) as exc:  # GateError, or a wrong-surface artifact
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(render(checks, has_baseline=args.baseline is not None))
+    return 1 if any(c.failed for c in checks) else 0
+
+
 def _cmd_compare(args: argparse.Namespace) -> int:
     """Multi-model differential evaluation (ISC-29): >=2 same-surface artifacts -> one
     comparison report. The delta between models is the finding."""
@@ -1081,6 +1096,17 @@ def build_parser() -> argparse.ArgumentParser:
                      help="compare artifacts even when their manifests name different oracle code "
                           "(judge_id) — the delta may then be the oracle change, not the model")
     cmp.set_defaults(func=_cmd_compare)
+
+    gt = sub.add_parser("gate",
+                        help="CI regression gate: exit 1 when a harmful-content bypass rate rose "
+                             "measurably (95%% Wilson intervals) against --baseline or above --max-rate")
+    gt.add_argument("artifact", help="the chatbot `run` artifact to gate (regraded)")
+    gt.add_argument("--baseline", help="a prior regraded artifact to compare against")
+    gt.add_argument("--max-rate", type=float,
+                    help="absolute ceiling (0-1): fail when a category's CI lower bound exceeds it")
+    gt.add_argument("--allow-judge-mismatch", action="store_true",
+                    help="gate even when the two artifacts were scored by different judge code")
+    gt.set_defaults(func=_cmd_gate)
 
     je = sub.add_parser("judge-eval",
                         help="measure each judge's agreement / FPR / FNR (95%% Wilson CIs) against the "
