@@ -49,8 +49,8 @@ def _valid_count(rows: list[dict]) -> int:
     decode-failed cipher row reached it but never exercised the guardrail (decode.py), and since
     ISC-32 the report excludes those from every harmful denominator — so counting them here would
     let an all-decode-failed run exit 0 with an empty report (code-review major)."""
-    return sum(1 for r in rows
-               if verdict_of(r) != ERROR and not (r.get("gated") and r.get("decoded") is False))
+    from .report import is_valid_probe
+    return sum(1 for r in rows if is_valid_probe(r))
 
 
 def _nothing_measured(rows: list[dict], what: str = "trials") -> int | None:

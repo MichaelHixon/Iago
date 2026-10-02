@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .artifacts import (SCHEMA_VERSION, build_manifest, load_rows, module_fingerprint, sha256_text, write_manifest)
+from .guards import guard_that_fired
 from .guards_thirdparty import GuardBackendUnavailable
 from .judge import ERROR as _ERROR_VERDICT
 
@@ -456,7 +457,9 @@ def run(
                     # model actually recovered the objective — a refusal after a decode failure
                     # is a false-safe, and the report reads it as "not a valid probe".
                     gated = is_decode_gated(tech)
-                    decoded = decode_recovered(obj.objective, response) if gated else None
+                    # A guard block replaces the model's reply, so there is nothing to decode.
+                    decoded = (decode_recovered(obj.objective, response)
+                               if gated and guard_that_fired(response) is None else None)
                     row = TrialResult(
                         technique_id=tech.id,
                         technique_name=tech.name,
