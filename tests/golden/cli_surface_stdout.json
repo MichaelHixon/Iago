@@ -1,0 +1,202 @@
+{
+ "agent/run": {
+  "rc": 0,
+  "stdout": "Iago agent-run → target ollama:m1\n  scenarios=4 trials/scenario=3 max_steps=5\n\nArtifacts: /fake/artifacts/run.jsonl\nReport:    /fake/reports/run.md\n(1 trials recorded)\n",
+  "stderr": ""
+ },
+ "agent/wrong-target": {
+  "rc": 2,
+  "stdout": "",
+  "stderr": "ERROR: agent-run supports --target ollama today (got 'anthropic')\n"
+ },
+ "agent/suite-raises": {
+  "rc": 1,
+  "stdout": "Iago agent-run → target ollama:m1\n  scenarios=4 trials/scenario=3 max_steps=5\n",
+  "stderr": "ERROR: agent-run failed: boom\n"
+ },
+ "agent/nothing-measured": {
+  "rc": 2,
+  "stdout": "Iago agent-run → target ollama:m1\n  scenarios=4 trials/scenario=3 max_steps=5\n\nArtifacts: /fake/artifacts/run.jsonl\nReport:    /fake/reports/run.md\n(0 trials recorded)\n",
+  "stderr": "ERROR: artifact holds 0 trials — nothing was measured.\n"
+ },
+ "agent/scenarios": {
+  "rc": 0,
+  "stdout": "Agent scenarios: 4 (2 attack, 1 control, 1 capability)\n  atk-one              [attack ] atk-one name\n  atk-two              [attack ] atk-two name\n  cap-one              [capability] cap-one name\n  ctl-one              [control] ctl-one name\n",
+  "stderr": ""
+ },
+ "toolabuse/run": {
+  "rc": 0,
+  "stdout": "Iago tool-abuse-run → target ollama:m1 (SANDBOXED — no process/socket ever)\n  scenarios=4 trials/scenario=3 max_steps=5\n\nArtifacts: /fake/artifacts/run.jsonl\nReport:    /fake/reports/run.md\n(1 trials recorded)\n",
+  "stderr": ""
+ },
+ "toolabuse/wrong-target": {
+  "rc": 2,
+  "stdout": "",
+  "stderr": "ERROR: tool-abuse-run supports --target ollama today (got 'anthropic')\n"
+ },
+ "toolabuse/suite-raises": {
+  "rc": 1,
+  "stdout": "Iago tool-abuse-run → target ollama:m1 (SANDBOXED — no process/socket ever)\n  scenarios=4 trials/scenario=3 max_steps=5\n",
+  "stderr": "ERROR: tool-abuse-run failed: boom\n"
+ },
+ "toolabuse/nothing-measured": {
+  "rc": 2,
+  "stdout": "Iago tool-abuse-run → target ollama:m1 (SANDBOXED — no process/socket ever)\n  scenarios=4 trials/scenario=3 max_steps=5\n\nArtifacts: /fake/artifacts/run.jsonl\nReport:    /fake/reports/run.md\n(0 trials recorded)\n",
+  "stderr": "ERROR: artifact holds 0 trials — nothing was measured.\n"
+ },
+ "toolabuse/scenarios": {
+  "rc": 0,
+  "stdout": "Tool-abuse scenarios: 4\n  atk-one                  [attack    ] [direct] atk-one name\n  atk-two                  [attack    ] [channel] atk-two name\n  cap-one                  [capability] [direct] cap-one name\n  ctl-one                  [control   ] [direct] ctl-one name\n",
+  "stderr": ""
+ },
+ "privilege/run": {
+  "rc": 0,
+  "stdout": "Iago privilege-run → target ollama:m1 (SANDBOXED — no record/role ever changes)\n  scenarios=4 trials/scenario=3 max_steps=5\n\nArtifacts: /fake/artifacts/run.jsonl\nReport:    /fake/reports/run.md\n(1 trials recorded)\n",
+  "stderr": ""
+ },
+ "privilege/wrong-target": {
+  "rc": 2,
+  "stdout": "",
+  "stderr": "ERROR: privilege-run supports --target ollama today (got 'anthropic')\n"
+ },
+ "privilege/suite-raises": {
+  "rc": 1,
+  "stdout": "Iago privilege-run → target ollama:m1 (SANDBOXED — no record/role ever changes)\n  scenarios=4 trials/scenario=3 max_steps=5\n",
+  "stderr": "ERROR: privilege-run failed: boom\n"
+ },
+ "privilege/nothing-measured": {
+  "rc": 2,
+  "stdout": "Iago privilege-run → target ollama:m1 (SANDBOXED — no record/role ever changes)\n  scenarios=4 trials/scenario=3 max_steps=5\n\nArtifacts: /fake/artifacts/run.jsonl\nReport:    /fake/reports/run.md\n(0 trials recorded)\n",
+  "stderr": "ERROR: artifact holds 0 trials — nothing was measured.\n"
+ },
+ "privilege/scenarios": {
+  "rc": 0,
+  "stdout": "Excessive-agency scenarios: 4\n  atk-one                  [attack    ] [direct] atk-one name\n  atk-two                  [attack    ] [channel] atk-two name\n  cap-one                  [capability] [direct] cap-one name\n  ctl-one                  [control   ] [direct] ctl-one name\n",
+  "stderr": ""
+ },
+ "disclosure/run": {
+  "rc": 0,
+  "stdout": "Iago disclosure-run → target ollama:m1 (SANDBOXED — no real send/socket)\n  scenarios=4 trials/scenario=3 max_steps=5\n\nArtifacts: /fake/artifacts/run.jsonl\nReport:    /fake/reports/run.md\n(1 trials recorded)\n",
+  "stderr": ""
+ },
+ "disclosure/wrong-target": {
+  "rc": 2,
+  "stdout": "",
+  "stderr": "ERROR: disclosure-run supports --target ollama today (got 'anthropic')\n"
+ },
+ "disclosure/suite-raises": {
+  "rc": 1,
+  "stdout": "Iago disclosure-run → target ollama:m1 (SANDBOXED — no real send/socket)\n  scenarios=4 trials/scenario=3 max_steps=5\n",
+  "stderr": "ERROR: disclosure-run failed: boom\n"
+ },
+ "disclosure/nothing-measured": {
+  "rc": 2,
+  "stdout": "Iago disclosure-run → target ollama:m1 (SANDBOXED — no real send/socket)\n  scenarios=4 trials/scenario=3 max_steps=5\n\nArtifacts: /fake/artifacts/run.jsonl\nReport:    /fake/reports/run.md\n(0 trials recorded)\n",
+  "stderr": "ERROR: artifact holds 0 trials — nothing was measured.\n"
+ },
+ "disclosure/scenarios": {
+  "rc": 0,
+  "stdout": "Sensitive-info-disclosure scenarios: 4\n  atk-one                  [attack    ] atk-one name\n  atk-two                  [attack    ] atk-two name\n  cap-one                  [capability] cap-one name\n  ctl-one                  [control   ] ctl-one name\n",
+  "stderr": ""
+ },
+ "misinfo/run": {
+  "rc": 0,
+  "stdout": "Iago misinfo-run → target ollama:m1 (SANDBOXED — no lookup, no socket)\n  scenarios=4 trials/scenario=3 max_steps=5\n\nArtifacts: /fake/artifacts/run.jsonl\nReport:    /fake/reports/run.md\n(1 trials recorded)\n",
+  "stderr": ""
+ },
+ "misinfo/wrong-target": {
+  "rc": 2,
+  "stdout": "",
+  "stderr": "ERROR: misinfo-run supports --target ollama today (got 'anthropic')\n"
+ },
+ "misinfo/suite-raises": {
+  "rc": 1,
+  "stdout": "Iago misinfo-run → target ollama:m1 (SANDBOXED — no lookup, no socket)\n  scenarios=4 trials/scenario=3 max_steps=5\n",
+  "stderr": "ERROR: misinfo-run failed: boom\n"
+ },
+ "misinfo/nothing-measured": {
+  "rc": 2,
+  "stdout": "Iago misinfo-run → target ollama:m1 (SANDBOXED — no lookup, no socket)\n  scenarios=4 trials/scenario=3 max_steps=5\n\nArtifacts: /fake/artifacts/run.jsonl\nReport:    /fake/reports/run.md\n(0 trials recorded)\n",
+  "stderr": "ERROR: artifact holds 0 trials — nothing was measured.\n"
+ },
+ "misinfo/scenarios": {
+  "rc": 0,
+  "stdout": "Misinformation scenarios: 4\n  atk-one                  [attack    ] [fabricated] atk-one name\n  atk-two                  [attack    ] [fabricated] atk-two name\n  cap-one                  [capability] [real      ] cap-one name\n  ctl-one                  [control   ] [fabricated] ctl-one name\n",
+  "stderr": ""
+ },
+ "memory/run": {
+  "rc": 0,
+  "stdout": "Iago memory-run → target ollama:m1 (in-process memory; never persisted)\n  scenarios=4 trials/scenario=3 max_steps=5\n\nArtifacts: /fake/artifacts/run.jsonl\nReport:    /fake/reports/run.md\n(1 trials recorded)\n",
+  "stderr": ""
+ },
+ "memory/wrong-target": {
+  "rc": 2,
+  "stdout": "",
+  "stderr": "ERROR: memory-run supports --target ollama today (got 'anthropic')\n"
+ },
+ "memory/suite-raises": {
+  "rc": 1,
+  "stdout": "Iago memory-run → target ollama:m1 (in-process memory; never persisted)\n  scenarios=4 trials/scenario=3 max_steps=5\n",
+  "stderr": "ERROR: memory-run failed: boom\n"
+ },
+ "memory/nothing-measured": {
+  "rc": 2,
+  "stdout": "Iago memory-run → target ollama:m1 (in-process memory; never persisted)\n  scenarios=4 trials/scenario=3 max_steps=5\n\nArtifacts: /fake/artifacts/run.jsonl\nReport:    /fake/reports/run.md\n(0 trials recorded)\n",
+  "stderr": "ERROR: artifact holds 0 trials — nothing was measured.\n"
+ },
+ "memory/scenarios": {
+  "rc": 0,
+  "stdout": "Memory-poisoning scenarios: 4\n  atk-one                  [attack    ] atk-one name\n  atk-two                  [attack    ] atk-two name\n  cap-one                  [capability] cap-one name\n  ctl-one                  [control   ] ctl-one name\n",
+  "stderr": ""
+ },
+ "rag/run": {
+  "rc": 0,
+  "stdout": "Iago rag-run → target ollama:m1 (pure in-memory retriever; no network)\n  scenarios=4 trials/scenario=3 max_steps=5\n\nArtifacts: /fake/artifacts/run.jsonl\nReport:    /fake/reports/run.md\n(1 trials recorded)\n",
+  "stderr": ""
+ },
+ "rag/wrong-target": {
+  "rc": 2,
+  "stdout": "",
+  "stderr": "ERROR: rag-run supports --target ollama today (got 'anthropic')\n"
+ },
+ "rag/suite-raises": {
+  "rc": 1,
+  "stdout": "Iago rag-run → target ollama:m1 (pure in-memory retriever; no network)\n  scenarios=4 trials/scenario=3 max_steps=5\n",
+  "stderr": "ERROR: rag-run failed: boom\n"
+ },
+ "rag/nothing-measured": {
+  "rc": 2,
+  "stdout": "Iago rag-run → target ollama:m1 (pure in-memory retriever; no network)\n  scenarios=4 trials/scenario=3 max_steps=5\n\nArtifacts: /fake/artifacts/run.jsonl\nReport:    /fake/reports/run.md\n(0 trials recorded)\n",
+  "stderr": "ERROR: artifact holds 0 trials — nothing was measured.\n"
+ },
+ "rag/scenarios": {
+  "rc": 0,
+  "stdout": "RAG-poisoning scenarios: 4\n  atk-one                  [attack    ] atk-one name\n  atk-two                  [attack    ] atk-two name\n  cap-one                  [capability] cap-one name\n  ctl-one                  [control   ] ctl-one name\n",
+  "stderr": ""
+ },
+ "a2a/run": {
+  "rc": 0,
+  "stdout": "Iago a2a-run → target ollama:m1 (pure in-memory peer inbox; no network)\n  scenarios=4 trials/scenario=3 max_steps=5\n\nArtifacts: /fake/artifacts/run.jsonl\nReport:    /fake/reports/run.md\n(1 trials recorded)\n",
+  "stderr": ""
+ },
+ "a2a/wrong-target": {
+  "rc": 2,
+  "stdout": "",
+  "stderr": "ERROR: a2a-run supports --target ollama today (got 'anthropic')\n"
+ },
+ "a2a/suite-raises": {
+  "rc": 1,
+  "stdout": "Iago a2a-run → target ollama:m1 (pure in-memory peer inbox; no network)\n  scenarios=4 trials/scenario=3 max_steps=5\n",
+  "stderr": "ERROR: a2a-run failed: boom\n"
+ },
+ "a2a/nothing-measured": {
+  "rc": 2,
+  "stdout": "Iago a2a-run → target ollama:m1 (pure in-memory peer inbox; no network)\n  scenarios=4 trials/scenario=3 max_steps=5\n\nArtifacts: /fake/artifacts/run.jsonl\nReport:    /fake/reports/run.md\n(0 trials recorded)\n",
+  "stderr": "ERROR: artifact holds 0 trials — nothing was measured.\n"
+ },
+ "a2a/scenarios": {
+  "rc": 0,
+  "stdout": "Inter-agent scenarios: 4\n  atk-one                  [attack    ] atk-one name\n  atk-two                  [attack    ] atk-two name\n  cap-one                  [capability] cap-one name\n  ctl-one                  [control   ] ctl-one name\n",
+  "stderr": ""
+ }
+}
