@@ -65,8 +65,8 @@ from .judge import (
     run_error,
 )
 from .objectives import Objective, load_objectives
-from .target import unsupported_options
 from .stats import wilson_interval
+from .target import sampling_gap
 
 # --- Refusal shapes -----------------------------------------------------------------------
 # The FEEDBACK signal that drives adaptation: fold the target's last reply into one of a
@@ -554,8 +554,8 @@ def run_adaptive_suite(
         sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
                   "seed_rule": "base_seed + trial", "max_turns": max_turns,
                   "attacker": attacker_kind, "deterministic": deterministic,
-                  "unsupported_controls": unsupported_options(
-                      target, {"temperature": temperature, "seed": base_seed})},
+                  "unsupported_controls": sampling_gap(target, temperature=temperature,
+                                                       seed=base_seed)},
         judge_id=module_fingerprint("adaptive", "judge", "canary"))
     with out_path.open("w") as fh:
         write_manifest(fh, manifest)
