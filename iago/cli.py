@@ -189,12 +189,12 @@ def _cmd_delta(args: argparse.Namespace) -> int:
 def _cmd_gate(args: argparse.Namespace) -> int:
     """Regression gate for CI: exit 1 when a harmful-content bypass rate rose measurably against
     a baseline artifact or above an absolute ceiling; exit 2 when it cannot judge."""
-    from .gate import GateError, evaluate, render
+    from .gate import evaluate, render
 
     try:
         checks = evaluate(args.artifact, args.baseline, max_rate=args.max_rate,
                           allow_judge_mismatch=args.allow_judge_mismatch)
-    except (GateError, ValueError) as exc:  # GateError, or a wrong-surface artifact
+    except ValueError as exc:  # GateError, or a wrong-surface artifact
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     print(render(checks, has_baseline=args.baseline is not None))
