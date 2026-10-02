@@ -204,3 +204,54 @@ def test_legacy_agent_rows_without_new_fields_still_compare(tmp_path):
     p.write_text("\n".join(json.dumps(r) for r in rows))
     comp = build_comparison([p])
     assert comp.models[0].scen["sX"] == (0, 1)
+
+
+# --- git_info through a linked worktree ---------------------------------------------------------
+
+def _fake_worktree(tmp_path: Path, *, packed: bool) -> Path:
+    """A linked-worktree layout built by hand: the checkout's `.git` is a FILE pointing at
+    `<main>/.git/worktrees/<name>/`, whose `commondir` names the main `.git` where the branch ref
+    (loose, or in packed-refs) actually lives. No git binary is involved, so the test cannot
+    satisfy itself by shelling out."""
+    main_git = tmp_path / "main" / ".git"
+    wt_dir = main_git / "worktrees" / "wt"
+    wt_dir.mkdir(parents=True)
+    (wt_dir / "HEAD").write_text("ref: refs/heads/wt/stats\n")
+    (wt_dir / "commondir").write_text("../..\n")
+    sha = "a" * 40
+    if packed:
+        (main_git / "packed-refs").write_text(f"# pack-refs with: peeled\n{sha} refs/heads/wt/stats\n")
+    else:
+        ref = main_git / "refs" / "heads" / "wt" / "stats"
+        ref.parent.mkdir(parents=True)
+        ref.write_text(sha + "\n")
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "pyproject.toml").write_text("[project]\nname = 'iago'\n")
+    (checkout / ".git").write_text(f"gitdir: {wt_dir}\n")
+    return checkout
+
+
+def test_git_info_resolves_a_linked_worktree_branch_through_commondir(tmp_path, monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("git_info spawned a process")
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    monkeypatch.setattr(subprocess, "Popen", boom)
+    monkeypatch.setattr(subprocess, "check_output", boom)
+    for packed in (False, True):
+        root = _fake_worktree(tmp_path / ("packed" if packed else "loose"), packed=packed)
+        info = artifacts.git_info(root)
+        assert info["commit"] == "a" * 40, (packed, info)
+        assert info["root"] == str(root) and info["dirty"] is None
+
+
+def test_git_info_prefers_a_ref_in_the_worktree_gitdir_over_commondir(tmp_path):
+    # A ref that exists in the worktree's own gitdir (e.g. a detached-style local ref) wins; the
+    # common dir is only the fallback.
+    root = _fake_worktree(tmp_path, packed=False)
+    wt_dir = Path((root / ".git").read_text().split("gitdir: ", 1)[1].strip())
+    local_ref = wt_dir / "refs" / "heads" / "wt" / "stats"
+    local_ref.parent.mkdir(parents=True)
+    local_ref.write_text("b" * 40 + "\n")
+    assert artifacts.git_info(root)["commit"] == "b" * 40
