@@ -39,6 +39,8 @@ def test_manifest_carries_host_accelerator_not_a_target_claim(monkeypatch):
     only when the target is served here. `accelerator` (the old name) is gone."""
     monkeypatch.setattr(artifacts, "accelerator_info",
                         lambda: {"kind": "apple-silicon", "name": "Apple M9", "reason": None})
+    # No daemon calls: the remote OLLAMA_HOST case below would otherwise dial that address.
+    monkeypatch.setattr(artifacts, "ollama_info", lambda tag: None)
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
     local = build_manifest(surface="agent", model="ollama:llama3", sampling={}, judge_id="x")
     assert "accelerator" not in local
