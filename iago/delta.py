@@ -95,8 +95,9 @@ def _mcnemar_lines(a, label: str, b: int, c: int) -> None:
         a("> proven null.")
         return
     p = mcnemar_exact_p(b, c)
+    direction = "reduction" if b > c else "increase" if c > b else "difference"
     claim = ("a split this one-sided would arise by chance under the null less than 5% of the "
-             "time, so the reduction is asserted at the 0.05 level" if p < 0.05
+             f"time, so the {direction} is asserted at the 0.05 level" if p < 0.05
              else "directional only — too few discordant pairs to assert significance")
     a(f"> On the {label} pairs: **{b}** in the guard's favour (raw bypassed → guard held) and **{c}**")
     a(f"> against. The exact-binomial McNemar test on that split gives a two-sided **p = {p:.2e}** —")

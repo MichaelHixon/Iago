@@ -79,6 +79,7 @@ def test_compare_reports_an_independent_difference_between_two_models(tmp_path):
     for banned in ("paired", "matched", "same seed", "correlation the"):
         assert banned not in text.split("## Difference between models")[1], banned
     assert "| sY | 0/4 | 0/4 | +0% |" in text
+    assert "not adjusted for the number of scenarios" in text
 
 
 def test_compare_difference_section_absent_with_one_model(tmp_path):

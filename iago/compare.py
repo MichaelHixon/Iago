@@ -280,7 +280,9 @@ def _difference_section(comp: Comparison) -> list[str]:
              "between-model dependence assumed). An interval that excludes 0 is a difference the "
              "trials support; one that crosses 0 is directional only. It is an asymptotic score "
              "interval and runs liberal under ~10 trials a side, so at that size treat it as "
-             "directional whatever it excludes.", "",
+             "directional whatever it excludes. These are per-scenario intervals, not adjusted "
+             "for the number of scenarios: across 20 scenarios with no real difference, about one "
+             "would exclude 0 by chance, so treat a lone exclusion as a lead, not a finding.", "",
              "| Scenario | first | second | Difference | 95% CI (independent) |",
              "|---|---:|---:|---:|---:|"]
     for sid in comp.scenario_ids:

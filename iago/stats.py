@@ -272,7 +272,8 @@ def t_ppf(p: float, df: float) -> float:
     while t_cdf(hi, df) < p:        # bracket: df = 1 at p = 0.9995 needs t ~ 636
         hi *= 2.0
         if hi > 1e12:
-            break
+            raise ValueError(f"t_ppf: quantile for p={p}, df={df} lies beyond 1e12; "
+                             "outside the range this bisection resolves")
     for _ in range(200):
         mid = 0.5 * (lo + hi)
         if t_cdf(mid, df) < p:
