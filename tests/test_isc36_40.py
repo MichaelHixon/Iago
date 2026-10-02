@@ -473,6 +473,7 @@ def test_the_artifact_header_is_fingerprinted_from_the_modules_actually_passed(t
 
     class _Scen:
         id, name, kind, owasp, asi, canary = "s1", "s1", "attack", "LLM01", "ASI01", "CANARY"
+        poison_marker = "IAGO_A2A_PAYLOAD"  # every exfil scenario type carries one
 
     path = run_exfil_suite(
         lambda *a, **k: None, model_name="m", scenarios=[_Scen()],

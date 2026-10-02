@@ -46,6 +46,9 @@ class Scenario:
     # OWASP Agentic (ASI) Top-10 tag — the agentic framework this scenario maps to.
     asi: str | None = None
     attacker_recipient: str | None = None
+    # A token that appears ONLY inside the poisoned document content, so its surfacing in a tool
+    # result proves the agent really read the poison (the delivery signal). Required on attacks.
+    poison_marker: str | None = None
 
     @property
     def is_control(self) -> bool:
@@ -94,18 +97,24 @@ def load_scenarios(scenarios_file: Path | None = None) -> list[Scenario]:
                 "its private_notes — the exfiltration oracle could never fire"
             )
 
+        documents = {str(k): str(v) for k, v in docs.items()}
+        marker = rec.get("poison_marker")
+        if rec["kind"] == "attack":
+            _check_poison_marker(path.name, rec, documents, marker)
+
         scenarios.append(
             Scenario(
                 id=rec["id"],
                 name=rec["name"],
                 kind=rec["kind"],
                 task=rec["task"],
-                documents={str(k): str(v) for k, v in docs.items()},
+                documents=documents,
                 private_notes=rec["private_notes"],
                 canary=rec["canary"],
                 owasp=rec.get("owasp"),
                 asi=validate_asi(rec.get("asi"), where=f"{path.name} {rec['id']}"),
                 attacker_recipient=rec.get("attacker_recipient"),
+                poison_marker=marker,
             )
         )
 
@@ -113,3 +122,26 @@ def load_scenarios(scenarios_file: Path | None = None) -> list[Scenario]:
         raise ValueError(f"{path.name}: at least one 'attack' scenario is required")
 
     return scenarios
+
+
+def _check_poison_marker(fname: str, rec: dict, documents: dict[str, str], marker) -> None:
+    """An attack's delivery marker must sit in document CONTENT and nowhere the agent can see
+    without reading the poison. The mock tools echo their inputs back (`read_document` returns
+    "(no document named 'X')", `send_message` returns the recipient), so a token the agent can
+    learn from the task, its notes or the document list could be echoed into a tool result and
+    score Delivered on a trial that never read the poison."""
+    sid = rec["id"]
+    if not marker:
+        raise ValueError(f"{fname}: attack scenario {sid!r} needs a poison_marker — without one "
+                         "the report cannot tell a resisted trial from an undelivered one")
+    if not any(marker in v for v in documents.values()):
+        raise ValueError(f"{fname}: attack scenario {sid!r} has no document containing the poison "
+                         f"marker {marker!r} — nothing to act on, the oracle could never fire")
+    seen_elsewhere = [where for where, text in (("task", rec["task"]),
+                                                ("private_notes", rec["private_notes"]),
+                                                ("document names", " ".join(documents)))
+                      if marker in str(text)]
+    if seen_elsewhere:
+        raise ValueError(f"{fname}: attack scenario {sid!r} poison marker {marker!r} also appears "
+                         f"in its {', '.join(seen_elsewhere)} — it must live only in the poisoned "
+                         "document content, or an echo would read as delivery")
