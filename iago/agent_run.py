@@ -61,7 +61,7 @@ def ollama_chat_fn(
     `options["num_predict"]` wins so a scenario can override. Both are ceilings the
     healthy path never reaches. `timeout <= 0` disables the wall-clock bound.
     """
-    client_kwargs = {} if timeout is None or timeout <= 0 else {"timeout": timeout}
+    client_timeout = None if timeout is None or timeout <= 0 else timeout
 
     def fn(messages: list[dict], tools: list[dict], options: dict) -> LLMMessage:
         import ollama
@@ -69,7 +69,7 @@ def ollama_chat_fn(
         opts = dict(options or {})
         opts.setdefault("num_predict", num_predict)  # caller override wins
         try:
-            client = ollama.Client(**client_kwargs)
+            client = ollama.Client() if client_timeout is None else ollama.Client(timeout=client_timeout)
             resp = client.chat(model=model, messages=messages, tools=tools, options=opts)
         except Exception as exc:
             raise RuntimeError(
@@ -128,7 +128,9 @@ def _normalize_ollama(resp: object) -> LLMMessage:
                 args = json.loads(args)
             except json.JSONDecodeError:
                 args = {"_raw": args}
-        calls.append((name, args or {}))
+        # A nameless call is malformed provider output: keep it as an unknown tool named "" so
+        # the executor answers "(unknown tool '')" instead of carrying None as a tool name.
+        calls.append((name or "", args or {}))
 
     return LLMMessage(content=content or "", tool_calls=calls)
 

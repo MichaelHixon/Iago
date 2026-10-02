@@ -1,6 +1,8 @@
 """verification — the attack library is well-formed and meets the count gate."""
 
-from iago.attacks import load_library, summarize
+import pytest
+
+from iago.attacks import Technique, load_library, summarize
 from iago.config import CATEGORIES
 
 
@@ -138,3 +140,12 @@ def test_shots_rejects_bool_and_nonpositive(tmp_path):
         _write(val)
         with pytest.raises(ValueError, match="positive integer"):
             load_library(tmp_path)
+
+
+def test_shots_placeholder_in_turn_of_unscaled_technique_raises():
+    # {shots} in a priming turn needs a count; a technique whose template does not scale shots
+    # has none, so rendering fails loudly instead of handing None to the shot builder.
+    tech = Technique("t1", "Turned", "role-play", "d", "Ask: {objective}",
+                     turns=("Warm-up {shots}", "Ask: {objective}"))
+    with pytest.raises(ValueError, match="not shot-scaled"):
+        tech.rendered_turns("x")

@@ -212,7 +212,8 @@ def poison_ingested(trace: AgentTrace, scenario) -> bool | None:
 def delivered_cell(rows: list[dict]) -> str:
     """Delivered count for one scenario, or n/a when any row predates the field (unknown != 0)."""
     vals = [r.get("poison_ingested") for r in rows]
-    return "n/a" if any(v is None for v in vals) else str(sum(vals))
+    known = [v for v in vals if v is not None]
+    return "n/a" if len(known) < len(vals) else str(sum(known))
 
 
 def delivery_note(attack_rows: list[dict], poison_source: str) -> list[str]:

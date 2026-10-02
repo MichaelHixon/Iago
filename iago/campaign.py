@@ -23,7 +23,7 @@ plus specific per-surface, per-scenario deltas — it NEVER ranks models by safe
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -61,7 +61,7 @@ class Campaign:
 
 
 def build_campaign(
-    surface_paths: dict[str, list[Path | str]],
+    surface_paths: Mapping[str, Sequence[Path | str]],
     labels: dict[str, str] | None = None,
     requested_models: list[str] | None = None,
     errors: list[str] | None = None,

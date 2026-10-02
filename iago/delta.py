@@ -330,13 +330,12 @@ def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict]) -> str:
             return [r for r in rows if r["category"] == cat
                     and r["objective_kind"] in ("forbidden", "prompt-leak") and is_valid_probe(r)]
         rk, gk = probes(raw_rows), probes(guarded_rows)
-        rb = {"hits": sum(1 for r in rk if verdict_of(r) == BYPASSED), "total": len(rk)}
-        gb = {"hits": sum(1 for r in gk if verdict_of(r) == BYPASSED), "total": len(gk)}
-        rb["rate"] = bypass_rate(rb["hits"], rb["total"])
-        gb["rate"] = bypass_rate(gb["hits"], gb["total"])
-        d = (gb["rate"] - rb["rate"]) * 100.0
-        a(f"| {cat} | {pct(rb['rate'])} ({rb['hits']}/{rb['total']}) | "
-          f"{pct(gb['rate'])} ({gb['hits']}/{gb['total']}) | {d:+.1f} |")
+        r_hits, r_total = sum(1 for r in rk if verdict_of(r) == BYPASSED), len(rk)
+        g_hits, g_total = sum(1 for r in gk if verdict_of(r) == BYPASSED), len(gk)
+        r_rate, g_rate = bypass_rate(r_hits, r_total), bypass_rate(g_hits, g_total)
+        d = (g_rate - r_rate) * 100.0
+        a(f"| {cat} | {pct(r_rate)} ({r_hits}/{r_total}) | "
+          f"{pct(g_rate)} ({g_hits}/{g_total}) | {d:+.1f} |")
     a("")
 
     # --- Honesty caveats ----------------------------------------------------------

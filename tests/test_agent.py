@@ -515,3 +515,20 @@ def test_ollama_chat_fn_normal_stop_is_not_truncation(monkeypatch):
     fn = ollama_chat_fn("m")
     msg = fn([], [], {})
     assert msg.content == "ok"
+
+
+def test_default_executor_requires_exfil_scenario_fields():
+    # A surface scenario without documents/private_notes must bring its own executor; the default
+    # exfil surface refuses it up front rather than failing mid-run on the first tool call.
+    from types import SimpleNamespace
+
+    scen = SimpleNamespace(id="s1", task="do it")
+    with pytest.raises(TypeError, match="pass this surface's own execute_tool"):
+        run_agent(scen, lambda *a: LLMMessage(content="done"))
+
+
+def test_nameless_tool_call_normalizes_to_empty_name():
+    from iago.agent_run import _normalize_ollama
+
+    msg = _normalize_ollama({"message": {"content": "", "tool_calls": [{"function": {"arguments": {}}}]}})
+    assert msg.tool_calls == [("", {})]

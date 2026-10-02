@@ -24,5 +24,7 @@ jobs:
         run: uv sync --locked
       - name: Lint (pyflakes-level)
         run: uv run ruff check iago tests
+      - name: Type-check
+        run: uv run mypy iago
       - name: Test (offline; no Ollama, no API key)
         run: uv run pytest -q

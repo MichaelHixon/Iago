@@ -23,7 +23,7 @@ import os
 import platform
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import IO
+from typing import IO, overload
 
 from . import __version__
 
@@ -59,6 +59,12 @@ def redact_host(value: str | None) -> str | None:
 _PKG_DIR = Path(__file__).resolve().parent
 
 
+@overload
+def sha256_text(text: str) -> str: ...
+@overload
+def sha256_text(text: None) -> None: ...
+@overload
+def sha256_text(text: str | None) -> str | None: ...
 def sha256_text(text: str | None) -> str | None:
     return None if text is None else hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
 
@@ -180,7 +186,8 @@ def scenario_fingerprint(scenarios) -> str | None:
     if not scenarios:
         return None
     try:
-        payload = [asdict(s) if is_dataclass(s) else repr(s) for s in scenarios]
+        payload = [asdict(s) if is_dataclass(s) and not isinstance(s, type) else repr(s)
+                   for s in scenarios]
         return sha256_text(json.dumps(payload, sort_keys=True, default=repr))
     except Exception:
         return sha256_text(repr(scenarios))
