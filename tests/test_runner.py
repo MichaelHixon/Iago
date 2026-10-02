@@ -146,3 +146,25 @@ def test_guarded_target_keeps_the_inner_backends_gap(tmp_path):
               objectives=OBJS[:1], determinism_check=False)
     manifest, _ = read_artifact(out)
     assert manifest["sampling"]["unsupported_controls"] == ["seed"]
+
+
+def test_planted_history_run_error_records_exception_class():
+    from iago.runner import _execute_planted
+
+    class Defect(FakeTarget):
+        def chat(self, messages, options=None):
+            raise KeyError("missing_field")
+
+    _, reply = _execute_planted(Defect(), "sys", [], "ask", {})
+    assert reply.startswith("<<RUN-ERROR: KeyError: ")
+
+
+def test_report_discloses_dropped_controls():
+    from iago.report import determinism_disclosure
+
+    text = determinism_disclosure({"sampling": {"unsupported_controls": ["seed"]},
+                                   "determinism": {"mismatch_detected": False, "probes": []}})
+    assert "ignored `seed`" in text
+    clean = determinism_disclosure({"sampling": {"unsupported_controls": []},
+                                    "determinism": {"mismatch_detected": False, "probes": []}})
+    assert "ignored" not in clean

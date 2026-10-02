@@ -405,6 +405,14 @@ def determinism_disclosure(manifest: dict | None) -> str:
         return ("_⚠️ Reproducibility on this host was **not read** for this report (no run manifest "
                 "available). Treat the pinning note below as a claim about inputs, not a measured "
                 "result._")
+    # A control the backend dropped outranks any probe result: the pinning note below describes
+    # what was requested, and this run never applied it.
+    dropped = (manifest.get("sampling") or {}).get("unsupported_controls")
+    if dropped:
+        names = ", ".join(f"`{c}`" for c in dropped)
+        return (f"_⚠️ **The target backend ignored {names}**: requested and recorded, but never "
+                "applied. The pinning note below does not hold for this run, and it cannot be "
+                "replayed by seed._")
     if d is None:
         return ("_⚠️ The determinism check **did not run** for this run (`--no-determinism-check`), "
                 "so nothing here says whether this host reproduces at these settings — and the "
