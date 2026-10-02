@@ -318,7 +318,10 @@ def _artifact_writer_modules():
         tree = ast.parse(f.read_text())
         if any(isinstance(n, ast.With) and _opens_an_artifact(n) for n in ast.walk(tree)):
             out.append(f.stem)
-    assert len(out) >= 8, f"discovery found only {out} — the walk is broken, not the package"
+    # Named, not counted: ISC-73 folded five agentic writers into agentic_exfil, so a count floor
+    # shrinks with every consolidation while a missing known writer still proves a broken walk.
+    known = {"adaptive", "agent_run", "agentic_exfil", "runner"}
+    assert known <= set(out), f"discovery found only {out} — the walk is broken, not the package"
     return out
 
 
