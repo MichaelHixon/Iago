@@ -55,8 +55,10 @@ def test_smoke_run_keeps_the_capability_floor(monkeypatch, key):
 def test_smoke_slice_of_the_shipped_library_keeps_a_capability_scenario(key):
     scens = SURFACES[key].entry().load_scenarios()
     picked = campaign._smoke_slice(scens)
-    if any(s.kind == "capability" for s in scens):
-        assert any(s.kind == "capability" for s in picked), key
+    # Unconditional: every shipped surface carries a capability floor, and a library that lost
+    # its floor is exactly the degenerate compare the slicer exists to prevent.
+    assert any(s.kind == "capability" for s in scens), f"{key}: shipped library has no capability floor"
+    assert any(s.kind == "capability" for s in picked), key
     assert any(s.kind == "attack" for s in picked), key
 
 

@@ -588,8 +588,8 @@ def test_the_same_recommendations_reach_both_renderers():
 def test_the_hardening_advice_names_the_leakiest_categories_in_rate_order(render):
     """ISC-79: the md/html equality test above cannot see a sort both copies share, so pin the
     order itself: highest harmful-content bypass rate first, ties by name, top three, zero-rate
-    categories never named. Revert check: flipping either renderer's `cat_stats.sort` key, or
-    dropping its tie-break, reds the matching parameter."""
+    categories never named. Revert check: flipping the shared `_aggregate` sort key, or dropping
+    its tie-break, reds both parameters."""
     # Insertion order puts d-tie before b-mid, so a sort that drops the name tie-break keeps
     # d-tie first (sorted() is stable) and the test sees it.
     plan = {"e-zero": (0, 2), "a-low": (1, 4), "d-tie": (1, 2), "b-mid": (1, 2), "c-high": (2, 2)}

@@ -22,7 +22,8 @@ from .artifacts import fingerprint_status, read_artifact, require_surface
 from .config import REPORTS_DIR
 from .guards import guard_that_fired
 from .judge import BYPASSED, NEEDS_REVIEW
-from .report import bypass_rate, ci_str, is_valid_probe, judge_calibration_lines, pct, verdict_of
+from .report import (bypass_rate, ci_str, harmful_valid, is_valid_probe, judge_calibration_lines,
+                     pct, verdict_of)
 from .stats import mcnemar_exact_p, paired_counts, paired_difference_ci, rose_measurably
 
 
@@ -174,6 +175,42 @@ def fingerprint_notes(raw_manifest: dict | None, guarded_manifest: dict | None, 
                          "(pre-fingerprint artifact): whether both arms match on it is UNKNOWN, "
                          "not verified._")
     return notes
+
+
+def _adjudication(rows: list[dict]) -> tuple[str, frozenset[str]]:
+    """("all" | "none" | "partial", the rubric judge stamps) over one arm's harmful-content rows."""
+    valid = harmful_valid(rows)
+    graded = [r for r in valid if r.get("claude_verdict")]
+    state = "none" if not graded else "all" if len(graded) == len(valid) else "partial"
+    stamps = frozenset(str(r.get("claude_judge_id") or r.get("claude_judge_name") or "claude")
+                       for r in graded)
+    return state, stamps
+
+
+def adjudication_notes(raw_rows: list[dict], guarded_rows: list[dict], *,
+                       allow_judge_mismatch: bool = False) -> list[str]:
+    """The heuristic never asserts a harmful-content bypass, so an arm the rubric judge did not
+    score reads as all-held: regrading only the raw arm printed a 100-point guard win. Refuse
+    (ValueError) when an arm is partly regraded, when one arm is regraded and the other is not,
+    or when the arms were regraded by different rubric judges, unless overridden."""
+    raw, guarded = _adjudication(raw_rows), _adjudication(guarded_rows)
+    problem = None
+    if "partial" in (raw[0], guarded[0]):
+        problem = (f"an arm is only partly regraded (raw: {raw[0]}, guarded: {guarded[0]}), so its "
+                   "unregraded trials count as held")
+    elif raw[0] != guarded[0]:
+        problem = (f"only the {'raw' if raw[0] == 'all' else 'guarded'} arm was regraded, so the "
+                   "other arm's harmful-content trials all count as held")
+    elif raw[1] != guarded[1]:
+        problem = (f"the arms were regraded by different rubric judges (raw {sorted(raw[1])}, "
+                   f"guarded {sorted(guarded[1])})")
+    if problem is None:
+        return []
+    if not allow_judge_mismatch:
+        raise ValueError(f"{problem}; the delta would measure the judging, not the guard. Run "
+                         "`iago regrade` on both arms alike, or pass --allow-judge-mismatch.")
+    return [f"_⚠️ {problem[0].upper()}{problem[1:]} (`--allow-judge-mismatch` given): this delta "
+            "may measure the judging, not the guard._"]
 
 
 def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict],
@@ -423,10 +460,14 @@ def delta_from_artifacts(raw_path: Path | str, guarded_path: Path | str, *,
                          allow_judge_mismatch: bool = False, allow_library_mismatch: bool = False,
                          reports_dir: Path | None = None) -> tuple[Path, list[dict], list[dict]]:
     """(report path, raw rows, guarded rows): the one way from two artifacts to a delta report,
-    so every caller gets the `fingerprint_notes` check. Raises ValueError when it refuses."""
+    so every caller gets the `fingerprint_notes` and `adjudication_notes` checks. Raises ValueError
+    when it refuses."""
     raw_manifest, raw_rows = read_artifact(raw_path)
     guarded_manifest, guarded_rows = read_artifact(guarded_path)
+    for rows in (raw_rows, guarded_rows):  # a wrong-surface artifact is refused before any check reads it
+        require_surface(rows, "chatbot", reader="iago delta")
     notes = fingerprint_notes(raw_manifest, guarded_manifest,
                               allow_judge_mismatch=allow_judge_mismatch,
                               allow_library_mismatch=allow_library_mismatch)
+    notes += adjudication_notes(raw_rows, guarded_rows, allow_judge_mismatch=allow_judge_mismatch)
     return write_delta_report(raw_rows, guarded_rows, reports_dir, notes), raw_rows, guarded_rows

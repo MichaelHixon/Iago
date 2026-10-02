@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import codecs
+import functools
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -148,7 +149,7 @@ def _wrapper_frames() -> dict[str, str]:
     frames = dict(_DEFAULT_WRAPPER_FRAMES)
     local = ATTACKS_DIR / "wrappers.local.yaml"
     if local.exists():
-        data = load_mapping(local)
+        data = _load_override(local)
         for name, tmpl in data.items():
             if name not in _DEFAULT_WRAPPER_FRAMES:
                 raise ValueError(
@@ -163,15 +164,34 @@ def _wrapper_frames() -> dict[str, str]:
     return frames
 
 
-def _make_wrapper(name: str, frames: dict[str, str]) -> Callable[[str], str]:
+def _load_override(path: Path) -> dict:
+    """An operator frame override, refused by name AND path when it holds nothing: an empty file
+    used to fall back to the inert frames without a word."""
+    try:
+        return load_mapping(path)
+    except ValueError as exc:
+        raise ValueError(f"{exc} ({path}; delete it to use the shipped frames)") from exc
+
+
+# Loaded on first use, not at import: a broken override must not take down `iago gate`, `delta`
+# or `report`, which never render a technique. `load_library` loads both up front so a run still
+# fails before it writes anything.
+@functools.cache
+def loaded_wrapper_frames() -> dict[str, str]:
+    return _wrapper_frames()
+
+
+@functools.cache
+def loaded_provenance_frames() -> dict[str, str]:
+    return _provenance_frames()
+
+
+def _make_wrapper(name: str) -> Callable[[str], str]:
     """Build a wrapper fn that folds the wrapped ask into `name`'s frame template."""
-    return lambda text: frames[name].replace("{text}", text)
+    return lambda text: loaded_wrapper_frames()[name].replace("{text}", text)
 
 
-_WRAPPER_FRAMES = _wrapper_frames()
-_WRAPPERS: dict[str, Callable[[str], str]] = {
-    name: _make_wrapper(name, _WRAPPER_FRAMES) for name in _DEFAULT_WRAPPER_FRAMES
-}
+_WRAPPERS: dict[str, Callable[[str], str]] = {name: _make_wrapper(name) for name in _DEFAULT_WRAPPER_FRAMES}
 
 
 # --- Provenance-forging frames (fabricated relationship history / "loaded memory") --------
@@ -233,7 +253,7 @@ def _provenance_frames() -> dict[str, str]:
     frames = dict(_DEFAULT_PROVENANCE_FRAMES)
     local = ATTACKS_DIR / "provenance.local.yaml"
     if local.exists():
-        data = load_mapping(local)
+        data = _load_override(local)
         for name, text in data.items():
             if name not in _DEFAULT_PROVENANCE_FRAMES:
                 raise ValueError(
@@ -244,7 +264,6 @@ def _provenance_frames() -> dict[str, str]:
     return frames
 
 
-_PROVENANCE_FRAMES = _provenance_frames()
 
 
 # A pool of BENIGN question/answer pairs used to fabricate the compliant transcript
@@ -403,7 +422,7 @@ class Technique:
     transforms: tuple[str, ...] | None = None
     wrappers: tuple[str, ...] | None = None
     composes: tuple[str, ...] | None = None
-    # Provenance-forging: names of fabricated-provenance frames (see _PROVENANCE_FRAMES) planted
+    # Provenance-forging: names of fabricated-provenance frames (see loaded_provenance_frames) planted
     # as the target's CONTEXT in the provenance arm of a trust-escalation trial. None = not a
     # provenance-forging technique. Frame text is data (inert default unless locally overridden).
     provenance: tuple[str, ...] | None = None
@@ -473,14 +492,14 @@ class Technique:
 
     def provenance_history(self) -> str | None:
         """The fabricated relationship-history text this technique plants (frames joined if several),
-        or None if it plants no provenance. Resolved from _PROVENANCE_FRAMES so operator overrides
+        or None if it plants no provenance. Resolved from loaded_provenance_frames so operator overrides
         apply. The runner plants this as a PRIOR USER TURN in the PROVENANCE arm of a trust-escalation
         trial (paired with a generic assistant ack, then the real ask); the anonymous arm plants
         nothing and the placebo arm plants NEUTRAL_HISTORY_USER instead — the relationship content
         here is the single variable the differential isolates."""
         if not self.provenance:
             return None
-        return "\n\n".join(_PROVENANCE_FRAMES[name] for name in self.provenance)
+        return "\n\n".join(loaded_provenance_frames()[name] for name in self.provenance)
 
     def render(self, objective: str, shots: int | None = None) -> str:
         """Encode the payload (transform or transforms chain), expand {shots} if the technique
@@ -504,6 +523,7 @@ def load_library(attacks_dir: Path | None = None) -> list[Technique]:
     an unknown category, or a duplicate id — a broken library should not run silently.
     """
     directory = Path(attacks_dir) if attacks_dir else ATTACKS_DIR
+    loaded_wrapper_frames(), loaded_provenance_frames()  # a broken override fails here, before any run
     techniques: list[Technique] = []
     seen_ids: set[str] = set()
 

@@ -588,8 +588,8 @@ def run_adaptive_suite(
                     "final_confidence": tr.final_confidence,
                     "trace": [asdict(t) for t in tr.trace],
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    # The stop signal is the offline heuristic: its id, kept apart from the
-                    # manifest judge_id, is what the report looks up its error rate by.
+                    # Each turn's `verdict` comes from the offline heuristic `judge()`: its id, kept
+                    # apart from the manifest judge_id, is what the report looks up its error rate by.
                     "heuristic_judge_id": heuristic_judge_id,
                 }
                 fh.write(json.dumps(stamp(row, "adaptive")) + "\n")
@@ -622,8 +622,15 @@ def write_adaptive_report(rows: list[dict], reports_dir: Path | None = None) -> 
     lines: list[str] = []
     lines.append("# Iago — Adaptive Dialogue-Level Attacker Report")
     lines.append("")
-    for line in judge_calibration_lines(rows, "heuristic_judge_id"):  # behind the candidate rate
+    calibration = judge_calibration_lines(rows, "heuristic_judge_id")
+    for line in calibration:
         lines.append(line)
+        lines.append("")
+    if calibration:
+        lines.append("_That line measures the heuristic judge behind each turn's recorded verdict. "
+                     "The loop's stop rule (`classify_shape`, the reply shape that ends a conversation "
+                     "as a candidate) is a separate classifier with no measured error rate here, so a "
+                     "candidate stays unconfirmed until `iago regrade`._")
         lines.append("")
     lines.append("> Defensive research. A target-adaptive multi-turn search: the attacker reads")
     lines.append("> the target's last refusal and picks its next move from that feedback, across a")

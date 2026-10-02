@@ -381,9 +381,10 @@ def test_suite_manifest_records_that_the_target_gets_no_system_prompt(tmp_path):
     assert seen and "system" not in seen
 
 
-def test_report_quotes_the_stop_judges_error_rate_above_the_candidate_rate(tmp_path):
-    """ISC-78: every other rate-bearing report states its judge's measured error rate; the adaptive
-    candidate rate rests on the offline heuristic, so it states that judge's line by its id.
+def test_report_quotes_the_heuristic_judges_error_rate_and_scopes_it(tmp_path):
+    """Every other rate-bearing report states its judge's measured error rate. The adaptive report
+    states the heuristic's (the judge behind each turn's verdict) by its id, and says the stop rule
+    is a separate, unmeasured classifier so the line is not read as the stop rule's accuracy.
     Revert check: dropping the `judge_calibration_lines` loop (or the row's `heuristic_judge_id`) reds this."""
     from iago.judge_eval import offline_judge_id
 
@@ -399,6 +400,7 @@ def test_report_quotes_the_stop_judges_error_rate_above_the_candidate_rate(tmp_p
     cal = text.find(f"**Judge calibration (heuristic `{offline_judge_id()}`)")
     assert cal != -1, "no heuristic calibration line in the adaptive report"
     assert cal < text.index("Defensive research")
+    assert "stop rule (`classify_shape`" in text and "no measured error rate" in text
 
     legacy = [{k: v for k, v in r.items() if k != "heuristic_judge_id"} for r in rows]
     text = write_adaptive_report(legacy, reports_dir=tmp_path).read_text()

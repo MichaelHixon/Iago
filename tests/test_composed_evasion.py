@@ -3,7 +3,7 @@
 import pytest
 
 from iago.attacks import (
-    _WRAPPER_FRAMES,
+    loaded_wrapper_frames,
     _WRAPPERS,
     _transform,
     _transform_chain,
@@ -23,7 +23,7 @@ def _frame_marker(name: str) -> str:
     operator has overridden the inert default in wrappers.local.yaml. Render assertions key
     off this so a present local frame file doesn't break the tests (it legitimately replaces
     the placeholder strings). The longest non-{text} segment is always present in the output."""
-    parts = _WRAPPER_FRAMES[name].split("{text}")
+    parts = loaded_wrapper_frames()[name].split("{text}")
     return max((p.strip() for p in parts), key=len)
 
 
