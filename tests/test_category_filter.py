@@ -242,3 +242,25 @@ def test_defense_delta_exits_2_when_the_guard_BACKEND_is_missing(monkeypatch, ca
     rc = cli._cmd_defense_delta(_dd_args(guard="llama-guard"))
     assert rc == 2
     assert "llama-guard backend not installed" in capsys.readouterr().err
+
+
+def test_cmd_defense_delta_writes_a_report_with_the_raw_arm_as_raw(tmp_path, monkeypatch):
+    """The other defense-delta test never looked at the return code or the report, so a broken or
+    arm-swapped `delta_from_artifacts` call passed the whole suite. Revert check: swapping the two
+    paths in the call, or making it raise, reds this."""
+    from iago.runner import run as real_run
+
+    class _Guarded(_T):
+        name = "guarded:model"
+
+    monkeypatch.setattr(cli, "run", lambda target, **kw: real_run(
+        target, techniques=LIB, objectives=[FORBIDDEN], trials=1, artifacts_dir=tmp_path,
+        determinism_check=False))
+    monkeypatch.setattr(cli, "build_target", lambda *a, **k: _T())
+    monkeypatch.setattr(cli, "build_guards", lambda spec: [types.SimpleNamespace(name="g")])
+    monkeypatch.setattr(cli, "GuardedTarget", lambda base, guards: _Guarded())
+    monkeypatch.setattr("iago.delta.REPORTS_DIR", tmp_path / "reports")
+    assert cli._cmd_defense_delta(_dd_args()) == 0
+    report = next((tmp_path / "reports").glob("delta_*.md")).read_text()
+    assert "- **Raw target:** `fake:model`" in report
+    assert "- **Guarded target:** `guarded:model`" in report

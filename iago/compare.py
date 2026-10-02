@@ -110,6 +110,7 @@ class Comparison:
     # unchanged ids) are not comparable, so compare refuses them the way it refuses a judge mismatch.
     library_ids: dict[str, str | None] = field(default_factory=dict)
     library_mismatch_allowed: bool = False
+    judge_mismatch_allowed: bool = False  # distinct judge_ids compared under --allow-judge-mismatch
     # artifact -> the run's recorded `determinism` block (None = legacy artifact / not recorded).
     # A delta between two runs is exactly the claim non-determinism on the measuring host attacks,
     # so compare must say when a contributing host proved itself non-reproducible (ISC-50).
@@ -224,7 +225,8 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
     return Comparison(models=[by_model[m] for m in model_order],
                       scenario_ids=order, scenario_names=names, judge_ids=judge_ids,
                       determinism=determinism, library_ids=library_ids,
-                      library_mismatch_allowed=len(libraries) > 1)
+                      library_mismatch_allowed=len(libraries) > 1,
+                      judge_mismatch_allowed=len(distinct) > 1)
 
 
 
@@ -473,6 +475,11 @@ def write_comparison_report(comp: Comparison, reports_dir: Path | None = None) -
                      "artifacts predate `scenario_library_sha256`, so it is UNKNOWN whether every "
                      "artifact here ran the same attack text under these scenario ids (the RAG / A2A "
                      "stimulus changed in ISC-68 without renaming scenarios). Unknown is not a match._")
+        lines.append("")
+    if comp.judge_mismatch_allowed:
+        lines.append("_⚠️ **Different oracle code** (compared with `--allow-judge-mismatch`): the "
+                     "artifacts carry different `judge_id`s, so a rate delta here may be the oracle "
+                     "change, not the model._")
         lines.append("")
     if comp.library_mismatch_allowed:
         lines.append("_⚠️ **Different scenario libraries** (compared with `--allow-library-mismatch`): "

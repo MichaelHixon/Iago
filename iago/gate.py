@@ -156,13 +156,16 @@ def evaluate(current: Path | str, baseline: Path | str | None = None, *,
         # UNKNOWN (a note), not a match and not a refusal. Rubric stamps live on every regraded
         # row, so they are always known and compare directly.
         judges = {"current": mine[0], "baseline": theirs[0]}
-        if (len(fingerprint_status(judges)[0]) > 1 or mine[1] != theirs[1]) and not allow_judge_mismatch:
-            raise GateError(
-                f"the artifacts were scored differently (current: judge {mine[0]}, rubric "
-                f"{sorted(mine[1]) or 'none'}; baseline: judge {theirs[0]}, rubric "
-                f"{sorted(theirs[1]) or 'none'}), so a delta would measure the judge, not the "
-                "model. Regrade both alike, or pass --allow-judge-mismatch.")
-        found = [_unknown_note("judge_id", "were scored by the same offline judge", judges),
+        scored = (f"current: judge {mine[0]}, rubric {sorted(mine[1]) or 'none'}; baseline: judge "
+                  f"{theirs[0]}, rubric {sorted(theirs[1]) or 'none'}")
+        mismatch = len(fingerprint_status(judges)[0]) > 1 or mine[1] != theirs[1]
+        if mismatch and not allow_judge_mismatch:
+            raise GateError(f"the artifacts were scored differently ({scored}), so a delta would "
+                            "measure the judge, not the model. Regrade both alike, or pass "
+                            "--allow-judge-mismatch.")
+        found = [f"NOTE: the artifacts were scored differently ({scored}; --allow-judge-mismatch "
+                 "given): a category delta may be the judge, not the model." if mismatch else None,
+                 _unknown_note("judge_id", "were scored by the same offline judge", judges),
                  library_note(cur_manifest, base_manifest, allow_library_mismatch=allow_library_mismatch)]
         if notes is not None:
             notes.extend(n for n in found if n)
