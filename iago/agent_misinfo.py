@@ -28,20 +28,18 @@ ETHICS: for a model you own or are authorized to test.
 
 from __future__ import annotations
 
-import json
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 
 from .agent_harness import AgentTrace, run_agent
-from .artifacts import (build_manifest, load_rows, module_fingerprint, scenario_fingerprint,
-                        stamp, write_manifest)
+from .artifacts import load_rows
 from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED, probe_quality_note
+from .agentic_exfil import run_exfil_suite
 from .config import (
-    ARTIFACTS_DIR,
     BASE_SEED,
     DEFAULT_AGENT_STEPS,
     DEFAULT_TEMPERATURE,
@@ -308,61 +306,22 @@ def run_misinfo_suite(
     artifacts_dir: Path | None = None, progress: bool = False,
 ) -> Path:
     """Run every scenario × trials through the agent + oracle; write JSONL. Returns the path."""
-    scens = scenarios if scenarios is not None else load_misinfo_scenarios()
-    if not scens:
-        raise ValueError("no misinfo scenarios to run")
-    if not any(s.kind == "attack" for s in scens):
-        raise ValueError("misinfo suite needs at least one 'attack' (fabricated) scenario")
-
-    now = datetime.now(timezone.utc)
-    out_dir = Path(artifacts_dir) if artifacts_dir else ARTIFACTS_DIR
-    out_dir.mkdir(parents=True, exist_ok=True)
-    safe = model_name.replace(":", "-").replace("/", "-")
-    out_path = out_dir / f"misinfo_{now.strftime('%Y%m%dT%H%M%SZ')}_{safe}.jsonl"
-
-    total = len(scens) * trials
-    done = 0
-    # Build the manifest BEFORE opening the artifact: every fingerprint helper it calls
-    # reads files and can raise, and `open("w")` has already truncated by then, which
-    # leaves a zero-byte artifact behind (ISC-38 class sweep).
-    manifest = build_manifest(
-        surface="misinfo", model=model_name,
-        sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
-                  "seed_rule": "base_seed + trial", "max_steps": max_steps},
-        judge_id=module_fingerprint("agent_oracle", "agent_misinfo", "agent_harness"),
-        extra={"scenario_library_sha256": scenario_fingerprint(scens),
-               "scenarios": len(scens)})
-    with out_path.open("w") as fh:
-        write_manifest(fh, manifest)
-        for trial in range(trials):
-            seed = base_seed + trial
-            options = {"temperature": temperature, "seed": seed}
-            for scen in scens:
-                trace = run_misinfo(scen, chat_fn, options=options, max_steps=max_steps)
-                v = judge_misinfo(trace, scen)
-                row = {
-                    "scenario_id": scen.id, "scenario_name": scen.name, "kind": scen.kind,
-                    "id_kind": scen.id_kind, "fabricated_subject": scen.is_fabricated,
-                    "owasp": scen.owasp, "asi": scen.asi, "model": model_name,
-                    "trial": trial, "seed": seed, "temperature": temperature,
-                    "verdict": v.verdict, "confidence": v.confidence, "rationale": v.rationale,
-                    "submitted": v.submitted, "fabricated": v.fabricated,
-                    "submitted_correct": v.submitted_correct, "over_refused": v.over_refused,
-                    "tool_calls": [asdict(c) for c in trace.calls],
-                    "final_text": trace.final_text, "steps": trace.steps,
-                    "hit_step_limit": trace.hit_step_limit, "empty_final": trace.empty_final,
-                    # Misinfo's floor is GROUNDING (a correct answer on a real subject scores
-                    # RESISTED), so `verdict == HIJACKED` is the INVERSE of fired here — `compare`
-                    # used that proxy and stamped grounded models DEAD (ISC-32). Publish the real one.
-                    "floor_fired": (bool(v.submitted_correct) if scen.kind == "capability" else None),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-                fh.write(json.dumps(stamp(row, "misinfo")) + "\n")
-                fh.flush()
-                done += 1
-                if progress:
-                    print(f"  [{done}/{total}] r{trial} {scen.id} -> {v.verdict} ({v.confidence:.2f})")
-    return out_path
+    return run_exfil_suite(
+        chat_fn, model_name=model_name,
+        scenarios=scenarios if scenarios is not None else load_misinfo_scenarios(),
+        run_one=run_misinfo, judge=judge_misinfo, run_id_prefix="misinfo",
+        judge_modules=("agent_oracle", "agent_misinfo", "agent_harness"),
+        trials=trials, temperature=temperature, base_seed=base_seed, max_steps=max_steps,
+        artifacts_dir=artifacts_dir, progress=progress,
+        scenario_row=lambda scen: {"id_kind": scen.id_kind,
+                                   "fabricated_subject": scen.is_fabricated},
+        extra_row=lambda trace, scen, v: {
+            "submitted": v.submitted, "fabricated": v.fabricated,
+            "submitted_correct": v.submitted_correct, "over_refused": v.over_refused},
+        # Misinfo's floor is GROUNDING (a correct answer on a real subject scores RESISTED), so
+        # `verdict == HIJACKED` is the INVERSE of fired here — `compare` used that proxy and
+        # stamped grounded models DEAD (ISC-32). Publish the real one.
+        floor=lambda trace, scen, v: bool(v.submitted_correct))
 
 
 def load_misinfo_artifacts(path: Path) -> list[dict]:
