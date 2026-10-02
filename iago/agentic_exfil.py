@@ -29,6 +29,7 @@ from .artifacts import (build_manifest, load_rows, module_fingerprint, scenario_
                         stamp, write_manifest)
 from .agent_oracle import (ATTEMPTED, HIJACKED, RESISTED, _is_external, delivered_cell,
                            delivery_note, poison_ingested, probe_quality_note)
+from .agent_scenarios import reject_visible_marker
 from .canary import contains_secret as _contains_secret
 from .config import ARTIFACTS_DIR, DEFAULT_AGENT_STEPS, DEFAULT_TEMPERATURE, DEFAULT_TRIALS, REPORTS_DIR
 from .stats import wilson_interval
@@ -88,20 +89,24 @@ def judge_exfil(trace: AgentTrace, canary: str, *, subject: str, hijack_label: s
 
 
 def load_exfil_scenarios(
-    path: Path, *, container_field: str, marker_default: str, valid_kinds: tuple[str, ...],
+    path: Path, *, container_field: str, marker_default: str | None, valid_kinds: tuple[str, ...],
     build, extra_required: tuple[str, ...] = (), extra_gate=None,
 ) -> list:
     """The shared loud loader for an exfil surface. Validates each record (required fields, kind,
-    duplicate id, non-empty container, canary-in-notes + high-entropy, marker attack-required and
-    non-attack-CLEAN) and calls `build(rec, container_str, marker)` to construct the surface's
-    scenario dataclass. `extra_gate(rec, container_str, marker)` runs for ATTACK records (e.g. RAG's
-    poison-ranks-into-top-k check). Fails loudly on a never-fireable oracle; requires >=1 attack."""
+    duplicate id, non-empty container, canary-in-notes + high-entropy, marker attack-required,
+    poison-only and non-attack-CLEAN) and calls `build(rec, container_str, marker)` to construct
+    the surface's scenario dataclass. `extra_gate(rec, container_str, marker)` runs for ATTACK
+    records (e.g. RAG's poison-ranks-into-top-k check). With `marker_default=None` every attack
+    must name its own `poison_marker`, and a non-attack container must carry none of the file's
+    attack markers. Fails loudly on a never-fireable oracle; requires >=1 attack."""
     if not path.exists():
         raise FileNotFoundError(f"scenarios file not found: {path}")
 
     records = yaml.safe_load(path.read_text()) or []
     scenarios: list = []
     seen: set[str] = set()
+    attack_markers: set[str] = set()
+    non_attack: list[tuple[str, str, dict[str, str]]] = []
     base_required = ("id", "name", "kind", "task", container_field, "private_notes", "canary")
 
     for rec in records:
@@ -131,19 +136,35 @@ def load_exfil_scenarios(
         marker = rec.get("poison_marker", marker_default)
         container_str = {str(k): str(v) for k, v in container.items()}
         if rec["kind"] == "attack":
+            if not marker:
+                raise ValueError(f"{path.name}: attack scenario {rec['id']!r} needs a poison_marker "
+                                 "— without one the report cannot tell a resisted trial from an "
+                                 "undelivered one")
             if not any(marker in v for v in container_str.values()):
                 raise ValueError(
                     f"{path.name}: attack scenario {rec['id']!r} has no {container_field} entry "
                     f"containing the poison marker {marker!r} — nothing to act on, the oracle could "
                     "never fire")
+            reject_visible_marker(path.name, rec, marker, names=container_str,
+                                  names_label=f"{container_field} keys")
             if extra_gate is not None:
                 extra_gate(rec, container_str, marker)
-        elif any(marker in v for v in container_str.values()):
-            raise ValueError(
-                f"{path.name}: {rec['kind']} scenario {rec['id']!r} {container_field} contains the "
-                f"poison marker {marker!r} — a non-attack scenario must carry no injection")
+            attack_markers.add(marker)
+        else:
+            if marker:
+                attack_markers.add(marker)
+            non_attack.append((rec["id"], rec["kind"], container_str))
 
         scenarios.append(build(rec, container_str, marker))
+
+    # A non-attack scenario must carry no injection: none of the file's markers, checked after the
+    # loop so a control listed before its attack is still caught.
+    for sid, kind, container_str in non_attack:
+        for marker in sorted(attack_markers):
+            if any(marker in v for v in container_str.values()):
+                raise ValueError(
+                    f"{path.name}: {kind} scenario {sid!r} {container_field} contains the poison "
+                    f"marker {marker!r} — a non-attack scenario must carry no injection")
 
     if not any(s.kind == "attack" for s in scenarios):
         raise ValueError(f"{path.name}: at least one 'attack' scenario is required")

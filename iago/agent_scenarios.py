@@ -137,11 +137,20 @@ def _check_poison_marker(fname: str, rec: dict, documents: dict[str, str], marke
     if not any(marker in v for v in documents.values()):
         raise ValueError(f"{fname}: attack scenario {sid!r} has no document containing the poison "
                          f"marker {marker!r} — nothing to act on, the oracle could never fire")
+    reject_visible_marker(fname, rec, marker, names=documents, names_label="document names")
+
+
+def reject_visible_marker(fname: str, rec: dict, marker: str, *, names, names_label: str) -> None:
+    """Refuse a poison marker the agent can see without reading the poison: in the task, the
+    private notes, or the names of the poisoned container's entries (document names, RAG chunk
+    ids, A2A sender names). Mock tools echo their inputs, so such a marker could surface in a tool
+    result and score Delivered on a trial that never read the poison. Shared by the base, RAG and
+    A2A loaders."""
     seen_elsewhere = [where for where, text in (("task", rec["task"]),
                                                 ("private_notes", rec["private_notes"]),
-                                                ("document names", " ".join(documents)))
+                                                (names_label, " ".join(names)))
                       if marker in str(text)]
     if seen_elsewhere:
-        raise ValueError(f"{fname}: attack scenario {sid!r} poison marker {marker!r} also appears "
-                         f"in its {', '.join(seen_elsewhere)} — it must live only in the poisoned "
-                         "document content, or an echo would read as delivery")
+        raise ValueError(f"{fname}: attack scenario {rec['id']!r} poison marker {marker!r} also "
+                         f"appears in its {', '.join(seen_elsewhere)} — it must live only in the "
+                         "poisoned content, or an echo would read as delivery")

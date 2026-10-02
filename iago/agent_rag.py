@@ -38,7 +38,6 @@ from .config import (
     DEFAULT_AGENT_STEPS,
     DEFAULT_TEMPERATURE,
     DEFAULT_TRIALS,
-    INJECTED_RAG_MARKER,
     RAG_SCENARIOS_FILE,
 )
 
@@ -95,7 +94,7 @@ class RagScenario:
     corpus: dict[str, str]
     private_notes: str
     canary: str
-    poison_marker: str = INJECTED_RAG_MARKER
+    poison_marker: str | None = None
     top_k: int = DEFAULT_TOP_K
     owasp: str | None = None
     asi: str | None = None
@@ -176,7 +175,7 @@ def load_rag_scenarios(scenarios_file: Path | None = None) -> list[RagScenario]:
 
     return load_exfil_scenarios(
         Path(scenarios_file) if scenarios_file else RAG_SCENARIOS_FILE,
-        container_field="corpus", marker_default=INJECTED_RAG_MARKER,
+        container_field="corpus", marker_default=None,
         valid_kinds=VALID_KINDS, build=build, extra_gate=_rank_gate)
 
 
