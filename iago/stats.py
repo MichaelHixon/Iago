@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from math import ceil, comb, log, sqrt
+from math import ceil, comb, exp, lgamma, log, sqrt
 
 
 def mcnemar_exact_p(b: int, c: int) -> float:
@@ -88,8 +88,9 @@ def newcombe_diff_ci(x1: int | float, n1: int, x2: int | float, n2: int, *, phi:
     """95% hybrid-score interval on p1 - p2 (Newcombe 1998a, method 10): each proportion's Wilson
     half-widths are combined in quadrature, so the interval inherits Wilson's small-sample
     behaviour (never outside [-1, 1], never a zero-width point at 0/n or n/n). `phi` is the
-    correlation between the two arms: 0 for independent samples; `paired_difference_ci` supplies
-    the phi of a paired 2x2 table. Reference (Newcombe 1998a, Table II): 56/70 vs 48/80 ->
+    correlation between the two arms: 0 for independent samples (two models, two runs: trial i
+    on one is not trial i on the other); `paired_difference_ci` supplies the continuity-corrected
+    phi of a paired 2x2 table. Reference (Newcombe 1998a, Table II): 56/70 vs 48/80 ->
     (0.0524, 0.3339); 9/10 vs 3/10 -> (0.1705, 0.8090)."""
     p1, p2 = x1 / n1, x2 / n2
     l1, u1 = wilson_interval(x1, n1, z)
@@ -102,20 +103,42 @@ def newcombe_diff_ci(x1: int | float, n1: int, x2: int | float, n2: int, *, phi:
     return (max(-1.0, d - delta), min(1.0, d + eps))
 
 
+def paired_phi(a: int, b: int, c: int, d: int) -> float:
+    """Newcombe's continuity-corrected phi for a paired 2x2 table (Newcombe 1998b, Stat Med
+    17:2635-2650, § 5 method 10, p. 2639). With the paper's cells e, f, g, h = a, b, c, d:
+    phi = (eh - fg) / sqrt((e+f)(g+h)(e+g)(f+h)), 0 when that denominator is 0, except that the
+    numerator is replaced by max(eh - fg - n/2, 0) when eh > fg. A negative eh - fg is left
+    uncorrected, exactly as published; the correction only ever pulls a positive phi towards 0."""
+    n = a + b + c + d
+    margins = (a + b) * (c + d) * (a + c) * (b + d)
+    if margins == 0:
+        return 0.0
+    num = float(a * d - b * c)
+    if num > 0:
+        num = max(num - n / 2, 0.0)
+    return num / sqrt(margins)
+
+
 def paired_difference_ci(*, a: int, b: int, c: int, d: int, z: float = 1.96) -> tuple[float, float]:
     """95% CI on the paired difference p1 - p2 from a 2x2 table of matched trials: a = both
-    arms bypassed, b = arm 1 only, c = arm 2 only, d = neither (Newcombe 1998b, method 10).
+    arms bypassed, b = arm 1 only, c = arm 2 only, d = neither (Newcombe 1998b, method 10:
+    "score intervals with continuity corrected phi").
 
-    Why this method: the delta / compare pairs are small (tens of trials) and often one-sided
-    (c = 0 is the common case for a guard that only ever helps), where the Wald interval on
-    (b - c)/n collapses to zero width and the independent-arms interval ignores that the same
-    technique/objective/seed fired on both sides. Newcombe's paired method keeps the Wilson
-    small-sample behaviour and reduces the width by the arms' correlation phi, which is what the
-    pairing buys. It is closed-form (no root-finding) and needs only `math`. Tango's (1998)
-    score interval is the usual alternative; it needs an iterative solve for no gain at these
-    sizes. phi = (ad - bc)/sqrt((a+b)(c+d)(a+c)(b+d)), taken as 0 when any margin is zero
-    (Newcombe's rule; the interval then equals the independent one). The sign of phi is kept: a
-    negative correlation widens the interval, which is the conservative direction.
+    Why this method: the delta pairs are small (tens of trials) and often one-sided (c = 0 is the
+    common case for a guard that only ever helps). The Wald interval on (b - c)/n degenerates to
+    zero width when b = c = 0 or when every pair is discordant the same way (b = n or c = n),
+    and the independent-arms interval ignores that the same technique/objective/seed fired on
+    both sides. Newcombe's paired method keeps the Wilson small-sample behaviour and reduces the
+    width by the arms' correlation phi, which is what the pairing buys. It is closed-form (no
+    root-finding) and needs only `math`. Tango's (1998) score interval is the usual alternative;
+    it needs an iterative solve for no gain at these sizes.
+
+    phi is `paired_phi`: Newcombe's correlation with his continuity correction, which is what
+    keeps the interval from collapsing. Without it a table with no discordant pairs and a = d
+    (e.g. 5/0/0/5) has phi = 1 and a zero-width interval; the paper's § 6 (iv)(c) notes methods 8
+    and 9 do exactly that and method 10 does not. With it, n > 0 never yields a zero width. A
+    negative phi widens the interval, the conservative direction. Table III of the paper is the
+    reference (see tests/test_isc70_stats.py).
 
     n == 0 returns the uninformative (-1.0, 1.0); a negative cell raises."""
     if min(a, b, c, d) < 0:
@@ -123,9 +146,7 @@ def paired_difference_ci(*, a: int, b: int, c: int, d: int, z: float = 1.96) -> 
     n = a + b + c + d
     if n == 0:
         return (-1.0, 1.0)
-    margins = (a + b) * (c + d) * (a + c) * (b + d)
-    phi = 0.0 if margins == 0 else (a * d - b * c) / sqrt(margins)
-    return newcombe_diff_ci(a + b, n, a + c, n, phi=phi, z=z)
+    return newcombe_diff_ci(a + b, n, a + c, n, phi=paired_phi(a, b, c, d), z=z)
 
 
 # --- technique-clustered interval -----------------------------------------------------------------
@@ -142,7 +163,7 @@ class ClusteredInterval:
     reason: str | None
 
 
-def clustered_interval(clusters: list[tuple[int, int]], z: float = 1.96) -> ClusteredInterval:
+def clustered_interval(clusters: list[tuple[int, int]], z: float | None = None) -> ClusteredInterval:
     """Cluster-aware 95% interval on a pooled proportion whose trials are grouped — here, every
     trial of one technique is one cluster, because repeated trials of the same technique are not
     independent draws (same prompt, same objective, seeds a step apart).
@@ -155,8 +176,18 @@ def clustered_interval(clusters: list[tuple[int, int]], z: float = 1.96) -> Clus
     so the result keeps Wilson's edge behaviour instead of a Wald interval that collapses at 0%.
     deff is floored at 1: an under-dispersed sample is sampling luck, not evidence the trials
     are MORE independent than binomial, so the cluster interval is never narrower than Wilson.
-    One cluster gives no estimate (m - 1 = 0) and a rate of exactly 0 or 1 has no between-cluster
-    variance to measure, so both fall back to the plain Wilson interval with `reason` set."""
+
+    The quantile is t(m - 1) at 97.5%, not 1.96, unless `z` is given: with few clusters the
+    cluster-robust variance is itself a noisy estimate and the normal quantile undercovers
+    (Cameron & Miller 2015 § VI.A recommend T(G - 1) critical values; Korn & Graubard 1998 use the
+    same degrees of freedom). At m = 3 that is 4.30, at m = 10 2.26, and it reaches 1.96 only in
+    the limit, so a category with a handful of techniques gets the wide interval its evidence
+    supports instead of a liberal one.
+
+    `interval` is None, with `reason`, in the three cases where the estimator does not exist:
+    no trials; one cluster (m - 1 = 0); a rate of exactly 0 or 1, which has no between-cluster
+    variance to measure. The caller renders the reason and points at the plain Wilson interval,
+    which is what the "clustered" column would otherwise silently have been."""
     m = len(clusters)
     hits = sum(y for y, _ in clusters)
     total = sum(n for _, n in clusters)
@@ -167,12 +198,90 @@ def clustered_interval(clusters: list[tuple[int, int]], z: float = 1.96) -> Clus
     p = hits / total
     binom_var = p * (1 - p) / total
     if binom_var == 0.0:
-        return ClusteredInterval(wilson_interval(hits, total, z), 1.0, float(total),
-                                 "rate at 0% or 100%: no between-cluster variance to estimate")
+        return ClusteredInterval(None, None, None,
+                                 f"rate at {'0' if hits == 0 else '100'}%: no between-technique variance")
     cluster_var = (m / (m - 1)) * sum((y - p * n) ** 2 for y, n in clusters) / (total * total)
     deff = max(1.0, cluster_var / binom_var)
     n_eff = total / deff
-    return ClusteredInterval(wilson_interval(hits * n_eff / total, n_eff, z), deff, n_eff, None)
+    q = t_ppf(0.975, m - 1) if z is None else z
+    return ClusteredInterval(wilson_interval(hits * n_eff / total, n_eff, q), deff, n_eff, None)
+
+
+def _betacf(a: float, b: float, x: float) -> float:
+    """Continued fraction for the regularized incomplete beta I_x(a, b) (Lentz's method, as in
+    Numerical Recipes § 6.4 `betacf`)."""
+    tiny = 1e-300
+    qab, qap, qam = a + b, a + 1.0, a - 1.0
+    c, d = 1.0, 1.0 - qab * x / qap
+    d = 1.0 / (d if abs(d) > tiny else tiny)
+    h = d
+    for m in range(1, 300):
+        m2 = 2 * m
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        d = 1.0 / (d if abs(d) > tiny else tiny)
+        c = 1.0 + aa / (c if abs(c) > tiny else tiny)
+        h *= d * c
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        d = 1.0 / (d if abs(d) > tiny else tiny)
+        c = 1.0 + aa / (c if abs(c) > tiny else tiny)
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < 3e-16:
+            break
+    return h
+
+
+def _betainc(a: float, b: float, x: float) -> float:
+    """Regularized incomplete beta I_x(a, b) via the continued fraction, using the symmetry
+    I_x(a, b) = 1 - I_{1-x}(b, a) where the fraction converges faster."""
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    front = exp(lgamma(a + b) - lgamma(a) - lgamma(b) + a * log(x) + b * log(1.0 - x))
+    if x < (a + 1.0) / (a + b + 2.0):
+        return front * _betacf(a, b, x) / a
+    return 1.0 - front * _betacf(b, a, 1.0 - x) / b
+
+
+def t_cdf(t: float, df: float) -> float:
+    """Student-t CDF with `df` degrees of freedom: for t >= 0, 1 - I_x(df/2, 1/2) / 2 with
+    x = df / (df + t^2) (Abramowitz & Stegun 26.7.1); mirrored for t < 0."""
+    if df <= 0:
+        raise ValueError(f"t_cdf: df must be positive, got {df}")
+    x = df / (df + t * t)
+    tail = 0.5 * _betainc(df / 2.0, 0.5, x)
+    return 1.0 - tail if t >= 0 else tail
+
+
+def t_ppf(p: float, df: float) -> float:
+    """Inverse Student-t CDF (the t critical value) by bisection on `t_cdf`, so the clustered
+    interval needs no scipy. Checked against the standard table (NIST/SEMATECH e-Handbook of
+    Statistical Methods § 1.3.6.7.2) in tests. Raises for p outside (0, 1) or df <= 0."""
+    if not 0.0 < p < 1.0:
+        raise ValueError(f"t_ppf: p must be in (0, 1), got {p}")
+    if df <= 0:
+        raise ValueError(f"t_ppf: df must be positive, got {df}")
+    if p == 0.5:
+        return 0.0
+    if p < 0.5:
+        return -t_ppf(1.0 - p, df)
+    lo, hi = 0.0, 1.0
+    while t_cdf(hi, df) < p:        # bracket: df = 1 at p = 0.9995 needs t ~ 636
+        hi *= 2.0
+        if hi > 1e12:
+            break
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        if t_cdf(mid, df) < p:
+            lo = mid
+        else:
+            hi = mid
+        if hi - lo < 1e-12 * max(1.0, hi):
+            break
+    return 0.5 * (lo + hi)
 
 
 # --- paired sample size ---------------------------------------------------------------------------

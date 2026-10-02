@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -33,44 +34,85 @@ def test_manifest_carries_system_prompt_sha256_or_an_explicit_null():
     assert default["system_prompt_sha256"] is None and default["system_prompt_scope"] == "unrecorded"
 
 
-def test_manifest_carries_accelerator_block():
-    m = build_manifest(surface="agent", model="fake:m", sampling={}, judge_id="x")
-    acc = m["accelerator"]
-    assert set(acc) >= {"kind", "name", "reason"}
-    assert acc["kind"] in ("apple-silicon", "nvidia", "unknown")
-    if acc["kind"] == "unknown":
-        assert acc["name"] is None and acc["reason"]
-    else:
-        assert acc["name"]
+def test_manifest_carries_host_accelerator_not_a_target_claim(monkeypatch):
+    """The key is `host_accelerator`: the probe reads THIS machine's chip, which is the target's
+    only when the target is served here. `accelerator` (the old name) is gone."""
+    monkeypatch.setattr(artifacts, "accelerator_info",
+                        lambda: {"kind": "apple-silicon", "name": "Apple M9", "reason": None})
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    local = build_manifest(surface="agent", model="ollama:llama3", sampling={}, judge_id="x")
+    assert "accelerator" not in local
+    assert local["host_accelerator"] == {"kind": "apple-silicon", "name": "Apple M9", "reason": None}
+
+    remote = build_manifest(surface="agent", model="anthropic:claude", sampling={}, judge_id="x")
+    assert remote["host_accelerator"]["kind"] == "not-applicable"
+    assert remote["host_accelerator"]["name"] is None
+    assert "not served by this host" in remote["host_accelerator"]["reason"]
+
+    monkeypatch.setenv("OLLAMA_HOST", "http://10.9.8.7:11434")
+    far = build_manifest(surface="agent", model="ollama:llama3", sampling={}, judge_id="x")
+    assert far["host_accelerator"]["kind"] == "not-applicable"
+    assert "another machine" in far["host_accelerator"]["reason"]
+
+    monkeypatch.setenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+    loop = build_manifest(surface="agent", model="ollama:llama3", sampling={}, judge_id="x")
+    assert loop["host_accelerator"]["kind"] == "apple-silicon"
 
 
-def test_accelerator_probe_is_offline_and_spawns_no_process(monkeypatch):
-    """The probe reads files and in-process libc only. A subprocess or a socket here would land
-    on the agent surfaces' no-process / no-socket anti-claim path, exactly as `git_info` did."""
-    import socket
-
-    def boom(*a, **k):
-        raise AssertionError("accelerator probe spawned a process or opened a socket")
-
-    monkeypatch.setattr(subprocess, "run", boom)
-    monkeypatch.setattr(subprocess, "Popen", boom)
-    monkeypatch.setattr(socket, "socket", boom)
-    acc = accelerator_info()
-    assert acc["kind"] in ("apple-silicon", "nvidia", "unknown")
-    assert "subprocess" not in SRC.split("def accelerator_info", 1)[1].split("\ndef ", 1)[0]
-
-
-def test_accelerator_probe_fails_soft_to_unknown_with_a_reason(monkeypatch):
+def _darwin_arm64(monkeypatch, *, rc=0, name="Apple M3 Max", cdll_raises=False):
+    """Pin the probe to the Apple Silicon branch with a fake libc, whatever the test host is."""
     import ctypes
+    import ctypes.util   # loaded BEFORE CDLL is faked: on macOS its import calls ctypes.CDLL itself
 
-    def broken(*a, **k):
-        raise OSError("no libc")
-
-    monkeypatch.setattr(ctypes, "CDLL", broken)
+    monkeypatch.setattr(ctypes.util, "find_library", lambda name: "libc.dylib")
     monkeypatch.setattr(artifacts, "_NVIDIA_PROC", Path("/nonexistent/iago-no-such-dir"))
+    monkeypatch.setattr(artifacts.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(artifacts.platform, "machine", lambda: "arm64")
+
+    class FakeLibc:
+        calls: list = []
+
+        def sysctlbyname(self, key, buf, size_ref, newp, newlen):
+            self.calls.append(key)
+            buf.value = name.encode()
+            return rc
+
+    def cdll(path):
+        if cdll_raises:
+            raise OSError("no libc")
+        return FakeLibc()
+
+    monkeypatch.setattr(ctypes, "CDLL", cdll)
+    return FakeLibc
+
+
+def test_accelerator_probe_reads_the_apple_silicon_brand_string_via_sysctl(monkeypatch):
+    libc = _darwin_arm64(monkeypatch, name="Apple M3 Max")
+    assert accelerator_info() == {"kind": "apple-silicon", "name": "Apple M3 Max", "reason": None}
+    assert libc.calls == [b"machdep.cpu.brand_string"]
+
+
+def test_accelerator_probe_reports_a_nonzero_sysctl_rc_as_unknown(monkeypatch):
+    _darwin_arm64(monkeypatch, rc=-1)
+    assert accelerator_info() == {"kind": "unknown", "name": None,
+                                  "reason": "sysctl machdep.cpu.brand_string returned rc=-1"}
+
+
+def test_accelerator_probe_fails_soft_when_ctypes_cannot_load_libc(monkeypatch):
+    _darwin_arm64(monkeypatch, cdll_raises=True)
+    assert accelerator_info() == {"kind": "unknown", "name": None,
+                                  "reason": "sysctl via ctypes failed: OSError"}
+
+
+def test_accelerator_probe_reports_an_unreadable_nvidia_proc_tree(tmp_path, monkeypatch):
+    # `information` is a DIRECTORY, so read_text raises: the probe must carry that reason through
+    # to the result instead of swallowing it, and must not then claim another platform's probe.
+    (tmp_path / "0000:01:00.0" / "information").mkdir(parents=True)
+    monkeypatch.setattr(artifacts, "_NVIDIA_PROC", tmp_path)
+    monkeypatch.setattr(artifacts.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(artifacts.platform, "machine", lambda: "x86_64")
     acc = accelerator_info()
-    assert acc["kind"] == "unknown" and acc["name"] is None
-    assert acc["reason"]  # an explicit why, never a silent null
+    assert acc == {"kind": "unknown", "name": None, "reason": "nvidia /proc unreadable: IsADirectoryError"}
 
 
 def test_accelerator_probe_reads_nvidia_proc_information_file(tmp_path, monkeypatch):
@@ -255,3 +297,20 @@ def test_git_info_prefers_a_ref_in_the_worktree_gitdir_over_commondir(tmp_path):
     local_ref.parent.mkdir(parents=True)
     local_ref.write_text("b" * 40 + "\n")
     assert artifacts.git_info(root)["commit"] == "b" * 40
+
+
+def test_git_info_resolves_a_relative_gitdir_pointer_against_the_dot_git_file(tmp_path, monkeypatch):
+    """`git worktree add` writes `gitdir: ../main/.git/worktrees/wt` when the two sit side by
+    side. That path is relative to the directory holding the `.git` file, never to the cwd —
+    resolving it against the cwd found nothing and reported `commit: None` from any other
+    directory, which is where `iago` is normally run."""
+    root = _fake_worktree(tmp_path, packed=False)
+    wt_dir = Path((root / ".git").read_text().split("gitdir: ", 1)[1].strip())
+    (root / ".git").write_text(f"gitdir: {os.path.relpath(wt_dir, root)}\n")
+    # A cwd at a DIFFERENT depth from the checkout: a sibling directory would let a cwd-relative
+    # resolution land on the right place by accident and the test would not falsify anything.
+    elsewhere = tmp_path / "far" / "away"
+    elsewhere.mkdir(parents=True)
+    monkeypatch.chdir(elsewhere)
+    info = artifacts.git_info(root)
+    assert info["commit"] == "a" * 40 and info["root"] == str(root)

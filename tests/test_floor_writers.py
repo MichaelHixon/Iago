@@ -175,10 +175,18 @@ def test_a_suite_run_spawns_no_subprocess(tmp_path, monkeypatch):
     def boom(*a, **k):
         raise AssertionError("a subprocess was spawned during a suite run")
 
+    import platform
+
     monkeypatch.setattr(subprocess, "run", boom)
     monkeypatch.setattr(subprocess, "Popen", boom)
     monkeypatch.setattr(subprocess, "check_output", boom)
+    # A COLD process: `platform.platform()` resolves its processor field by spawning `uname -p`
+    # the first time, and `platform` caches the answer, so this test passed by test ORDER
+    # whenever an earlier test had already warmed the cache. Clear both caches first.
+    monkeypatch.setattr(platform, "_uname_cache", None)
+    monkeypatch.setattr(platform, "_platform_cache", {})
     path = run_agent_suite(scripted(["done"]), model_name="m", trials=1,
                            scenarios=[_scen("attack")], artifacts_dir=tmp_path)
     manifest = read_artifact(path)[0]
     assert manifest["git"]["commit"] is not None, "provenance must still be captured without git"
+    assert manifest["host"]["platform"] == f"{platform.system()}-{platform.release()}"

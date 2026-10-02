@@ -192,14 +192,16 @@ def _cmd_gate(args: argparse.Namespace) -> int:
     a baseline artifact or above an absolute ceiling; exit 2 when it cannot judge."""
     from .gate import evaluate, render
 
+    notes: list[str] = []
     try:
         checks = evaluate(args.artifact, args.baseline, max_rate=args.max_rate,
-                          allow_judge_mismatch=args.allow_judge_mismatch)
+                          allow_judge_mismatch=args.allow_judge_mismatch,
+                          allow_library_mismatch=args.allow_library_mismatch, notes=notes)
     except (ValueError, OSError, KeyError) as exc:  # GateError, wrong surface, unreadable/malformed
         # Exit 1 means "regressed"; anything that stopped the gate from judging must not read as that.
         print(f"ERROR: {exc!r}" if isinstance(exc, KeyError) else f"ERROR: {exc}", file=sys.stderr)
         return 2
-    print(render(checks, has_baseline=args.baseline is not None))
+    print(render(checks, has_baseline=args.baseline is not None, notes=notes))
     return 1 if any(c.failed for c in checks) else 0
 
 
@@ -215,8 +217,9 @@ def _cmd_compare(args: argparse.Namespace) -> int:
             print(f"ERROR: artifact not found: {p}", file=sys.stderr)
             return 2
     try:
-        comp = build_comparison(paths, allow_judge_mismatch=getattr(args, "allow_judge_mismatch", False))
-    except ValueError as exc:  # wrong surface, or oracle code differs between runs (ISC-33)
+        comp = build_comparison(paths, allow_judge_mismatch=getattr(args, "allow_judge_mismatch", False),
+                                allow_library_mismatch=getattr(args, "allow_library_mismatch", False))
+    except ValueError as exc:  # wrong surface, oracle code or scenario library differs between runs
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     if not comp.scenario_ids:
@@ -465,8 +468,10 @@ def _cmd_judge_eval(args: argparse.Namespace) -> int:
 
 
 def _cmd_power(args: argparse.Namespace) -> int:
-    """How many paired trials (raw/guarded twins, or the same seeded prompt on two models) are
-    needed to detect a given difference in bypass rate with McNemar's test (ISC-70)."""
+    """How many paired trials (raw/guarded twins from `defense-delta`, the one paired design
+    Iago runs) are needed to detect a given difference in bypass rate with McNemar's test
+    (ISC-70). Two models' runs are independent samples, not pairs; this number does not size a
+    `compare`."""
     from .stats import paired_sample_size
 
     try:
@@ -1123,6 +1128,10 @@ def build_parser() -> argparse.ArgumentParser:
     cmp.add_argument("--allow-judge-mismatch", action="store_true",
                      help="compare artifacts even when their manifests name different oracle code "
                           "(judge_id) — the delta may then be the oracle change, not the model")
+    cmp.add_argument("--allow-library-mismatch", action="store_true",
+                     help="compare artifacts even when their manifests name different scenario "
+                          "libraries (scenario_library_sha256) — the same scenario id then names a "
+                          "different stimulus in each, so the delta may be the attack text")
     cmp.set_defaults(func=_cmd_compare)
 
     gt = sub.add_parser("gate",
@@ -1135,6 +1144,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="absolute ceiling (0-1): fail when a category's CI lower bound exceeds it")
     gt.add_argument("--allow-judge-mismatch", action="store_true",
                     help="gate even when the two artifacts were scored by different judge code")
+    gt.add_argument("--allow-library-mismatch", action="store_true",
+                    help="gate even when the two artifacts fired different technique libraries "
+                         "(technique_library_sha256) — the delta may then be the attack text")
     gt.set_defaults(func=_cmd_gate)
 
     je = sub.add_parser("judge-eval",
@@ -1202,10 +1214,12 @@ def build_parser() -> argparse.ArgumentParser:
     dd.set_defaults(func=_cmd_defense_delta)
 
     pw = sub.add_parser("power",
-                        help="how many paired trials detect a given bypass-rate difference "
-                             "(McNemar; alpha 0.05 / power 0.8 by default)")
+                        help="how many raw/guarded trial pairs (defense-delta) detect a given "
+                             "bypass-rate difference (McNemar; alpha 0.05 / power 0.8 by default); "
+                             "not for compare, whose two runs are independent samples")
     pw.add_argument("--diff", type=float, required=True,
-                    help="the paired difference in bypass rate to detect, as a fraction (0.10 = 10 pts)")
+                    help="the raw-vs-guarded difference in bypass rate to detect, as a fraction "
+                         "(0.10 = 10 pts)")
     pw.add_argument("--discordant", type=float, default=None,
                     help="expected proportion of pairs whose verdicts differ (b + c over n); omitted = "
                          "|diff|, the lower bound")

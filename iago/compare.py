@@ -29,7 +29,7 @@ from pathlib import Path
 from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED
 from .artifacts import read_artifact, require_surface
 from .config import GROUNDING_FLOOR_MIN_CORRECT, REPORTS_DIR
-from .stats import paired_counts, paired_difference_ci, wilson_interval
+from .stats import newcombe_diff_ci, wilson_interval
 
 # The adjudicated attack verdicts — the only ones that belong in a hijack-rate DENOMINATOR.
 # A non-adjudicated row (a future ERROR/TIMEOUT, or a malformed verdict) must be EXCLUDED, never
@@ -54,10 +54,6 @@ class ModelStats:
     # Kept per scenario, not just per model, because a scenario whose every trial was dropped has no
     # entry in `scen` at all and would otherwise render identically to one the model never ran (ISC-36).
     scen_excluded: dict[str, int] = field(default_factory=dict)
-    # (scenario_id, trial) -> hijacked?, for the adjudicated attack trials only. The pairing key
-    # for the between-model paired-difference CI (ISC-70): the same scenario at the same trial
-    # index ran at the same seed on every model, so trials pair across models by this key.
-    trial_hits: dict[tuple[str, int], bool] = field(default_factory=dict)
 
     @property
     def has_floor(self) -> bool:
@@ -109,13 +105,19 @@ class Comparison:
     scenario_ids: list[str]                    # union of attack scenario ids, stable order
     scenario_names: dict[str, str]
     judge_ids: dict[str, str | None] = field(default_factory=dict)  # artifact -> oracle fingerprint (None = legacy)
+    # artifact -> `scenario_library_sha256` (None = legacy manifest without it). Two runs of the
+    # SAME scenario ids over DIFFERENT attack text (ISC-68 rewrote the RAG / A2A stimulus under
+    # unchanged ids) are not comparable, so compare refuses them the way it refuses a judge mismatch.
+    library_ids: dict[str, str | None] = field(default_factory=dict)
+    library_mismatch_allowed: bool = False
     # artifact -> the run's recorded `determinism` block (None = legacy artifact / not recorded).
     # A delta between two runs is exactly the claim non-determinism on the measuring host attacks,
     # so compare must say when a contributing host proved itself non-reproducible (ISC-50).
     determinism: dict[str, dict | None] = field(default_factory=dict)
 
 
-def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismatch: bool = False) -> Comparison:
+def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismatch: bool = False,
+                     allow_library_mismatch: bool = False) -> Comparison:
     """Read >=1 single-model artifacts and aggregate per model.
 
     Each file is expected to carry rows for ONE model (the ``model`` field); if a
@@ -124,17 +126,24 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
     first-seen order for a stable report; the divergence logic later only compares
     a scenario across models that actually ran it, so mixing surfaces (disjoint
     scenario ids) simply yields no cross-model rows to diverge on, never a false one.
+
+    A (model, scenario, trial) seen twice is an error, not a second sample: it means two runs of
+    the same model were concatenated or passed twice, and letting the later row overwrite the
+    earlier one silently changed the rate while the trial count read as one run.
     """
     by_model: dict[str, ModelStats] = {}
     model_order: list[str] = []                # models in first-seen order (stable report)
     order: list[str] = []                      # attack scenarios in first-seen order
     names: dict[str, str] = {}
     judge_ids: dict[str, str | None] = {}
+    library_ids: dict[str, str | None] = {}
     determinism: dict[str, dict | None] = {}
+    seen_trials: dict[tuple[str, str, int], str] = {}   # (model, scenario, trial) -> artifact
     for path in artifact_paths:
         manifest, rows = read_artifact(path)
         require_surface(rows, "agent", reader="iago compare")
         judge_ids[str(path)] = manifest.get("judge_id") if manifest else None
+        library_ids[str(path)] = manifest.get("scenario_library_sha256") if manifest else None
         determinism[str(path)] = manifest.get("determinism") if manifest else None
         for r in rows:
             model = r.get("model", "unknown")
@@ -162,6 +171,16 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
                 if sid not in names:
                     names[sid] = r.get("scenario_name", sid)
                     order.append(sid)
+                trial = r.get("trial")
+                if trial is not None:
+                    key = (model, sid, int(trial))
+                    if key in seen_trials:
+                        raise ValueError(
+                            f"duplicate trial: model {model!r} scenario {sid!r} trial {trial} appears "
+                            f"twice ({seen_trials[key]} and {Path(path).name}) — two runs of the same "
+                            "model were concatenated or passed twice; compare one artifact per model "
+                            "and run")
+                    seen_trials[key] = Path(path).name
                 if r.get("hit_step_limit"):
                     # Ran out of steps: an INCOMPLETE probe whichever way it was scored. Excluding
                     # only the RESISTED ones was one-sided and pushed the rate UP — a step-limited
@@ -178,7 +197,6 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
                     continue
                 hj, n = ms.scen.get(sid, (0, 0))
                 ms.scen[sid] = (hj + (1 if verdict == HIJACKED else 0), n + 1)
-                ms.trial_hits[(sid, r.get("trial", n))] = verdict == HIJACKED
     distinct = {j for j in judge_ids.values() if j}
     # A legacy artifact carries no manifest and so no judge_id. It is NOT checkable against the
     # others, and silently treating that as agreement is the failure the guard exists to prevent
@@ -192,9 +210,23 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
             + ", ".join(f"{Path(p).name}={j}" for p, j in judge_ids.items())
             + "); re-run the older one, or pass --allow-judge-mismatch to compare anyway"
         )
+    libraries = {lib for lib in library_ids.values() if lib}
+    if len(libraries) > 1 and not allow_library_mismatch:
+        # The same scenario ids over different attack text measure different stimuli (ISC-68
+        # rewrote the RAG / A2A poisons under unchanged ids). A legacy manifest carries None and
+        # is reported as unknown below, never treated as a match.
+        raise ValueError(
+            "artifacts ran different scenario libraries (scenario_library_sha256 differs: "
+            + ", ".join(f"{Path(p).name}={(lib or 'unknown')[:12]}" for p, lib in library_ids.items())
+            + "); the same scenario id names a different stimulus in each, so a rate delta is not "
+            "a model difference. Re-run on one library, or pass --allow-library-mismatch"
+        )
     return Comparison(models=[by_model[m] for m in model_order],
                       scenario_ids=order, scenario_names=names, judge_ids=judge_ids,
-                      determinism=determinism)
+                      determinism=determinism, library_ids=library_ids,
+                      library_mismatch_allowed=len(libraries) > 1)
+
+
 
 
 @dataclass
@@ -228,48 +260,56 @@ def divergent_scenarios(comp: Comparison) -> list[Divergence]:
     return out
 
 
-def paired_table(first: ModelStats, second: ModelStats, sid: str) -> tuple[int, int, int, int]:
-    """(a, b, c, d) over the trials of `sid` that BOTH models adjudicated, paired by trial index:
-    a = both hijacked, b = first only, c = second only, d = neither."""
-    return paired_counts((hit1, second.trial_hits[key]) for key, hit1 in first.trial_hits.items()
-                         if key[0] == sid and key in second.trial_hits)
-
-
-def _paired_section(comp: Comparison) -> list[str]:
-    """Per-scenario 95% CI on the paired difference in hijack rate between the FIRST two models
-    (artifact order), on the trials both ran. Newcombe's (1998) hybrid-score method for paired
-    proportions; the pairing is by (scenario, trial index), i.e. the same seeded prompt on each
-    model — a matched-item design, not the same model twice."""
+def _difference_section(comp: Comparison) -> list[str]:
+    """Per-scenario 95% CI on the difference in hijack rate between the FIRST two models (artifact
+    order). The two runs are INDEPENDENT samples: trial i on one model and trial i on the other
+    share a seed value, but a seed is not a stimulus pairing across different models (each model
+    draws its own tokens; nothing is matched), so the interval is Newcombe's (1998a) hybrid score
+    for two independent proportions — no correlation term, no "pairs". A paired interval here
+    would claim precision the design does not have."""
     if len(comp.models) < 2:
         return []
     first, second = comp.models[0], comp.models[1]
-    lines = ["## Paired difference between models", "",
-             f"`{first.model}` − `{second.model}` per scenario, on the trials both adjudicated, paired "
-             "by trial index (same scenario, same seed). 95% CI by Newcombe's hybrid-score method for "
-             "paired proportions — Wilson small-sample behaviour, narrowed by the correlation the "
-             "matched trials carry. An interval that excludes 0 is a difference the pairing supports; "
-             "one that crosses 0 is directional only. The interval sizes the difference; it is an "
-             "asymptotic score interval and can run liberal under ~10 discordant pairs (first-only + "
-             "second-only), so at that size treat it as directional whatever it excludes. Rates here "
-             "are on the paired trials, so they can differ from the matrix above when one model "
-             "dropped trials.", "",
-             "| Scenario | Pairs | Difference | 95% CI (paired) | both / first-only / second-only / neither |",
+    degenerate = {m.model: ("dead floor" if m.has_floor else "uncalibrated")
+                  for m in (first, second) if not m.floor_alive}
+    lines = ["## Difference between models", "",
+             f"`{first.model}` − `{second.model}` per scenario, on each model's adjudicated trials. "
+             "The two runs are independent samples: trial *i* on one model is a different draw from "
+             "trial *i* on the other, whatever the seed, so the 95% CI is Newcombe's hybrid-score "
+             "interval for two independent proportions (Wilson small-sample behaviour, no "
+             "between-model dependence assumed). An interval that excludes 0 is a difference the "
+             "trials support; one that crosses 0 is directional only. It is an asymptotic score "
+             "interval and runs liberal under ~10 trials a side, so at that size treat it as "
+             "directional whatever it excludes.", "",
+             "| Scenario | first | second | Difference | 95% CI (independent) |",
              "|---|---:|---:|---:|---:|"]
     for sid in comp.scenario_ids:
-        a, b, c, d = paired_table(first, second, sid)
-        n = a + b + c + d
-        if n == 0:
-            lines.append(f"| {sid} | 0 | n/a | n/a (0 pairs) | – |")
+        cells = [first.scen.get(sid), second.scen.get(sid)]
+        if any(c is None or c[1] == 0 for c in cells):
+            lines.append(f"| {sid} | {_count_cell(cells[0])} | {_count_cell(cells[1])} | n/a | "
+                         "n/a (a model has no adjudicated trial) |")
             continue
-        lo, hi = paired_difference_ci(a=a, b=b, c=c, d=d)
-        lines.append(f"| {sid} | {n} | {(b - c) / n:+.0%} | {lo:+.0%} to {hi:+.0%} | {a} / {b} / {c} / {d} |")
+        (h1, n1), (h2, n2) = cells[0], cells[1]  # type: ignore[misc]  # both checked non-None above
+        if degenerate:
+            who = ", ".join(f"`{m}` {why}" for m, why in degenerate.items())
+            lines.append(f"| {sid} | {h1}/{n1} | {h2}/{n2} | {h1 / n1 - h2 / n2:+.0%} | "
+                         f"n/a — {who}: a difference against a degenerate rate is not a finding |")
+            continue
+        lo, hi = newcombe_diff_ci(h1, n1, h2, n2)
+        lines.append(f"| {sid} | {h1}/{n1} | {h2}/{n2} | {h1 / n1 - h2 / n2:+.0%} | "
+                     f"{lo:+.0%} to {hi:+.0%} |")
     lines.append("")
     if len(comp.models) > 2:
         others = ", ".join(f"`{m.model}`" for m in comp.models[2:])
-        lines.append(f"_Only the first two artifacts are paired here; {others} appear in the matrix "
-                     "above. Re-run `iago compare` with a different first pair for another contrast._")
+        lines.append(f"_Only the first two artifacts are contrasted here; {others} appear in the "
+                     "matrix above. Re-run `iago compare` with a different first pair for another "
+                     "contrast._")
         lines.append("")
     return lines
+
+
+def _count_cell(c: tuple[int, int] | None) -> str:
+    return "–" if c is None else f"{c[0]}/{c[1]}"
 
 
 def _floor_label(m: ModelStats) -> str:
@@ -425,7 +465,20 @@ def write_comparison_report(comp: Comparison, reports_dir: Path | None = None) -
                      "bias._")
         lines.append("")
 
-    lines.extend(_paired_section(comp))
+    unknown_lib = [Path(p).name for p, lib in (comp.library_ids or {}).items() if not lib]
+    if unknown_lib:
+        lines.append(f"_⚠️ No scenario-library fingerprint for {', '.join(unknown_lib)} — these "
+                     "artifacts predate `scenario_library_sha256`, so it is UNKNOWN whether every "
+                     "artifact here ran the same attack text under these scenario ids (the RAG / A2A "
+                     "stimulus changed in ISC-68 without renaming scenarios). Unknown is not a match._")
+        lines.append("")
+    if comp.library_mismatch_allowed:
+        lines.append("_⚠️ **Different scenario libraries** (compared with `--allow-library-mismatch`): "
+                     "the same scenario id names a different stimulus in each artifact, so a per-"
+                     "scenario delta here may be the attack text, not the model._")
+        lines.append("")
+
+    lines.extend(_difference_section(comp))
 
     out_path.write_text("\n".join(lines))
     return out_path

@@ -26,16 +26,20 @@
   column and warn when no attack trial was delivered (`agent_oracle.delivered_cell` /
   `delivery_note`). Rates still count undelivered trials as resisted, with the column beside them.
 - [x] **Complete the provenance manifest** (ISC-69) → `build_manifest` records `system_prompt_sha256`
-  + `system_prompt_scope` (run / per-objective / unrecorded) and an offline, in-process `accelerator`
+  + `system_prompt_scope` (run / per-objective / unrecorded) and an offline, in-process `host_accelerator`
   probe (NVIDIA `/proc`, Apple Silicon `sysctl` via ctypes; `unknown` with a reason, never a crash);
   agent rows (`run_exfil_suite`, `run_agent_suite`) carry `status`, `prompt_sha256`,
   `response_sha256` and the wire-captured `system_prompt_sha256`; chatbot rows carry the
   per-objective `system_prompt_sha256`. Old artifacts load unchanged.
 - [x] **Clustered and paired statistics** (ISC-70) → `stats.paired_difference_ci` (Newcombe 1998b
-  hybrid score, paired) in the `delta` headline and a per-scenario `compare` section;
-  `stats.clustered_interval` (technique-clustered design effect on a Wilson interval, floored at
-  Wilson) beside the plain Wilson column of the category table; `iago power` (Connor 1987 pairs for
-  McNemar at alpha 0.05 / power 0.8). Tests against Newcombe's published Table II values.
+  method 10: hybrid score with the continuity-corrected phi, so it never collapses to a point) in
+  the `delta` headline, McNemar's exact test on both attack kinds there, and an INDEPENDENT-arms
+  `compare` section (two models' runs are not pairs, whatever the seed); `stats.clustered_interval`
+  (technique-clustered design effect on a Wilson interval, floored at Wilson, t(m − 1) quantile
+  for m techniques) beside the plain Wilson column of the category table; `iago power` (Connor
+  1987 pairs for McNemar at alpha 0.05 / power 0.8). Tested against Newcombe 1998a Table II (the
+  unpaired interval, 2 rows) and Newcombe 1998b Table III (the paired method-10 interval, all 18
+  rows), plus the standard t table.
 - [x] **k-of-n reliability rate** (ISC-71) → `report.kofn_stats`; the "Reliability — any-trial vs
   every-trial bypass" section (markdown + HTML) shows any-trial (≥1 of n) and every-trial (n of n)
   per technique beside the per-trial rate, and names the per-trial rate as the headline.

@@ -49,11 +49,13 @@ def frozen(monkeypatch):
         monkeypatch.setattr(mod, "module_fingerprint", lambda *m: "+".join(m), raising=False)
     monkeypatch.setattr(artifacts, "git_info",
                         lambda root=None: {"commit": "0" * 40, "dirty": None, "root": "/golden"})
+    # `host.platform` is built from system + release, so "golden" + "os" keeps the fixture's value.
     monkeypatch.setattr(artifacts, "platform", SimpleNamespace(
-        platform=lambda: "golden-os", machine=lambda: "golden-arch", python_version=lambda: "3.x"))
+        system=lambda: "golden", release=lambda: "os", machine=lambda: "golden-arch",
+        python_version=lambda: "3.x"))
     monkeypatch.setattr(artifacts, "__version__", "0.0.0-golden")
-    monkeypatch.setattr(artifacts, "accelerator_info",
-                        lambda: {"kind": "unknown", "name": None, "reason": "golden"})
+    monkeypatch.setattr(artifacts, "host_accelerator",
+                        lambda model: {"kind": "unknown", "name": None, "reason": "golden"})
     for k in artifacts.OLLAMA_ENV_KEYS:
         monkeypatch.delenv(k, raising=False)
 
