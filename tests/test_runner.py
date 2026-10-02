@@ -99,3 +99,40 @@ def test_generate_error_does_not_kill_run(tmp_path):
     out = run(Boom(), trials=1, artifacts_dir=tmp_path, techniques=TECHS, objectives=OBJS[:1])
     row = load_artifacts(out)[0]
     assert "RUN-ERROR" in row["response"]
+
+
+def test_run_error_records_exception_class(tmp_path):
+    # A harness defect (KeyError) must read differently from a backend failure (RuntimeError):
+    # before the class name was recorded both collapsed to the bare message.
+    class Defect(FakeTarget):
+        def generate(self, prompt, system=None, options=None):
+            raise KeyError("missing_field")
+
+    out = run(Defect(), trials=1, artifacts_dir=tmp_path, techniques=TECHS, objectives=OBJS[:1],
+              determinism_check=False)
+    row = load_artifacts(out)[0]
+    assert row["response"].startswith("<<RUN-ERROR: KeyError: ")
+    assert row["verdict"] == "error"
+
+
+def test_manifest_names_controls_the_backend_drops(tmp_path, capsys):
+    from iago.artifacts import read_artifact
+
+    class NoSeed(FakeTarget):
+        supported_options = frozenset({"temperature", "num_predict"})
+
+    out = run(NoSeed(), trials=1, artifacts_dir=tmp_path, techniques=TECHS, objectives=OBJS[:1],
+              determinism_check=False)
+    manifest, _ = read_artifact(out)
+    assert manifest["sampling"]["unsupported_controls"] == ["seed"]
+    assert "ignores seed" in capsys.readouterr().err
+
+
+def test_manifest_records_no_gap_for_pass_through_backend(tmp_path, capsys):
+    from iago.artifacts import read_artifact
+
+    out = run(FakeTarget(), trials=1, artifacts_dir=tmp_path, techniques=TECHS,
+              objectives=OBJS[:1], determinism_check=False)
+    manifest, _ = read_artifact(out)
+    assert manifest["sampling"]["unsupported_controls"] == []
+    assert "ignores" not in capsys.readouterr().err
