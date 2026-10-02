@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .artifacts import fingerprint_status, require_surface
+from .artifacts import fingerprint_status, read_artifact, require_surface
 from .config import REPORTS_DIR
 from .guards import guard_that_fired
 from .judge import BYPASSED, NEEDS_REVIEW
@@ -156,14 +156,14 @@ def fingerprint_notes(raw_manifest: dict | None, guarded_manifest: dict | None, 
     `judge_id` or `technique_library_sha256` difference raises ValueError unless overridden, as
     `compare` and `gate` refuse it. Returns the report notes: an overridden mismatch, or a side
     whose manifest has no fingerprint (UNKNOWN, never a match; `artifacts.fingerprint_status`)."""
-    allowed = {"judge_id": allow_judge_mismatch, "technique_library_sha256": allow_library_mismatch}
     notes = []
-    for key, differs, flag, measures in _FINGERPRINTS:
+    for (key, differs, flag, measures), allowed in zip(
+            _FINGERPRINTS, (allow_judge_mismatch, allow_library_mismatch), strict=True):
         values = {"raw": (raw_manifest or {}).get(key), "guarded": (guarded_manifest or {}).get(key)}
         known, unknown = fingerprint_status(values)
         shown = ", ".join(f"{arm} {(v or 'unknown')[:12]}" for arm, v in values.items())
         if len(known) > 1:
-            if not allowed[key]:
+            if not allowed:
                 raise ValueError(f"the two arms {differs} ({key}: {shown}), so the delta would "
                                  f"measure {measures}, not the guard. Re-run both arms alike, or "
                                  f"pass {flag}.")
@@ -417,3 +417,16 @@ def write_delta_report(raw_rows: list[dict], guarded_rows: list[dict],
     out_path = out_dir / f"delta_{_stamp()}.md"
     out_path.write_text(build_delta_report(raw_rows, guarded_rows, notes))
     return out_path
+
+
+def delta_from_artifacts(raw_path: Path | str, guarded_path: Path | str, *,
+                         allow_judge_mismatch: bool = False, allow_library_mismatch: bool = False,
+                         reports_dir: Path | None = None) -> tuple[Path, list[dict], list[dict]]:
+    """(report path, raw rows, guarded rows): the one way from two artifacts to a delta report,
+    so every caller gets the `fingerprint_notes` check. Raises ValueError when it refuses."""
+    raw_manifest, raw_rows = read_artifact(raw_path)
+    guarded_manifest, guarded_rows = read_artifact(guarded_path)
+    notes = fingerprint_notes(raw_manifest, guarded_manifest,
+                              allow_judge_mismatch=allow_judge_mismatch,
+                              allow_library_mismatch=allow_library_mismatch)
+    return write_delta_report(raw_rows, guarded_rows, reports_dir, notes), raw_rows, guarded_rows

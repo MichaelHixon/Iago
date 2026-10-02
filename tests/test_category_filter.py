@@ -170,7 +170,7 @@ def test_cmd_defense_delta_forwards_the_category_to_both_arms(tmp_path, monkeypa
     monkeypatch.setattr(cli, "build_target", lambda *a, **k: _T())
     monkeypatch.setattr(cli, "build_guards", lambda spec: [types.SimpleNamespace(name="g")])
     monkeypatch.setattr(cli, "GuardedTarget", lambda base, guards: base)
-    monkeypatch.setattr(cli, "write_delta_report", lambda *a, **k: tmp_path / "d.md", raising=False)
+    monkeypatch.setattr("iago.delta.REPORTS_DIR", tmp_path / "reports")  # keep the report out of the repo
     cli._cmd_defense_delta(_dd_args(category="role-play"))
     assert seen == ["role-play", "role-play"]  # raw arm AND guarded arm
 

@@ -82,23 +82,24 @@
 - [x] **Robust response access.** → `_extract_content` handles both the ChatResponse object
   and a dict shape (a dict-only extractor silently swallowed every reply — now regression-tested).
 
-- [ ] **Collapse the copied agent suites** — five near-identical `run_*_suite` functions
-  (privilege, toolabuse, memory, misinfo, disclosure). Route them through
-  `agentic_exfil.run_exfil_suite` with an `extra_row` hook and prove the JSONL is byte-identical.
-- [ ] **Dedupe report renderers** — `write_privilege_report` / `write_toolabuse_report` are
-  near-identical, and `build_report` / `build_html_report` recompute the same aggregates; split
-  aggregate from render.
-- [ ] **One surface registry for the CLI** — `campaign.SURFACE_REGISTRY` holds 4 of 8 surfaces,
-  there are 8 near-identical `_cmd_*_run` handlers, and `scens[:1]` smoke slicing drops the
-  capability floor. One registry, one handler, one smoke slicer.
+- [x] **Collapse the copied agent suites** (ISC-73) → privilege, toolabuse, memory, misinfo and
+  disclosure route through `agentic_exfil.run_exfil_suite` with an `extra_row` hook; five golden
+  artifacts byte-identical across the collapse.
+- [x] **Dedupe report renderers** (ISC-81) → `report._aggregate` is the one aggregate step
+  `build_report` and `build_html_report` read; privilege and toolabuse share `render_arm_report`
+  with an `ArmReportSpec` of what differs. 18 report goldens byte-identical across the change.
+- [x] **One surface registry for the CLI** (ISC-82) → `campaign.SURFACES` describes all 8
+  agentic surfaces; one `_cmd_surface_run` / `_cmd_surface_scenarios` and one `--smoke` slicer
+  (`_smoke_slice`, which keeps the capability floor). `SURFACE_REGISTRY` stays the 4-surface
+  campaign default. `--help` and every surface's console output are pinned.
 - [x] **CI and lint baseline.** → `.github/workflows/ci.yml` runs `ruff check` (F, E9: real
   defects only) and the offline suite on every push and PR; replaying it in a clean clone caught a
   test that passed only where Ollama was running.
-- [ ] **Type-check baseline** — mypy reports 56 errors across 25 files (mostly `Any | None` into
-  `str`); fix them, then add mypy to CI. `py.typed` and pre-commit can follow.
-- [ ] **YAML loaders reject null/empty files** — `yaml.safe_load(...) or []` (`attacks.py`,
-  `objectives.py`, the agent scenario loaders) silently contributes zero records. Raise on None
-  or a non-list and name the file.
+- [x] **Type-check baseline** (ISC-72) → `uv run mypy iago` is clean and CI runs it. `py.typed`
+  and pre-commit can follow.
+- [x] **YAML loaders reject null/empty files** (ISC-80) → `yaml_records.load_records` /
+  `load_mapping` raise naming the file on an empty, null, empty-list or wrong-shape document;
+  the operator frame overrides refuse an empty file instead of falling back to inert frames.
 - [ ] **Flag inert composed-evasion frames** — the placeholder frames in `attacks.py` feed the
   `ce-*` techniques unflagged. Expose the inert set, stamp rows, withhold ✅ and warn at run start.
 - [ ] **Remaining swallowed paths** — `agent_run.py` executes a tool call with `name=None`;

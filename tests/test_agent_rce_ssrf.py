@@ -231,7 +231,7 @@ def test_delivery_contract_parity_with_agent_privilege():
     import inspect
 
     from iago import agent_privilege as priv
-    from iago import report
+    from iago import arm_report
 
     for mod in (toolabuse, priv):
         assert hasattr(mod, "poison_ingested"), f"{mod.__name__} must expose poison_ingested"
@@ -242,7 +242,7 @@ def test_delivery_contract_parity_with_agent_privilege():
         # Both report a per-arm dead floor and a per-scenario Calibrated column — through the ONE
         # shared body (ISC-81), so the two surfaces cannot drift apart again.
         assert "render_arm_report(" in src, f"{mod.__name__} no longer renders via the shared body"
-    shared = inspect.getsource(report.render_arm_report)
+    shared = inspect.getsource(arm_report.render_arm_report)
     assert "dead_arms" in shared and "Calibrated" in shared, "the shared body lost the calibration column"
 
 

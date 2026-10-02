@@ -315,11 +315,6 @@ class SurfaceSpec:
     scenario_line: Callable[[Any], str]
     scenarios_summary: Callable[[list], str] | None = None  # extra header text after the count
 
-    def load(self) -> tuple[Callable[..., Path], Callable[[], list]]:
-        """Return ``(run_suite, load_scenarios)`` for this surface."""
-        entry = self._loader()
-        return entry.run_suite, entry.load_scenarios
-
     def entry(self) -> SurfaceEntry:
         """All four entry points (suite runner, scenario loader, artifact loader, report writer)."""
         return self._loader()
@@ -535,8 +530,9 @@ def run_campaign(
         if spec is None:
             errors.append(f"{skey}: unknown surface (known: {', '.join(SURFACE_REGISTRY)})")
             continue
-        run_suite, load_scenarios = spec.load()
-        scens = load_scenarios()
+        entry = spec.entry()
+        run_suite = entry.run_suite
+        scens = entry.load_scenarios()
         if smoke:
             scens = _smoke_slice(scens)
         paths: list[Path] = []

@@ -157,7 +157,8 @@ def test_clean_campaign_has_no_incomplete_banner(tmp_path):
 def test_registry_covers_the_four_mature_surfaces():
     assert set(SURFACE_REGISTRY) == {"privilege", "toolabuse", "disclosure", "misinfo"}
     for spec in SURFACE_REGISTRY.values():
-        run_suite, load_scenarios = spec.load()   # lazy import resolves without error
+        entry = spec.entry()   # lazy import resolves without error
+        run_suite, load_scenarios = entry.run_suite, entry.load_scenarios
         assert callable(run_suite) and callable(load_scenarios)
 
 
