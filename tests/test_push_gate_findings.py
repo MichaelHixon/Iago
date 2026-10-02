@@ -300,3 +300,22 @@ def test_power_help_does_not_claim_two_models_are_paired(capsys):
     assert "raw-vs-guarded difference" in capsys.readouterr().out
     assert main(["power", "--diff", "0.1"]) == 0
     assert "two models" not in capsys.readouterr().out
+
+
+def test_mcnemar_names_an_increase_when_the_split_runs_against_the_guard():
+    """A one-sided split AGAINST the guard (0 for, 8 against) is significant, and the sentence
+    must call it an increase, never 'the reduction'."""
+    from iago.delta import _mcnemar_lines
+    out: list[str] = []
+    _mcnemar_lines(out.append, "LLM07", 0, 8)
+    text = " ".join(out)
+    assert "the increase is asserted" in text and "reduction" not in text
+    out.clear()
+    _mcnemar_lines(out.append, "LLM07", 8, 0)
+    assert "the reduction is asserted" in " ".join(out)
+
+
+def test_t_ppf_raises_past_its_bracket_instead_of_returning_a_wrong_quantile():
+    from iago.stats import t_ppf
+    with pytest.raises(ValueError, match="beyond 1e12"):
+        t_ppf(1 - 1e-13, 1)
