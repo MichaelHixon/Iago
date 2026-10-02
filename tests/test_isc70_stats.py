@@ -2,15 +2,15 @@
 
 Reference values are hand-computed from the published formulas, and where a published table
 exists it is cited beside the number. Every test here is a falsifier for a specific sentence in
-a docstring: the paired CI reduces to Newcombe's unpaired hybrid-score interval when the
-correlation term is zero, and it is strictly narrower than that interval when the pairs agree —
-which is exactly what an unpaired interval cannot do (the mutation check).
+a docstring: the paired CI reproduces Newcombe's own Table III, reduces to his unpaired
+hybrid-score interval when the correlation term is zero, and is strictly narrower than that
+interval when the pairs agree — which is exactly what an unpaired interval cannot do.
 """
 
 import pytest
 
 from iago.stats import (clustered_interval, newcombe_diff_ci, norm_ppf, paired_difference_ci,
-                        paired_sample_size, wilson_interval)
+                        paired_phi, paired_sample_size, t_cdf, t_ppf, wilson_interval)
 
 
 # --- Newcombe hybrid score, unpaired (method 10 of Newcombe 1998a) ---------------------------
@@ -33,9 +33,63 @@ def test_newcombe_unpaired_matches_published_table_9_10_vs_3_10():
 
 # --- Newcombe paired (method 10 of Newcombe 1998b) --------------------------------------------
 # Newcombe RG, "Improved confidence intervals for the difference between binomial proportions
-# based on paired data", Stat Med 1998;17:2635-2650. Cells: a = both bypass, b = first-only,
-# c = second-only, d = neither. The interval is the unpaired hybrid-score interval with the two
-# Wilson half-widths combined through the phi correlation of the 2x2 table.
+# based on paired data", Stat Med 1998;17:2635-2650. Method 10 (§ 5, p. 2639): the hybrid score
+# interval with phi = (eh - fg)/sqrt((e+f)(g+h)(e+g)(f+h)), 0 when that denominator is 0, and the
+# numerator replaced by max(eh - fg - n/2, 0) when eh > fg. Cells e, f, g, h are our a, b, c, d.
+# The anchors below are the method-10 rows of the paper's Table III (pp. 2641-2642), quoted to
+# the 4 decimals printed there; the paper uses z = 1.96 as we do. ratesci::pairbinci(method =
+# "MOVER_newc") reproduces the same rows, but the paper is the reference, not the package.
+
+_TABLE_III_METHOD_10 = {
+    (36, 12, 2, 0): (0.0569, 0.3404),
+    (20, 12, 2, 16): (0.0562, 0.3292),
+    (18, 12, 2, 18): (0.0562, 0.3290),
+    (36, 14, 0, 0): (0.1528, 0.4167),
+    (35, 14, 0, 1): (0.1461, 0.4175),
+    (18, 14, 0, 18): (0.1441, 0.3963),
+    (2, 97, 1, 0): (0.8721, 0.9854),
+    (1, 97, 1, 1): (0.8736, 0.9850),
+    (0, 29, 1, 0): (0.6666, 0.9882),
+    (2, 98, 0, 0): (0.9178, 0.9945),
+    (1, 98, 0, 1): (0.9171, 0.9916),
+    (0, 30, 0, 0): (0.8395, 1.0),
+    (54, 0, 0, 0): (-0.0664, 0.0664),
+    (53, 0, 0, 1): (-0.0729, 0.0729),
+    (30, 0, 0, 24): (-0.0358, 0.0358),
+    (29, 0, 0, 25): (-0.0354, 0.0354),
+    (28, 0, 0, 26): (-0.0352, 0.0352),
+    (27, 0, 0, 27): (-0.0351, 0.0351),
+}
+
+
+@pytest.mark.parametrize("cells,published", sorted(_TABLE_III_METHOD_10.items()))
+def test_paired_ci_matches_newcombe_1998b_table_iii_method_10(cells, published):
+    a, b, c, d = cells
+    lo, hi = paired_difference_ci(a=a, b=b, c=c, d=d)
+    assert abs(lo - published[0]) < 1e-4 and abs(hi - published[1]) < 1e-4, (cells, (lo, hi))
+
+
+def test_paired_phi_follows_the_published_continuity_correction():
+    # (36, 12, 2, 0): eh - fg = 0 - 24 < 0 -> uncorrected, negative. (20, 12, 2, 16): eh - fg = 296,
+    # n/2 = 25 -> 271 / sqrt(32*18*22*28). (1, 0, 0, 1): eh - fg = 1 <= n/2 = 1 -> 0, not 1.
+    assert paired_phi(36, 12, 2, 0) == pytest.approx(-24 / (48 * 2 * 38 * 12) ** 0.5)
+    assert paired_phi(20, 12, 2, 16) == pytest.approx(271 / (32 * 18 * 22 * 28) ** 0.5)
+    assert paired_phi(1, 0, 0, 1) == 0.0
+    assert paired_phi(0, 3, 0, 0) == 0.0          # a zero margin -> 0 (the paper's rule)
+
+
+def test_paired_ci_never_has_zero_width_when_n_is_positive():
+    """The uncorrected phi is exactly 1 at a = d with b = c = 0, which made (5, 0, 0, 5) and
+    (20, 0, 0, 20) collapse to (0.0, 0.0). Newcombe § 6 (iv)(c): methods 8 and 9 produce a
+    zero-width interval there; method 10 does not — Table III's (27, 0, 0, 27) row is
+    (-0.0351, 0.0351)."""
+    for cells in ((5, 0, 0, 5), (20, 0, 0, 20), (1, 0, 0, 1), (1, 0, 0, 0), (0, 0, 0, 1),
+                  (3, 0, 0, 1), (0, 2, 0, 0), (0, 0, 2, 0)):
+        a, b, c, d = cells
+        lo, hi = paired_difference_ci(a=a, b=b, c=c, d=d)
+        assert hi - lo > 1e-6, (cells, (lo, hi))
+        assert lo <= (b - c) / (a + b + c + d) <= hi
+
 
 def test_paired_ci_with_a_zero_margin_reduces_to_the_unpaired_interval():
     # c + d == 0 -> phi is defined as 0 -> identical to the independent interval on the margins.
@@ -58,23 +112,6 @@ def test_paired_ci_is_strictly_narrower_than_unpaired_when_pairs_agree():
     ulo, uhi = newcombe_diff_ci(a + b, n, a + c, n)
     assert (phi_ - plo) < (uhi - ulo) - 0.01
     assert plo < (b - c) / n < phi_
-
-
-def test_paired_ci_hand_computed_at_a_small_table():
-    # a=2, b=3, c=1, d=4, n=10. p1 = 5/10, p2 = 3/10, diff = 0.2.
-    # phi = (ad - bc)/sqrt((a+b)(c+d)(a+c)(b+d)) = (8 - 3)/sqrt(5*5*3*7) = 5/sqrt(525).
-    # Wilson 5/10: centre 0.5, half-width 0.2634 -> (0.2366, 0.7634); Wilson 3/10: (0.1078, 0.6032).
-    # delta = sqrt((0.5-0.2366)^2 - 2phi(0.5-0.2366)(0.6032-0.3) + (0.6032-0.3)^2)
-    # eps   = sqrt((0.7634-0.5)^2 - 2phi(0.7634-0.5)(0.3-0.1078) + (0.3-0.1078)^2)
-    phi = 5 / 525 ** 0.5
-    l1, u1 = wilson_interval(5, 10)
-    l2, u2 = wilson_interval(3, 10)
-    delta = ((0.5 - l1) ** 2 - 2 * phi * (0.5 - l1) * (u2 - 0.3) + (u2 - 0.3) ** 2) ** 0.5
-    eps = ((u1 - 0.5) ** 2 - 2 * phi * (u1 - 0.5) * (0.3 - l2) + (0.3 - l2) ** 2) ** 0.5
-    lo, hi = paired_difference_ci(a=2, b=3, c=1, d=4)
-    assert abs(lo - (0.2 - delta)) < 1e-12 and abs(hi - (0.2 + eps)) < 1e-12
-    # delta = sqrt(0.069385 - 0.034859 + 0.091942) = 0.35562; eps = sqrt(0.069385 - 0.022096 + 0.036941) = 0.29022
-    assert abs(lo - (-0.1556)) < 1e-3 and abs(hi - 0.4902) < 1e-3
 
 
 def test_paired_ci_n_zero_is_uninformative_and_negative_cells_raise():
@@ -100,17 +137,34 @@ def test_clustered_interval_hand_computed_design_effect():
     # 3 techniques x 4 trials, hits (4, 0, 0): p = 1/3, N = 12.
     # residuals 8/3, -4/3, -4/3 -> squares sum 96/9; * (3/2) / 144 = 1/9 = Var.
     # binomial var = (1/3)(2/3)/12 = 1/54 -> deff = 6 -> n_eff = 2, hits_eff = 2/3.
+    # The quantile is t(m - 1 = 2) at 97.5% = 4.303, not 1.96.
     res = clustered_interval([(4, 4), (0, 4), (0, 4)])
     assert abs(res.deff - 6.0) < 1e-9 and abs(res.n_eff - 2.0) < 1e-9
-    assert res.interval == pytest.approx(wilson_interval(2 / 3, 2), abs=1e-9)
+    assert res.interval == pytest.approx(wilson_interval(2 / 3, 2, z=t_ppf(0.975, 2)), abs=1e-9)
+    assert res.interval != pytest.approx(wilson_interval(2 / 3, 2, z=1.96), abs=1e-3)
     plain = wilson_interval(4, 12)
     assert res.interval[0] < plain[0] and res.interval[1] > plain[1]  # wider: the clusters disagree
 
 
+def test_clustered_interval_uses_t_on_cluster_count_minus_one():
+    """Cameron & Miller 2015 § VI.A: with few clusters the normal quantile undercovers; the t(G-1)
+    quantile is the standard repair. Ten techniques -> t(9) = 2.262; an explicit z overrides."""
+    clusters = [(i % 3, 4) for i in range(10)]
+    res = clustered_interval(clusters)
+    hits, total = sum(y for y, _ in clusters), 40
+    assert res.interval == pytest.approx(
+        wilson_interval(hits * res.n_eff / total, res.n_eff, z=t_ppf(0.975, 9)), abs=1e-12)
+    forced = clustered_interval(clusters, z=1.96)
+    assert forced.interval == pytest.approx(
+        wilson_interval(hits * res.n_eff / total, res.n_eff, z=1.96), abs=1e-12)
+    assert forced.interval[1] - forced.interval[0] < res.interval[1] - res.interval[0]
+
+
 def test_clustered_interval_never_narrower_than_wilson():
     # Perfectly homogeneous clusters (1/3 each) give deff < 1; it is floored at 1 so the
-    # cluster-aware interval can never read tighter than the independent-trials one.
-    res = clustered_interval([(1, 3), (1, 3), (1, 3)])
+    # cluster-aware interval can never read tighter than the independent-trials one (at the same
+    # quantile — the t(2) quantile then makes it wider still).
+    res = clustered_interval([(1, 3), (1, 3), (1, 3)], z=1.96)
     assert res.deff == 1.0 and res.interval == pytest.approx(wilson_interval(3, 9), abs=1e-12)
 
 
@@ -119,9 +173,37 @@ def test_clustered_interval_single_cluster_has_no_estimate():
     assert res.interval is None and res.deff is None and "1 cluster" in res.reason
 
 
-def test_clustered_interval_all_hits_or_none_falls_back_to_wilson():
-    assert clustered_interval([(0, 3), (0, 3)]).interval == pytest.approx(wilson_interval(0, 6))
-    assert clustered_interval([(3, 3), (3, 3)]).interval == pytest.approx(wilson_interval(6, 6))
+def test_clustered_interval_all_hits_or_none_has_no_estimate_and_says_why():
+    """A 0% or 100% category has no between-technique variance, so there is no clustered
+    estimate — the result says so instead of quietly handing back the plain Wilson interval
+    labelled as if a design effect of 1.0 had been measured."""
+    none = clustered_interval([(0, 3), (0, 3)])
+    assert none.interval is None and none.deff is None and "0%" in none.reason
+    full = clustered_interval([(3, 3), (3, 3)])
+    assert full.interval is None and full.deff is None and "100%" in full.reason
+
+
+# --- Student t quantile -----------------------------------------------------------------------
+# Critical values t_{0.975, df} from the standard table (NIST/SEMATECH e-Handbook of Statistical
+# Methods § 1.3.6.7.2, "Critical Values of the Student's t Distribution"), to 3 decimals.
+
+@pytest.mark.parametrize("df,critical", [(1, 12.706), (2, 4.303), (3, 3.182), (4, 2.776), (5, 2.571),
+                                         (9, 2.262), (10, 2.228), (20, 2.086), (30, 2.042),
+                                         (60, 2.000), (120, 1.980)])
+def test_t_ppf_matches_the_standard_table(df, critical):
+    assert abs(t_ppf(0.975, df) - critical) < 5e-4
+
+
+def test_t_ppf_limits_and_symmetry():
+    assert abs(t_ppf(0.975, 1e6) - 1.959964) < 1e-5     # -> the normal quantile
+    assert abs(t_ppf(0.9995, 1) - 636.619) < 1e-2         # the table's df = 1, 99.95% entry
+    assert t_ppf(0.5, 7) == 0.0 and t_ppf(0.05, 5) == pytest.approx(-t_ppf(0.95, 5))
+    assert abs(t_cdf(2.228, 10) - 0.975) < 1e-4
+    for bad in (0.0, 1.0):
+        with pytest.raises(ValueError):
+            t_ppf(bad, 3)
+    with pytest.raises(ValueError):
+        t_ppf(0.9, 0)
 
 
 # --- normal quantile + paired sample size ------------------------------------------------------
@@ -133,6 +215,10 @@ def test_norm_ppf_matches_tabulated_quantiles():
     assert abs(norm_ppf(0.95) - 1.644854) < 1e-6
     assert abs(norm_ppf(0.5)) < 1e-9
     assert abs(norm_ppf(0.025) + 1.959964) < 1e-6
+    # The two tail branches (p < 0.02425 and p > 1 - 0.02425) of Acklam's approximation.
+    assert abs(norm_ppf(0.995) - 2.575829) < 1e-6
+    assert abs(norm_ppf(0.001) + 3.090232) < 1e-6
+    assert abs(norm_ppf(0.9999) - 3.719016) < 1e-6
     with pytest.raises(ValueError):
         norm_ppf(0.0)
 
@@ -147,6 +233,9 @@ def test_paired_sample_size_connor_1987_hand_computed():
     # The floor: every discordant pair falls the same way (psi = |delta|).
     #   [1.959964*0.316228 + 0.841621*0.3]^2 / 0.01 = (0.619799 + 0.252486)^2/0.01 = 76.09 -> 77.
     assert paired_sample_size(diff=0.10, discordant=None) == 77
+    # alpha = 0.01: z_{0.005} = 2.575829 ->
+    #   [2.575829*0.447214 + 0.841621*0.435890]^2 / 0.01 = 1.518801^2 / 0.01 = 230.68 -> 231 pairs.
+    assert paired_sample_size(diff=0.10, discordant=0.20, alpha=0.01) == 231
 
 
 def test_paired_sample_size_rejects_impossible_inputs():

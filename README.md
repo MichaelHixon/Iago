@@ -128,6 +128,11 @@ The three out-of-scope items cannot be measured by driving a model with prompts:
 - **Target:** a local model through [Ollama](https://ollama.com): private, no rate limits, free to test against
 - **Judge:** pluggable. The rubric judge runs on the [Claude API](https://docs.anthropic.com) or on any OpenAI-compatible endpoint (a local Ollama model, OpenAI, vLLM, LM Studio), through a stdlib HTTP client with no extra dependency
 
+## Compatibility notes
+
+- **RAG and A2A artifacts from before the pretext markers (ISC-68) are not comparable with later ones.** The attack text of `attacks/agentic/rag_scenarios.yaml` and `a2a_scenarios.yaml` changed (labelled `IAGO_*_PAYLOAD` tokens became markers that fit each poison's pretext) under the same scenario ids, so a rate from an older run measures a different stimulus. `iago compare` refuses to mix them when both manifests carry `scenario_library_sha256`, and flags an older artifact without it as unknown; re-run the older model on the current library instead of comparing across the change.
+- **A user scenario file without `poison_marker` on an attack no longer loads.** The RAG and A2A loaders used to fall back to a built-in default marker; that default is gone, and every attack must name its own marker, present in exactly one document / chunk / message and nowhere the agent can see it without reading the poison. The loader error names the scenario and the rule.
+
 ## Ethics
 
 Iago exists to make model guardrails **better**. Every run is against an authorized target, every report ends in hardening recommendations, and the techniques are documented so defenders can recognize and resist them. If you use or adapt this, keep it to systems you are authorized to test. Responsible disclosure applies.

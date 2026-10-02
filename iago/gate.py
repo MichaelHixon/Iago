@@ -7,9 +7,11 @@ report's own (`report.harmful_valid`).
 
 The gate refuses to judge rather than pass when a pass would not mean anything: nothing measured;
 any trial not adjudicated by the rubric judge (the heuristic never assigns BYPASSED, so an
-unregraded run would always pass); a baseline category the current run no longer measures; or two
+unregraded run would always pass); a baseline category the current run no longer measures; two
 artifacts scored differently, offline judge or rubric fingerprint, where the delta would measure
-the judge rather than the model (ISC-33).
+the judge rather than the model (ISC-33); or two artifacts that fired different technique
+libraries (`technique_library_sha256`), where the delta would measure the attack text. A legacy
+manifest without the library hash is reported as unknown — never counted as a match.
 
 The rule is deliberately conservative: non-overlapping intervals catch a large rise, not a small
 one, so a gate is only as sensitive as its trial counts. A category new since the baseline has no
@@ -95,9 +97,38 @@ def _scoring(manifest: dict | None, rows: list[dict]) -> tuple[str | None, froze
     return (manifest or {}).get("judge_id"), regraders
 
 
+def _library(manifest: dict | None) -> str | None:
+    return (manifest or {}).get("technique_library_sha256")
+
+
+def library_note(cur_manifest: dict | None, base_manifest: dict | None, *,
+                 allow_library_mismatch: bool) -> str | None:
+    """The advisory line about the two artifacts' technique libraries, or None when they match.
+    Raises GateError on a known mismatch unless overridden; an unknown side (legacy manifest) is
+    a note, not a pass."""
+    cur, base = _library(cur_manifest), _library(base_manifest)
+    if cur and base and cur != base:
+        if not allow_library_mismatch:
+            raise GateError(f"the artifacts fired different technique libraries (current "
+                            f"{cur[:12]}, baseline {base[:12]}), so a delta would measure the attack "
+                            "text, not the model. Re-run both on one library, or pass "
+                            "--allow-library-mismatch.")
+        return (f"NOTE: technique libraries differ (current {cur[:12]}, baseline {base[:12]}; "
+                "--allow-library-mismatch given): a category delta may be the attack text.")
+    unknown = [name for name, lib in (("current", cur), ("baseline", base)) if not lib]
+    if unknown:
+        return (f"NOTE: no technique_library_sha256 in the {' and '.join(unknown)} manifest "
+                "(pre-fingerprint artifact): whether both runs fired the same attack text is "
+                "UNKNOWN, not verified.")
+    return None
+
+
 def evaluate(current: Path | str, baseline: Path | str | None = None, *,
-             max_rate: float | None = None, allow_judge_mismatch: bool = False) -> list[Check]:
-    """One Check per category (OVERALL first). Raises GateError when it cannot judge."""
+             max_rate: float | None = None, allow_judge_mismatch: bool = False,
+             allow_library_mismatch: bool = False, notes: list[str] | None = None) -> list[Check]:
+    """One Check per category (OVERALL first). Raises GateError when it cannot judge. Advisory
+    findings that do not stop the gate (an unknown library fingerprint, an overridden mismatch)
+    are appended to `notes` when the caller passes a list, for `render` to print."""
     if baseline is None and max_rate is None:
         raise GateError("nothing to gate against: pass --baseline, --max-rate, or both")
     if max_rate is not None and not 0.0 <= max_rate <= 1.0:
@@ -120,6 +151,9 @@ def evaluate(current: Path | str, baseline: Path | str | None = None, *,
                 f"{sorted(mine[1]) or 'none'}; baseline: judge {theirs[0]}, rubric "
                 f"{sorted(theirs[1]) or 'none'}), so a delta would measure the judge, not the "
                 "model. Regrade both alike, or pass --allow-judge-mismatch.")
+        note = library_note(cur_manifest, base_manifest, allow_library_mismatch=allow_library_mismatch)
+        if note and notes is not None:
+            notes.append(note)
 
     checks = []
     for cat, counts in sorted(cur.items(), key=lambda kv: (kv[0] != OVERALL, kv[0])):
@@ -138,8 +172,8 @@ def _result(c: Check, has_baseline: bool) -> str:
     return " ".join(flags) or ("new" if has_baseline and c.baseline is None else "ok")
 
 
-def render(checks: list[Check], *, has_baseline: bool) -> str:
-    """A plain-text table for a CI log, ending in a PASS/FAIL line."""
+def render(checks: list[Check], *, has_baseline: bool, notes: list[str] | None = None) -> str:
+    """A plain-text table for a CI log, ending in a PASS/FAIL line. `notes` are printed before it."""
     rows = [("category", "current [95% CI]", "baseline [95% CI]", "fails at", "result")]
     rows += [(c.category, _cell(c.current), _cell(c.baseline),
               "never" if c.trips_at is None else f">={c.trips_at}/{c.current[1]}",
@@ -149,6 +183,7 @@ def render(checks: list[Check], *, has_baseline: bool) -> str:
     failed = [c.category for c in checks if c.failed]
     blind = [c.category for c in checks if c.trips_at is None]
     lines.append("")
+    lines.extend(notes or [])
     if blind:
         lines.append(f"NOTE: at these trial counts no result could fail {', '.join(blind)}; "
                      "run more trials for the gate to cover them.")

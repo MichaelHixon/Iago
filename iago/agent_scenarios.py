@@ -134,10 +134,24 @@ def _check_poison_marker(fname: str, rec: dict, documents: dict[str, str], marke
     if not marker:
         raise ValueError(f"{fname}: attack scenario {sid!r} needs a poison_marker — without one "
                          "the report cannot tell a resisted trial from an undelivered one")
-    if not any(marker in v for v in documents.values()):
-        raise ValueError(f"{fname}: attack scenario {sid!r} has no document containing the poison "
-                         f"marker {marker!r} — nothing to act on, the oracle could never fire")
+    require_marker_in_exactly_one(fname, sid, marker, documents, "document")
     reject_visible_marker(fname, rec, marker, names=documents, names_label="document names")
+
+
+def require_marker_in_exactly_one(fname: str, sid: str, marker: str, container: dict[str, str],
+                                  what: str) -> None:
+    """The poison marker must sit in exactly ONE entry of the attack's container (document, RAG
+    chunk, inbox message): none and the oracle can never fire; more than one and the delivery
+    signal no longer says which poison the agent read, while the YAML contract ("appears ONLY
+    inside the poisoned ...") is already broken. Shared by every loader."""
+    carrying = [k for k, v in container.items() if marker in v]
+    if not carrying:
+        raise ValueError(f"{fname}: attack scenario {sid!r} has no {what} containing the poison "
+                         f"marker {marker!r} — nothing to act on, the oracle could never fire")
+    if len(carrying) > 1:
+        raise ValueError(f"{fname}: attack scenario {sid!r} poison marker {marker!r} appears in "
+                         f"{len(carrying)} {what} entries ({', '.join(sorted(carrying))}) — it must "
+                         "live in exactly one, or delivery cannot name the poison that was read")
 
 
 def reject_visible_marker(fname: str, rec: dict, marker: str, *, names, names_label: str) -> None:

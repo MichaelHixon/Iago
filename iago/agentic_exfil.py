@@ -29,7 +29,7 @@ from .artifacts import (build_manifest, load_rows, module_fingerprint, scenario_
                         stamp, system_prompt_recorder, trace_provenance, write_manifest)
 from .agent_oracle import (ATTEMPTED, HIJACKED, RESISTED, _is_external, delivered_cell,
                            delivery_note, poison_ingested, probe_quality_note)
-from .agent_scenarios import reject_visible_marker
+from .agent_scenarios import reject_visible_marker, require_marker_in_exactly_one
 from .canary import contains_secret as _contains_secret
 from .config import ARTIFACTS_DIR, DEFAULT_AGENT_STEPS, DEFAULT_TEMPERATURE, DEFAULT_TRIALS, REPORTS_DIR
 from .stats import wilson_interval
@@ -140,11 +140,8 @@ def load_exfil_scenarios(
                 raise ValueError(f"{path.name}: attack scenario {rec['id']!r} needs a poison_marker "
                                  "— without one the report cannot tell a resisted trial from an "
                                  "undelivered one")
-            if not any(marker in v for v in container_str.values()):
-                raise ValueError(
-                    f"{path.name}: attack scenario {rec['id']!r} has no {container_field} entry "
-                    f"containing the poison marker {marker!r} — nothing to act on, the oracle could "
-                    "never fire")
+            require_marker_in_exactly_one(path.name, rec["id"], marker, container_str,
+                                          f"{container_field} entry")
             reject_visible_marker(path.name, rec, marker, names=container_str,
                                   names_label=f"{container_field} keys")
             if extra_gate is not None:

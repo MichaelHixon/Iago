@@ -106,7 +106,10 @@ def git_info(root: Path | None = None) -> dict:
                 pointer = git_dir.read_text().strip()
                 if not pointer.startswith("gitdir: "):
                     break
-                git_dir = Path(pointer[len("gitdir: "):])
+                # A relative pointer (`git worktree add` writes one when the worktree sits beside
+                # the main checkout, and `--relative-paths` forces it) is relative to the
+                # directory holding the `.git` FILE, not to the process cwd.
+                git_dir = (candidate / pointer[len("gitdir: "):]).resolve()
             head = (git_dir / "HEAD").read_text().strip()
             # A linked worktree's gitdir holds HEAD but its branch refs and packed-refs live in
             # the common dir named by `commondir` (relative to the gitdir).
@@ -198,16 +201,19 @@ _NVIDIA_PROC = Path("/proc/driver/nvidia/gpus")
 
 
 def accelerator_info() -> dict:
-    """Which accelerator the target most likely ran on, from an OFFLINE, in-process, fail-soft
-    probe: `{"kind": apple-silicon | nvidia | unknown, "name": str | None, "reason": str | None}`.
+    """The accelerator of THIS host — the machine iago runs on — from an OFFLINE, in-process,
+    fail-soft probe: `{"kind": apple-silicon | nvidia | unknown, "name": str | None, "reason":
+    str | None}`. It says nothing about where the target model ran; `host_accelerator` decides
+    whether the two coincide.
 
     Bypass rates move with the kernel the backend picked (Metal vs CUDA vs CPU, and the chip's
-    numeric paths), so a manifest that names the chip is what lets two runs be compared on equal
-    footing (ISC-69). Two sources only, both file/libc reads: the NVIDIA driver's `/proc` text on
-    Linux, and `sysctlbyname("machdep.cpu.brand_string")` through ctypes on an arm64 Mac — never a
-    child process (`nvidia-smi`, `system_profiler`) and never a socket, because provenance is
-    collected on the agent surfaces that carry a no-process / no-socket anti-claim. Anything the
-    probe cannot see is reported as `unknown` WITH a reason, never guessed and never a crash."""
+    numeric paths), so for a model served on this host a manifest that names the chip is what
+    lets two runs be compared on equal footing (ISC-69). Two sources only, both file/libc reads:
+    the NVIDIA driver's `/proc` text on Linux, and `sysctlbyname("machdep.cpu.brand_string")`
+    through ctypes on an arm64 Mac — never a child process (`nvidia-smi`, `system_profiler`) and
+    never a socket, because provenance is collected on the agent surfaces that carry a
+    no-process / no-socket anti-claim. Anything the probe cannot see is reported as `unknown`
+    WITH a reason, never guessed and never a crash."""
     out: dict = {"kind": "unknown", "name": None, "reason": None}
     try:
         if _NVIDIA_PROC.is_dir():
@@ -240,6 +246,22 @@ def accelerator_info() -> dict:
     return out
 
 
+def host_accelerator(model: str | None) -> dict:
+    """The `host_accelerator` manifest block: `accelerator_info()` when the target is served by
+    THIS host — an `ollama:` model on a loopback `OLLAMA_HOST` (or none set) — else `kind:
+    "not-applicable"` with the reason. An Anthropic model, or Ollama reached over the network,
+    runs on hardware the probe cannot see, and recording this machine's chip there would read as
+    the target's (gate finding: the key named the target, the value described the client)."""
+    tag = model or ""
+    if not tag.startswith("ollama:"):
+        return {"kind": "not-applicable", "name": None,
+                "reason": f"target {tag or '<unset>'!r} is not served by this host"}
+    if redact_host(os.environ.get("OLLAMA_HOST")) == "<non-local host redacted>":
+        return {"kind": "not-applicable", "name": None,
+                "reason": "OLLAMA_HOST names another machine; the target's accelerator is not visible"}
+    return accelerator_info()
+
+
 def build_manifest(*, surface: str, model: str, sampling: dict, judge_id: str | None,
                    extra: dict | None = None, system_prompt: str | None = None,
                    system_prompt_scope: str | None = None) -> dict:
@@ -250,7 +272,11 @@ def build_manifest(*, surface: str, model: str, sampling: dict, judge_id: str | 
     `system_prompt_scope` says what the hash covers: "run" (set here), "per-objective" (the
     chatbot surface plants a different prompt per objective, so each ROW carries its own hash and
     the run-level one is null), "none" (the surface sends no system message) or "unrecorded" (the
-    caller did not pass it — a null that means unknown, not absent)."""
+    caller did not pass it — a null that means unknown, not absent).
+
+    `host` describes the machine iago ran on, from `platform.system()` / `release()` /
+    `machine()` only: `platform.platform()` resolves the processor field by spawning `uname -p`
+    on a cold cache, which the agent surfaces' no-subprocess anti-claim forbids."""
     if system_prompt is not None and system_prompt_scope is None:
         system_prompt_scope = "run"
     manifest = {
@@ -265,14 +291,14 @@ def build_manifest(*, surface: str, model: str, sampling: dict, judge_id: str | 
         "judge_id": judge_id,
         "system_prompt_sha256": sha256_text(system_prompt),
         "system_prompt_scope": system_prompt_scope or "unrecorded",
-        "accelerator": accelerator_info(),
+        "host_accelerator": host_accelerator(model),
         # ONLY for an Ollama target. The first gate also matched every non-Ollama tag (`"/" not in
         # model` is true for `gpt-4o`), so an Anthropic run opened three calls to the local daemon
         # and wrote an `ollama` block naming a model Ollama never served (code-review major).
         "ollama": ollama_info(model) if (model or "").startswith("ollama:") else None,
         "ollama_env": {k: (redact_host(os.environ.get(k)) if k == "OLLAMA_HOST" else os.environ.get(k))
                        for k in OLLAMA_ENV_KEYS},
-        "host": {"platform": platform.platform(), "machine": platform.machine(),
+        "host": {"platform": f"{platform.system()}-{platform.release()}", "machine": platform.machine(),
                  "python": platform.python_version()},
     }
     if extra:
