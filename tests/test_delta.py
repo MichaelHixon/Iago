@@ -150,3 +150,11 @@ def test_delta_header_quotes_each_judges_error_rate():
     md = build_delta_report(raw, raw)
     assert "Judge calibration (heuristic)" in md and "Judge calibration (canary)" in md
     assert "Judge calibration (rubric)" not in md  # nothing was regraded
+
+
+def test_per_category_table_drops_undecoded_trials():
+    undecoded = {**_row("c1", "encoding", "o1", "forbidden", REFUSED, trial=1),
+                 "gated": True, "decoded": False}
+    raw = [_row("c1", "encoding", "o1", "forbidden", BYPASSED), undecoded]
+    md = build_delta_report(raw, raw)
+    assert "| encoding | 100% (1/1) |" in md.replace("100.0%", "100%")

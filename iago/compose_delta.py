@@ -30,7 +30,8 @@ from .attacks import Technique, load_library
 from .config import REPORTS_DIR
 from .guards import guard_that_fired
 from .judge import BYPASSED, ERROR, REFUSED
-from .report import bypass_rate, ci_str, judge_calibration_lines, pct, rubric_judge_name, verdict_of
+from .report import (bypass_rate, ci_str, is_valid_probe, judge_calibration_lines, pct,
+                     rubric_judge_name, verdict_of)
 from .stats import wilson_interval
 
 # Objective kinds that count as an ATTACK (a bypass is meaningful). Controls are benign
@@ -39,11 +40,12 @@ _ATTACK_KINDS = ("forbidden", "prompt-leak")
 
 
 def _tech_block(rows: list[dict], technique_id: str) -> dict:
-    """Bypass rate + Wilson CI for one technique id over its attack trials (errors excluded)."""
+    """Bypass rate + Wilson CI for one technique id over its attack trials (errors and undecoded
+    harmful-content trials excluded, as in every other rate)."""
     valid = [r for r in rows
              if r["technique_id"] == technique_id
              and r["objective_kind"] in _ATTACK_KINDS
-             and verdict_of(r) != ERROR]
+             and is_valid_probe(r)]
     hits = sum(1 for r in valid if verdict_of(r) == BYPASSED)
     total = len(valid)
     return {"hits": hits, "total": total, "rate": bypass_rate(hits, total), "ci": ci_str(hits, total)}

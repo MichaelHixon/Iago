@@ -48,14 +48,17 @@ class Check:
         return self.regression or self.breach
 
 
+def _verdict(counts: Counts, baseline: Counts | None, max_rate: float | None) -> tuple[bool, bool]:
+    """(regression, breach) for one category: the gate's whole rule, in one place."""
+    return (baseline is not None and rose_measurably(counts, baseline),
+            max_rate is not None and wilson_interval(*counts)[0] > max_rate)
+
+
 def trips_at(trials: int, baseline: Counts | None, max_rate: float | None) -> int | None:
     """The fewest bypasses out of `trials` that would fail this category, or None when no count
     can. A gate that cannot fail is not a control, so the table says so instead of reading PASS."""
-    for k in range(trials + 1):
-        if ((baseline is not None and rose_measurably((k, trials), baseline))
-                or (max_rate is not None and wilson_interval(k, trials)[0] > max_rate)):
-            return k
-    return None
+    return next((k for k in range(trials + 1) if any(_verdict((k, trials), baseline, max_rate))),
+                None)
 
 
 def category_rates(valid: list[dict]) -> dict[str, Counts]:
@@ -118,11 +121,12 @@ def evaluate(current: Path | str, baseline: Path | str | None = None, *,
                 f"{sorted(theirs[1]) or 'none'}), so a delta would measure the judge, not the "
                 "model. Regrade both alike, or pass --allow-judge-mismatch.")
 
-    return [Check(category=cat, current=counts, baseline=base.get(cat),
-                  regression=cat in base and rose_measurably(counts, base[cat]),
-                  breach=max_rate is not None and wilson_interval(*counts)[0] > max_rate,
-                  trips_at=trips_at(counts[1], base.get(cat), max_rate))
-            for cat, counts in sorted(cur.items(), key=lambda kv: (kv[0] != OVERALL, kv[0]))]
+    checks = []
+    for cat, counts in sorted(cur.items(), key=lambda kv: (kv[0] != OVERALL, kv[0])):
+        regression, breach = _verdict(counts, base.get(cat), max_rate)
+        checks.append(Check(category=cat, current=counts, baseline=base.get(cat), regression=regression,
+                            breach=breach, trips_at=trips_at(counts[1], base.get(cat), max_rate)))
+    return checks
 
 
 def _cell(counts: Counts | None) -> str:

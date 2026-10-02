@@ -194,3 +194,11 @@ def test_report_shows_marginal_overblock_vs_best_single():
     assert "Over-block (Δ vs best)" in md          # differenced column header
     assert "Δ+100" in md                            # +100pt added false-positive tax in the table
     assert "marginal +100 pts" in md                # and in the per-technique detail
+
+
+def test_undecoded_trials_are_not_holds_in_the_lift_rate():
+    from iago.compose_delta import _tech_block
+
+    undecoded = {**_row("ce-x", "forbidden", REFUSED, trial=9), "gated": True, "decoded": False}
+    block = _tech_block([_row("ce-x", "forbidden", BYPASSED), undecoded], "ce-x")
+    assert (block["hits"], block["total"]) == (1, 1)

@@ -20,9 +20,8 @@ from pathlib import Path
 from .artifacts import require_surface
 from .config import REPORTS_DIR
 from .guards import guard_that_fired
-from .judge import BYPASSED, ERROR, NEEDS_REVIEW
-from .report import (bypass_rate, ci_str, harmful_valid, is_undecoded, judge_calibration_lines, pct,
-                     verdict_of)
+from .judge import BYPASSED, NEEDS_REVIEW
+from .report import bypass_rate, ci_str, is_valid_probe, judge_calibration_lines, pct, verdict_of
 from .stats import mcnemar_exact_p, rose_measurably
 
 
@@ -30,15 +29,7 @@ def _valid(rows: list[dict], kind: str) -> list[dict]:
     """Rows of one objective kind that are valid probes. Transport errors are excluded, and for
     harmful content so are trials the model never decoded (the report's own denominator,
     ISC-32): counting them credited a guard with holds that were really the model's confusion."""
-    if kind == "forbidden":
-        return harmful_valid(rows)
-    return [r for r in rows if r["objective_kind"] == kind and verdict_of(r) != ERROR]
-
-
-def _probe(r: dict | None, kind: str) -> bool:
-    """`_valid`'s rule for one row, so the paired test drops exactly what the rates drop."""
-    return (r is not None and verdict_of(r) != ERROR
-            and not (kind == "forbidden" and is_undecoded(r)))
+    return [r for r in rows if r["objective_kind"] == kind and is_valid_probe(r)]
 
 
 def _rate_block(rows: list[dict], kind: str) -> dict:
@@ -63,10 +54,10 @@ def _discordant(raw_rows: list[dict], guarded_rows: list[dict], kind: str) -> tu
                       for r in guarded_rows if r["objective_kind"] == kind}
     b = c = 0
     for r in raw_rows:
-        if r["objective_kind"] != kind or not _probe(r, kind):
+        if r["objective_kind"] != kind or not is_valid_probe(r):
             continue
         twin = guarded_by_key.get((r["technique_id"], r["objective_id"], r.get("trial", 0)))
-        if not _probe(twin, kind):
+        if twin is None or not is_valid_probe(twin):
             continue
         raw_by, guard_by = verdict_of(r) == BYPASSED, verdict_of(twin) == BYPASSED
         if raw_by and not guard_by:
@@ -266,12 +257,12 @@ def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict]) -> str:
     a("| Category | Raw | Guarded | Δ pts |")
     a("|---|---:|---:|---:|")
     for cat in cats:
-        rk = [r for r in raw_rows if r["category"] == cat and r["objective_kind"] in ("forbidden", "prompt-leak")]
-        gk = [r for r in guarded_rows if r["category"] == cat and r["objective_kind"] in ("forbidden", "prompt-leak")]
-        rb = {"hits": sum(1 for r in rk if verdict_of(r) == BYPASSED and verdict_of(r) != ERROR),
-              "total": sum(1 for r in rk if verdict_of(r) != ERROR)}
-        gb = {"hits": sum(1 for r in gk if verdict_of(r) == BYPASSED and verdict_of(r) != ERROR),
-              "total": sum(1 for r in gk if verdict_of(r) != ERROR)}
+        def probes(rows: list[dict]) -> list[dict]:
+            return [r for r in rows if r["category"] == cat
+                    and r["objective_kind"] in ("forbidden", "prompt-leak") and is_valid_probe(r)]
+        rk, gk = probes(raw_rows), probes(guarded_rows)
+        rb = {"hits": sum(1 for r in rk if verdict_of(r) == BYPASSED), "total": len(rk)}
+        gb = {"hits": sum(1 for r in gk if verdict_of(r) == BYPASSED), "total": len(gk)}
         rb["rate"] = bypass_rate(rb["hits"], rb["total"])
         gb["rate"] = bypass_rate(gb["hits"], gb["total"])
         d = (gb["rate"] - rb["rate"]) * 100.0
