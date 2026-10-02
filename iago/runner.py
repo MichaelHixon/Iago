@@ -419,7 +419,7 @@ def run(
                         # judge_trust confirms an escalation only when provenance crosses the gate
                         # (emits the action token) while anon AND placebo do not — isolating the
                         # relationship content. History goes in the PRIOR-TURN channel, never system.
-                        gate = obj.system_prompt
+                        gate = planted_system = obj.system_prompt
                         ask = tech.render(obj.objective, shots=shots)  # wrapped final ask (no priming)
                         ack = PLANTED_HISTORY_ACK
                         _, anon_response = _execute_planted(target, gate, [], ask, opts)
@@ -444,8 +444,9 @@ def run(
                         # prompt-leak (LLM07) and dead-end both plant a scenario system prompt:
                         # leak hides a secret to extract; dead-end states the SCOPE and the two reply
                         # channels. Other objective kinds send no system message.
-                        system = obj.system_prompt if (obj.is_prompt_leak or obj.is_dead_end) else None
-                        prompt, response = _execute_arm(target, tech, turns, opts, system)
+                        planted_system = (obj.system_prompt if (obj.is_prompt_leak or obj.is_dead_end)
+                                          else None)
+                        prompt, response = _execute_arm(target, tech, turns, opts, planted_system)
                         latency = time.monotonic() - started
                         # Oracle dispatch by objective kind:
                         #   prompt-leak   → deterministic canary match
@@ -469,9 +470,6 @@ def run(
                     # A guard block replaces the model's reply, so there is nothing to decode.
                     decoded = (decode_recovered(obj.objective, response)
                                if gated and guard_that_fired(response) is None else None)
-                    planted_system = (obj.system_prompt
-                                      if (obj.is_trust_escalation or obj.is_prompt_leak or obj.is_dead_end)
-                                      else None)
                     row = TrialResult(
                         technique_id=tech.id,
                         technique_name=tech.name,

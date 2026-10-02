@@ -10,6 +10,7 @@ a third of the time" into a finding you can defend in a report.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from math import ceil, comb, log, sqrt
 
@@ -64,6 +65,23 @@ def wilson_interval(hits: float, total: float, z: float = 1.96) -> tuple[float, 
 
 
 # --- paired difference ----------------------------------------------------------------------------
+
+def paired_counts(pairs: Iterable[tuple[bool, bool]]) -> tuple[int, int, int, int]:
+    """The 2x2 table (a, b, c, d) of matched binary outcomes (arm 1 hit?, arm 2 hit?): a = both,
+    b = arm 1 only, c = arm 2 only, d = neither — the cells `paired_difference_ci` takes, and
+    the discordant (b, c) `mcnemar_exact_p` takes."""
+    a = b = c = d = 0
+    for hit1, hit2 in pairs:
+        if hit1 and hit2:
+            a += 1
+        elif hit1:
+            b += 1
+        elif hit2:
+            c += 1
+        else:
+            d += 1
+    return a, b, c, d
+
 
 def newcombe_diff_ci(x1: int | float, n1: int, x2: int | float, n2: int, *, phi: float = 0.0,
                      z: float = 1.96) -> tuple[float, float]:

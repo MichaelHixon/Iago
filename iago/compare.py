@@ -29,7 +29,7 @@ from pathlib import Path
 from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED
 from .artifacts import read_artifact, require_surface
 from .config import GROUNDING_FLOOR_MIN_CORRECT, REPORTS_DIR
-from .stats import paired_difference_ci, wilson_interval
+from .stats import paired_counts, paired_difference_ci, wilson_interval
 
 # The adjudicated attack verdicts — the only ones that belong in a hijack-rate DENOMINATOR.
 # A non-adjudicated row (a future ERROR/TIMEOUT, or a malformed verdict) must be EXCLUDED, never
@@ -179,7 +179,6 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
                 hj, n = ms.scen.get(sid, (0, 0))
                 ms.scen[sid] = (hj + (1 if verdict == HIJACKED else 0), n + 1)
                 ms.trial_hits[(sid, r.get("trial", n))] = verdict == HIJACKED
-                ms.trial_hits[(sid, r.get("trial", n))] = verdict == HIJACKED
     distinct = {j for j in judge_ids.values() if j}
     # A legacy artifact carries no manifest and so no judge_id. It is NOT checkable against the
     # others, and silently treating that as agreement is the failure the guard exists to prevent
@@ -232,20 +231,8 @@ def divergent_scenarios(comp: Comparison) -> list[Divergence]:
 def paired_table(first: ModelStats, second: ModelStats, sid: str) -> tuple[int, int, int, int]:
     """(a, b, c, d) over the trials of `sid` that BOTH models adjudicated, paired by trial index:
     a = both hijacked, b = first only, c = second only, d = neither."""
-    a = b = c = d = 0
-    for key, hit1 in first.trial_hits.items():
-        if key[0] != sid or key not in second.trial_hits:
-            continue
-        hit2 = second.trial_hits[key]
-        if hit1 and hit2:
-            a += 1
-        elif hit1:
-            b += 1
-        elif hit2:
-            c += 1
-        else:
-            d += 1
-    return a, b, c, d
+    return paired_counts((hit1, second.trial_hits[key]) for key, hit1 in first.trial_hits.items()
+                         if key[0] == sid and key in second.trial_hits)
 
 
 def _paired_section(comp: Comparison) -> list[str]:
