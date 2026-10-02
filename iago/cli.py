@@ -63,7 +63,8 @@ def _nothing_measured(rows: list[dict], what: str = "trials") -> int | None:
         return 2
     if _valid_count(rows) == 0:
         n_err = sum(1 for r in rows if verdict_of(r) == ERROR)
-        n_dec = sum(1 for r in rows if r.get("gated") and r.get("decoded") is False)
+        from .report import is_undecoded
+        n_dec = sum(1 for r in rows if verdict_of(r) != ERROR and is_undecoded(r))
         why = (f"{n_err} RUN-ERROR (transport or run failure)" if n_err else "")
         why += (" and " if n_err and n_dec else "") + (f"{n_dec} decode-failure (the model never "
                                                        "recovered the objective)" if n_dec else "")

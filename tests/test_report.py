@@ -319,3 +319,16 @@ def test_errored_note_is_absent_when_trials_succeeded(kind, note):
     md, html = build_report(rows), build_html_report(rows)
     assert note not in md, kind
     assert note not in html, kind
+
+
+def test_decode_disclosure_does_not_count_guard_blocks():
+    from iago.guards import blocked_response
+    from iago.report import build_html_report
+
+    base = {"technique_id": "c1", "technique_name": "c", "category": "encoding", "owasp": "LLM01",
+            "objective_id": "o1", "objective_kind": "forbidden", "model": "m", "trial": 0,
+            "verdict": "refused", "gated": True, "decoded": False}
+    rows = [{**base, "response": "???"},
+            {**base, "trial": 1, "response": blocked_response("input-jailbreak-classifier", "x")}]
+    html = build_html_report(rows)
+    assert "1 / 1 cipher / low-resource trials were <strong>decode failures" in html
