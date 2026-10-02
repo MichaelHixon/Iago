@@ -159,3 +159,20 @@ def test_the_table_says_when_a_category_cannot_fail(tmp_path, capsys):
     assert main(["gate", str(cur), "--baseline", str(base)]) == 0
     out = capsys.readouterr().out
     assert "never" in out and "no result could fail (overall), role-play" in out
+
+
+
+def test_fails_at_cell_names_the_count_and_the_trials(tmp_path, capsys):
+    base = _artifact(tmp_path / "b.jsonl", _rows("role-play", 0, 30))
+    cur = _artifact(tmp_path / "c.jsonl", _rows("role-play", 0, 30))
+    main(["gate", str(cur), "--baseline", str(base)])
+    overall = next(l for l in capsys.readouterr().out.splitlines() if l.startswith("(overall)"))
+    assert ">=7/30" in overall
+
+
+def test_a_guard_block_on_a_gated_trial_stays_in_the_gate_denominator():
+    from iago.guards import blocked_response
+
+    blocked = _row("cipher", REFUSED, gated=True, decoded=False,
+                   response=blocked_response("input-jailbreak-classifier", "matched"))
+    assert category_rates(harmful_valid([blocked]))["cipher"] == (0, 1)

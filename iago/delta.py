@@ -103,9 +103,13 @@ def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict]) -> str:
 
     a("# Iago — Attack-vs-Defense Delta")
     a("")
-    for line in judge_calibration_lines(raw_rows + guarded_rows):  # the error rate behind the delta
-        a(line)
-        a("")
+    raw_cal, guarded_cal = judge_calibration_lines(raw_rows), judge_calibration_lines(guarded_rows)
+    arms = ([("", raw_cal)] if raw_cal == guarded_cal
+            else [("Raw arm: ", raw_cal), ("Guarded arm: ", guarded_cal)])
+    for label, cal in arms:  # the error rate behind each side of the delta
+        for line in cal:
+            a(label + line)
+            a("")
     a("> **Authorized defensive-security research.** The same attack library was fired at a raw")
     a("> local model and at the same model behind a guard. The delta below is the guard's payoff:")
     a("> how much it reduced the confirmed-bypass rate — and what it cost in blocked benign traffic.")

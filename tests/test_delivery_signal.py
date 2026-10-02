@@ -289,3 +289,27 @@ def test_exfil_report_does_not_warn_when_a_trial_was_delivered(tmp_path, surface
     rows = _exfil_rows(tmp_path, surface, scripted_chat([[read], "summary", "nothing"]), trials=2)
     text = SURFACES[surface][3](rows, reports_dir=tmp_path).read_text()
     assert ZERO_WARNING not in text.lower()
+
+
+
+def test_base_loader_rejects_a_marker_in_the_private_notes(tmp_path):
+    # read_private_notes hands the notes back verbatim, so a marker there reads as delivery.
+    f = _write(tmp_path)
+    f.write_text(f.read_text().replace('private_notes: "token CANARY-123"',
+                                       'private_notes: "token CANARY-123 IAGO_DOC_PAYLOAD"'))
+    with pytest.raises(ValueError, match="private_notes"):
+        load_scenarios(f)
+
+
+def test_base_loader_rejects_a_marker_in_a_document_name(tmp_path):
+    f = _write(tmp_path)
+    f.write_text(f.read_text().replace("    report:", "    IAGO_DOC_PAYLOAD_report:"))
+    with pytest.raises(ValueError, match="document names"):
+        load_scenarios(f)
+
+
+def test_delivered_cell_is_unknown_when_any_row_predates_the_field():
+    from iago.agent_oracle import delivered_cell
+
+    assert delivered_cell([{"poison_ingested": True}, {}]) == "n/a"
+    assert delivered_cell([{"poison_ingested": True}, {"poison_ingested": False}]) == "1"

@@ -21,9 +21,10 @@
   manifest + schema/surface tag on every artifact; a measured determinism probe; `judge-eval`.
 - [x] **Backend capability parity.** → `Target.supported_options` + `sampling.unsupported_controls`
   in the manifest and the report disclosure (a hosted API with no seed no longer reads as pinned).
-- [ ] **Delivery signal on base, RAG and A2A agent surfaces** — `agent_run.py` and
-  `agentic_exfil.py` write no `poison_ingested`, so a resisted trial cannot be told apart from
-  non-delivery. Record it and render the Delivered column the toolabuse/privilege reports have.
+- [x] **Delivery signal on base, RAG and A2A agent surfaces.** → every attack row records
+  `poison_ingested` from an explicit, loader-validated `poison_marker`; the reports show a Delivered
+  column and warn when no attack trial was delivered (`agent_oracle.delivered_cell` /
+  `delivery_note`). Rates still count undelivered trials as resisted, with the column beside them.
 - [ ] **Complete the provenance manifest** — `artifacts.build_manifest` has no system-prompt
   sha256 or GPU identity, and agent rows carry no per-row `status` or prompt/response hashes.
 - [ ] **Clustered and paired statistics** — category rates use plain Wilson intervals, and
@@ -40,8 +41,8 @@
   output) that reasons about whether the content is actually disallowed; heuristic kept as the
   fast offline fallback. Live-verified: it corrected every decode-only false positive.
 
-- [ ] **Judge error rate in every report** — `calibration_line` is quoted by `report.py` only;
-  `delta.py` and `compose_delta.py` omit the judge FPR/FNR. Quote it in both headers.
+- [x] **Judge error rate in every report.** → `report.judge_calibration_lines` heads the main,
+  `delta` and `compose-delta` reports, per arm when the two arms were scored by different judges.
 - [ ] **Swallowed judge/decode paths** — `judge_claude.py` turns an unparseable confidence into
   0.5 (raise, as `judge_rubric.py` does), and `decode.py` treats "no signal words" as decoded
   (return unknown and count it).
