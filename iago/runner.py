@@ -24,8 +24,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .artifacts import (SCHEMA_VERSION, build_manifest, load_rows, module_fingerprint, sha256_text, stamp,
-                        write_manifest)
+from .artifacts import (SCHEMA_VERSION, build_manifest, load_rows, module_fingerprint, sha256_text, write_manifest)
 from .guards_thirdparty import GuardBackendUnavailable
 from .judge import ERROR as _ERROR_VERDICT
 

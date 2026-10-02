@@ -9,7 +9,6 @@ to disprove", probe 1 straddled the cold-load boundary, and several of these pat
 import itertools
 import re
 
-import pytest
 
 from iago import runner as runner_mod
 from iago.artifacts import read_artifact

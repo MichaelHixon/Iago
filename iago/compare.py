@@ -21,13 +21,12 @@ or ranks models by safety.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED
-from .artifacts import load_rows, read_artifact, require_surface
+from .artifacts import read_artifact, require_surface
 from .config import GROUNDING_FLOOR_MIN_CORRECT, REPORTS_DIR
 from .stats import wilson_interval
 

@@ -125,11 +125,21 @@ def test_all_expands_to_reference_guards_only():
     assert "llama-guard" not in names
 
 
-def test_thirdparty_guard_resolves_by_explicit_name_without_a_backend():
-    """Building a third-party guard by name is cheap — the backend is only touched on inspect,
-    so name resolution never requires the model/package to be present."""
+def test_thirdparty_guard_resolves_by_explicit_name_without_a_backend(monkeypatch):
+    """Name resolution needs no backend. build_guards probes the backend once (ISC-31), so the
+    probe is stubbed here: before it was, this test passed only where Ollama happened to be up."""
+    monkeypatch.setattr(LlamaGuard, "inspect", lambda self, text: None)
     guards = build_guards("llama-guard")
     assert [g.name for g in guards] == ["llama-guard"]
+
+
+def test_build_guards_fails_loud_when_the_probe_finds_no_backend(monkeypatch):
+    def unavailable(self, text):
+        raise GuardBackendUnavailable("no backend")
+
+    monkeypatch.setattr(LlamaGuard, "inspect", unavailable)
+    with pytest.raises(GuardBackendUnavailable):
+        build_guards("llama-guard")
 
 
 def test_unknown_guard_name_errors_with_both_registries():

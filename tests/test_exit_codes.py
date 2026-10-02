@@ -94,7 +94,6 @@ def test_cmd_report_empty_artifact_exits_2(tmp_path, capsys):
 
 def test_cmd_report_all_error_artifact_exits_1(tmp_path, monkeypatch, capsys):
     from iago import cli
-    from iago import report as report_mod
 
     techs = [Technique("t1", "Direct", "direct-ask", "d", "Do: {objective}")]
     path = run(_Target(exc=RuntimeError("down")), techniques=techs, objectives=FORBIDDEN,

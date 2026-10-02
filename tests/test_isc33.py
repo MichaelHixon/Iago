@@ -1,15 +1,14 @@
 """ISC-33 — provenance manifest + schema on every artifact; readers refuse the wrong surface."""
 
 import json
-import os
 
 import pytest
 
-from iago.artifacts import (SCHEMA_VERSION, build_manifest, load_rows, module_fingerprint, ollama_info,
+from iago.artifacts import (SCHEMA_VERSION, build_manifest, module_fingerprint, ollama_info,
                             read_artifact, require_surface, surface_of)
 from iago.attacks import Technique
 from iago.compare import build_comparison
-from iago.judge import BYPASSED, REFUSED
+from iago.judge import REFUSED
 from iago.objectives import Objective
 from iago.regrade import regrade_file
 from iago.report import build_report

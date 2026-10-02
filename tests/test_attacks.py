@@ -71,7 +71,6 @@ def test_new_round2_categories_present():
 
 def test_many_shot_scaling_is_runner_driven():
     """ms-001 expands {shots} to N fabricated compliant pairs; the count is drivable."""
-    from iago.attacks import _MANY_SHOT_POOL
 
     ms = _get("ms-001")
     assert ms.is_shot_scaled
