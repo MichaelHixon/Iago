@@ -21,7 +21,7 @@ import hashlib
 import json
 import os
 import platform
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO, overload
@@ -394,6 +394,16 @@ def fingerprint_status(fingerprints: Mapping[str, str | None]) -> tuple[set[str]
     known = {v for v in fingerprints.values() if v}
     unknown = [label for label, v in fingerprints.items() if not v]
     return known, unknown
+
+
+def refuse_unknown_fingerprint(key: str, unknown: Sequence[str], *, strict: bool) -> None:
+    """`--strict-fingerprints`: an UNKNOWN fingerprint (`fingerprint_status`) is a refusal, not a
+    note, so a CI pipeline fails closed on an artifact it cannot verify. Raises ValueError naming
+    the key and the unverified side(s); a no-op when not strict or when nothing is unknown."""
+    if strict and unknown:
+        raise ValueError(f"no {key} in the {' and '.join(unknown)} manifest (pre-fingerprint "
+                         "artifact), so whether the artifacts match on it is UNKNOWN and "
+                         "--strict-fingerprints refuses it. Re-run that artifact, or drop the flag.")
 
 
 def surface_of(row: dict) -> str:
