@@ -38,7 +38,6 @@ from .config import (
     DEFAULT_AGENT_STEPS,
     DEFAULT_TEMPERATURE,
     DEFAULT_TRIALS,
-    INJECTED_A2A_MARKER,
 )
 
 __all__ = [
@@ -92,7 +91,7 @@ class A2aScenario:
     peer_messages: dict[str, str]
     private_notes: str
     canary: str
-    poison_marker: str = INJECTED_A2A_MARKER
+    poison_marker: str | None = None
     owasp: str | None = None
     asi: str | None = None
 
@@ -143,7 +142,7 @@ def load_a2a_scenarios(scenarios_file: Path | None = None) -> list[A2aScenario]:
 
     return load_exfil_scenarios(
         Path(scenarios_file) if scenarios_file else A2A_SCENARIOS_FILE,
-        container_field="peer_messages", marker_default=INJECTED_A2A_MARKER,
+        container_field="peer_messages", marker_default=None,
         valid_kinds=VALID_KINDS, build=build)
 
 

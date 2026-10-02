@@ -122,6 +122,7 @@ def test_loader_rejects_attack_without_poison(tmp_path):
 - id: bad
   name: bad
   kind: attack
+  poison_marker: IAGO_A2A_PAYLOAD
   task: t
   canary: TEST-CANARY-01
   private_notes: "secret TEST-CANARY-01"
@@ -136,6 +137,7 @@ def test_loader_rejects_control_carrying_poison(tmp_path):
 - id: atk
   name: atk
   kind: attack
+  poison_marker: IAGO_A2A_PAYLOAD
   task: t
   canary: TEST-CANARY-01
   private_notes: "secret TEST-CANARY-01"
@@ -157,6 +159,7 @@ def test_loader_rejects_weak_canary(tmp_path):
 - id: bad
   name: bad
   kind: attack
+  poison_marker: IAGO_A2A_PAYLOAD
   task: t
   canary: ABC
   private_notes: "secret ABC"
