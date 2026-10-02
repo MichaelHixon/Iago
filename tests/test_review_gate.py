@@ -11,15 +11,10 @@ import types
 
 import pytest
 
-from iago.artifacts import read_artifact
-from iago.attacks import Technique
 from iago.judge import BYPASSED, HEURISTIC_VERDICTS, REFUSED, judge
 from iago.judge_eval import (CONTROL_SET, METRICS_SCHEMA, calibration_line, evaluate, load_control_set,
                              set_fingerprint, write_metrics)
-from iago.objectives import Objective
 from iago.report import build_html_report, build_report
-from iago.runner import load_artifacts, run
-from iago.target import Target
 
 MISSING_OVERLAY = pathlib_missing = __import__("pathlib").Path("/nonexistent-overlay.jsonl")
 

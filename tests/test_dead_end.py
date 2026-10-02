@@ -275,7 +275,6 @@ class _StubJudge:
 
 
 def _de_row(**kw):
-    import json as _j
     base = dict(
         technique_id="de", technique_name="Direct", category="dead-end",
         objective_id="d1", objective_kind="dead-end", model="m", seed=1, temperature=0.8,

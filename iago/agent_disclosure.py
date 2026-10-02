@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .agent_harness import AgentTrace, run_agent
-from .artifacts import (build_manifest, load_rows, module_fingerprint, scenario_fingerprint,
+from .artifacts import (build_manifest, module_fingerprint, scenario_fingerprint,
                         stamp, write_manifest)
 from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED, _is_external, probe_quality_note
 from .agentic_exfil import load_artifacts as load_disclosure_artifacts, load_exfil_scenarios

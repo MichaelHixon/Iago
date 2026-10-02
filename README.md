@@ -4,6 +4,8 @@
 
 <h1 align="center">Iago</h1>
 
+<p align="center"><a href="https://github.com/MichaelHixon/Iago/actions/workflows/ci.yml"><img src="https://github.com/MichaelHixon/Iago/actions/workflows/ci.yml/badge.svg" alt="CI" /></a></p>
+
 **A tool for testing LLM guardrails.** Guardrails are the safety rules a language model is supposed to follow. Iago tries to talk a model past them, records which attempts worked, and writes a findings report in the style of a penetration test, so the rules can be understood and **strengthened**.
 
 > ⚠️ **Defensive research, authorized use only.** Iago is built to test a **local model you run and own**, or a model you have explicit permission to test over an API. The goal is to learn how safety rules fail and how to make them stronger, the same ethic as authorized penetration testing. **Do not point it at hosted or third-party models without permission.** The techniques here are for testing your own model's rules.

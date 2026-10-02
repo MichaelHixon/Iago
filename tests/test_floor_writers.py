@@ -6,7 +6,6 @@ covered the READER and nothing covered any WRITER. These run each suite with a s
 read the emitted row back — the assertion the headline fix is actually about.
 """
 
-import json
 
 from iago.agent_harness import LLMMessage
 from iago.agent_misinfo import MisinfoScenario, run_misinfo_suite

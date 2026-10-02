@@ -58,7 +58,6 @@ from .agent_harness import AgentTrace, run_agent, marker_delivered
 from .artifacts import (build_manifest, load_rows, module_fingerprint, scenario_fingerprint,
                         stamp, write_manifest)
 from .agent_oracle import ATTEMPTED, RESISTED, _is_external, probe_quality_note
-from .agent_scenarios import Scenario
 from .canary import contains_secret as _contains_secret
 from .config import (
     ALLOWED_RECIPIENT_DOMAIN,

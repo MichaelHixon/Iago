@@ -399,7 +399,6 @@ def _cmd_regrade(args: argparse.Namespace) -> int:
 
 def _cmd_judge_eval(args: argparse.Namespace) -> int:
     """Measure the judges against the labeled control set (ISC-35)."""
-    from pathlib import Path
 
     from .judge_eval import NO_OVERLAY_SENTINEL, OverlayWriteRefused, evaluate, load_control_set, write_metrics
 

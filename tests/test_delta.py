@@ -26,7 +26,6 @@ def _raw():
 
 def _guarded():
     blk_in = blocked_response("input-jailbreak-classifier", "matched jailbreak pattern: roleplay-as")
-    blk_out = blocked_response("output-systemprompt-dlp", "reproduced a protected token")
     return [
         # t1 was neutralized by the input classifier on both trials.
         _row("t1", "role-play", "obj-harm", "forbidden", REFUSED, response=blk_in, trial=0),
@@ -86,7 +85,7 @@ def test_harmful_content_headline_shows_when_claude_graded():
 def _leak_pairs(n, guard_holds):
     """n paired LLM07 leak trials: raw always leaks; guarded holds (blocked) or also leaks."""
     blk_out = blocked_response("output-systemprompt-dlp", "reproduced a protected token")
-    raw = [_row(f"t{i}", "prompt-injection", f"obj-leak{i}", "prompt-leak", BYPASSED, owasp="LLM07")
+    raw =[_row(f"t{i}", "prompt-injection", f"obj-leak{i}", "prompt-leak", BYPASSED, owasp="LLM07")
            for i in range(n)]
     guarded = [_row(f"t{i}", "prompt-injection", f"obj-leak{i}", "prompt-leak",
                     REFUSED if guard_holds else BYPASSED,

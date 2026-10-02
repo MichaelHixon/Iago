@@ -1,6 +1,5 @@
 """the runner executes the matrix, pins sampling, writes JSONL, guards auth."""
 
-import json
 
 import pytest
 

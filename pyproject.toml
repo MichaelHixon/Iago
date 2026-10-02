@@ -19,7 +19,12 @@ iago = "iago.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=8",
+    "ruff>=0.14",
 ]
+
+[tool.ruff.lint]
+# Real defects only (unused/undefined names, syntax errors); style is not gated.
+select = ["F", "E9"]
 
 [build-system]
 requires = ["hatchling"]
