@@ -4,6 +4,7 @@ policy, and the YAML loaders refuse an empty, null or wrong-shape file by name."
 from __future__ import annotations
 
 import json
+import pathlib
 import re
 from pathlib import Path
 
@@ -261,3 +262,20 @@ def test_a_broken_frame_override_fails_the_library_but_not_the_other_commands(tm
                          env={**__import__("os").environ, "PYTHONDONTWRITEBYTECODE": "1"})
     assert "IMPORTED" in out.stdout, out.stderr
     assert re.search(r"REFUSED wrappers\.local\.yaml: .*delete it to use the shipped frames", out.stdout), out.stdout
+
+
+def test_delta_does_not_refuse_an_arm_with_no_valid_harmful_rows(tmp_path, monkeypatch):
+    """An arm whose every harmful trial was a run error has nothing to regrade; it read as
+    "not regraded" and delta refused with a remedy that could not work (code review).
+    Revert check: dropping the "n/a" state reds this."""
+    r = _graded_artifact(tmp_path / "raw.jsonl", graded=True)
+    g = tmp_path / "g.jsonl"
+    rows = [json.loads(x) for x in pathlib.Path(_graded_artifact(g, graded=False)).read_text().splitlines()]
+    for row in rows[1:]:
+        row["response"] = "<<RUN-ERROR: ConnectionError: guard down>>"
+        row["verdict"] = "error"
+    g.write_text("\n".join(json.dumps(x) for x in rows) + "\n")
+    # Not refused (exit 2): the report is written, then exit 1 says the guarded arm measured
+    # nothing, which is the honest verdict on an all-error arm.
+    assert _delta(tmp_path, monkeypatch, r, str(g)) == 1
+    assert list((tmp_path / "reports").glob("delta_*.md"))
