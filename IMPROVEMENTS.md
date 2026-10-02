@@ -79,8 +79,11 @@
 - [ ] **One surface registry for the CLI** — `campaign.SURFACE_REGISTRY` holds 4 of 8 surfaces,
   there are 8 near-identical `_cmd_*_run` handlers, and `scens[:1]` smoke slicing drops the
   capability floor. One registry, one handler, one smoke slicer.
-- [ ] **CI and lint baseline** — no `.github/`, pre-commit, `py.typed` or ruff/mypy config. A
-  one-job CI running `uv run pytest`, plus minimal ruff + mypy.
+- [x] **CI and lint baseline.** → `.github/workflows/ci.yml` runs `ruff check` (F, E9: real
+  defects only) and the offline suite on every push and PR; replaying it in a clean clone caught a
+  test that passed only where Ollama was running.
+- [ ] **Type-check baseline** — mypy reports 56 errors across 25 files (mostly `Any | None` into
+  `str`); fix them, then add mypy to CI. `py.typed` and pre-commit can follow.
 - [ ] **YAML loaders reject null/empty files** — `yaml.safe_load(...) or []` (`attacks.py`,
   `objectives.py`, the agent scenario loaders) silently contributes zero records. Raise on None
   or a non-list and name the file.
@@ -133,8 +136,10 @@ Deferred: cross-modal / multimodal injection (needs a multimodal target), advers
 ### Not built yet
 - [ ] Parallel / adaptive trial execution — run trials concurrently for speed, and run *more*
   trials where the bypass rate is borderline (tighten only the intervals that matter).
-- [ ] **Regression gate** — `--fail-if` on the CI lower bound of the bypass rate per category,
-  plus a `baselines/` directory of prior manifests per model digest so `compare` flags regressions.
+- [x] **Regression gate.** → `iago gate CURRENT --baseline PRIOR --max-rate R` (`gate.py`): fails
+  when a category's 95% Wilson lower bound clears the baseline's upper bound or the ceiling; refuses
+  unresolved trials, judge mismatches and empty runs (exit 2). A per-model `baselines/` directory is
+  not built: pass the last good artifact explicitly.
 
 ## Attack Library — Candidate Additions
 
