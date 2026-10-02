@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .artifacts import fingerprint_status, read_artifact, require_surface
+from .artifacts import fingerprint_status, read_artifact, refuse_unknown_fingerprint, require_surface
 from .config import REPORTS_DIR
 from .guards import guard_that_fired
 from .judge import BYPASSED, NEEDS_REVIEW
@@ -152,11 +152,13 @@ _FINGERPRINTS = (
 
 def fingerprint_notes(raw_manifest: dict | None, guarded_manifest: dict | None, *,
                       allow_judge_mismatch: bool = False,
-                      allow_library_mismatch: bool = False) -> list[str]:
+                      allow_library_mismatch: bool = False,
+                      strict_fingerprints: bool = False) -> list[str]:
     """The paired delta assumes both arms share the oracle and the attack text, so a known
     `judge_id` or `technique_library_sha256` difference raises ValueError unless overridden, as
     `compare` and `gate` refuse it. Returns the report notes: an overridden mismatch, or a side
-    whose manifest has no fingerprint (UNKNOWN, never a match; `artifacts.fingerprint_status`)."""
+    whose manifest has no fingerprint (UNKNOWN, never a match; `artifacts.fingerprint_status`),
+    which `strict_fingerprints` refuses instead."""
     notes = []
     for (key, differs, flag, measures), allowed in zip(
             _FINGERPRINTS, (allow_judge_mismatch, allow_library_mismatch), strict=True):
@@ -171,6 +173,7 @@ def fingerprint_notes(raw_manifest: dict | None, guarded_manifest: dict | None, 
             notes.append(f"_⚠️ The two arms {differs} ({key}: {shown}; `{flag}` given): this "
                          f"delta may measure {measures}, not the guard._")
         elif unknown:
+            refuse_unknown_fingerprint(key, unknown, strict=strict_fingerprints)
             notes.append(f"_⚠️ No `{key}` in the {' and '.join(unknown)} arm's manifest "
                          "(pre-fingerprint artifact): whether both arms match on it is UNKNOWN, "
                          "not verified._")
@@ -464,7 +467,7 @@ def write_delta_report(raw_rows: list[dict], guarded_rows: list[dict],
 
 def delta_from_artifacts(raw_path: Path | str, guarded_path: Path | str, *,
                          allow_judge_mismatch: bool = False, allow_library_mismatch: bool = False,
-                         reports_dir: Path | None = None) -> tuple[Path, list[dict], list[dict]]:
+                         strict_fingerprints: bool = False, reports_dir: Path | None = None) -> tuple[Path, list[dict], list[dict]]:
     """(report path, raw rows, guarded rows): the one way from two artifacts to a delta report,
     so every caller gets the `fingerprint_notes` and `adjudication_notes` checks. Raises ValueError
     when it refuses."""
@@ -474,6 +477,7 @@ def delta_from_artifacts(raw_path: Path | str, guarded_path: Path | str, *,
         require_surface(rows, "chatbot", reader="iago delta")
     notes = fingerprint_notes(raw_manifest, guarded_manifest,
                               allow_judge_mismatch=allow_judge_mismatch,
-                              allow_library_mismatch=allow_library_mismatch)
+                              allow_library_mismatch=allow_library_mismatch,
+                              strict_fingerprints=strict_fingerprints)
     notes += adjudication_notes(raw_rows, guarded_rows, allow_judge_mismatch=allow_judge_mismatch)
     return write_delta_report(raw_rows, guarded_rows, reports_dir, notes), raw_rows, guarded_rows

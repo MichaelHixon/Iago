@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .artifacts import fingerprint_status, read_artifact, require_surface
+from .artifacts import fingerprint_status, read_artifact, refuse_unknown_fingerprint, require_surface
 from .report import category_counts, ci_str, harmful_valid
 from .stats import rose_measurably, wilson_interval
 
@@ -103,10 +103,10 @@ def _library(manifest: dict | None) -> str | None:
 
 
 def library_note(cur_manifest: dict | None, base_manifest: dict | None, *,
-                 allow_library_mismatch: bool) -> str | None:
+                 allow_library_mismatch: bool, strict: bool = False) -> str | None:
     """The advisory line about the two artifacts' technique libraries, or None when they match.
     Raises GateError on a known mismatch unless overridden; an unknown side (legacy manifest) is
-    a note, not a pass."""
+    a note, not a pass (a refusal under `strict`)."""
     cur, base = _library(cur_manifest), _library(base_manifest)
     if cur and base and cur != base:
         if not allow_library_mismatch:
@@ -117,13 +117,15 @@ def library_note(cur_manifest: dict | None, base_manifest: dict | None, *,
         return (f"NOTE: technique libraries differ (current {cur[:12]}, baseline {base[:12]}; "
                 "--allow-library-mismatch given): a category delta may be the attack text.")
     return _unknown_note("technique_library_sha256", "fired the same attack text",
-                         {"current": cur, "baseline": base})
+                         {"current": cur, "baseline": base}, strict=strict)
 
 
-def _unknown_note(key: str, what: str, values: dict[str, str | None]) -> str | None:
+def _unknown_note(key: str, what: str, values: dict[str, str | None], *,
+                  strict: bool = False) -> str | None:
     """The NOTE for a side whose manifest lacks `key` (`fingerprint_status`: unknown is never a
-    match), or None when both carry it."""
+    match), or None when both carry it. Under `strict` the unknown side is refused instead."""
     _, unknown = fingerprint_status(values)
+    refuse_unknown_fingerprint(key, unknown, strict=strict)
     if not unknown:
         return None
     return (f"NOTE: no {key} in the {' and '.join(unknown)} manifest (pre-fingerprint artifact): "
@@ -132,7 +134,8 @@ def _unknown_note(key: str, what: str, values: dict[str, str | None]) -> str | N
 
 def evaluate(current: Path | str, baseline: Path | str | None = None, *,
              max_rate: float | None = None, allow_judge_mismatch: bool = False,
-             allow_library_mismatch: bool = False, notes: list[str] | None = None) -> list[Check]:
+             allow_library_mismatch: bool = False, strict_fingerprints: bool = False,
+             notes: list[str] | None = None) -> list[Check]:
     """One Check per category (OVERALL first). Raises GateError when it cannot judge. Advisory
     findings that do not stop the gate (an unknown library fingerprint, an overridden mismatch)
     are appended to `notes` when the caller passes a list, for `render` to print."""
@@ -165,8 +168,10 @@ def evaluate(current: Path | str, baseline: Path | str | None = None, *,
                             "--allow-judge-mismatch.")
         found = [f"NOTE: the artifacts were scored differently ({scored}; --allow-judge-mismatch "
                  "given): a category delta may be the judge, not the model." if mismatch else None,
-                 _unknown_note("judge_id", "were scored by the same offline judge", judges),
-                 library_note(cur_manifest, base_manifest, allow_library_mismatch=allow_library_mismatch)]
+                 _unknown_note("judge_id", "were scored by the same offline judge", judges,
+                               strict=strict_fingerprints),
+                 library_note(cur_manifest, base_manifest, allow_library_mismatch=allow_library_mismatch,
+                              strict=strict_fingerprints)]
         if notes is not None:
             notes.extend(n for n in found if n)
 

@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED
-from .artifacts import fingerprint_status, read_artifact, require_surface
+from .artifacts import fingerprint_status, read_artifact, refuse_unknown_fingerprint, require_surface
 from .config import GROUNDING_FLOOR_MIN_CORRECT, REPORTS_DIR
 from .stats import newcombe_diff_ci, wilson_interval
 
@@ -118,7 +118,8 @@ class Comparison:
 
 
 def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismatch: bool = False,
-                     allow_library_mismatch: bool = False) -> Comparison:
+                     allow_library_mismatch: bool = False,
+                     strict_fingerprints: bool = False) -> Comparison:
     """Read >=1 single-model artifacts and aggregate per model.
 
     Each file is expected to carry rows for ONE model (the ``model`` field); if a
@@ -198,7 +199,7 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
                     continue
                 hj, n = ms.scen.get(sid, (0, 0))
                 ms.scen[sid] = (hj + (1 if verdict == HIJACKED else 0), n + 1)
-    distinct, _ = fingerprint_status(judge_ids)
+    distinct, unknown_judges = fingerprint_status(judge_ids)
     # A legacy artifact carries no manifest and so no judge_id. It is NOT checkable against the
     # others, and silently treating that as agreement is the failure the guard exists to prevent
     # (code-review major) — the report says so instead.
@@ -211,7 +212,7 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
             + ", ".join(f"{Path(p).name}={j}" for p, j in judge_ids.items())
             + "); re-run the older one, or pass --allow-judge-mismatch to compare anyway"
         )
-    libraries, _ = fingerprint_status(library_ids)
+    libraries, unknown_libraries = fingerprint_status(library_ids)
     if len(libraries) > 1 and not allow_library_mismatch:
         # The same scenario ids over different attack text measure different stimuli (ISC-68
         # rewrote the RAG / A2A poisons under unchanged ids). A legacy manifest carries None and
@@ -222,6 +223,10 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
             + "); the same scenario id names a different stimulus in each, so a rate delta is not "
             "a model difference. Re-run on one library, or pass --allow-library-mismatch"
         )
+    for fp_key, fp_unknown in (("judge_id", unknown_judges),
+                               ("scenario_library_sha256", unknown_libraries)):
+        refuse_unknown_fingerprint(fp_key, [Path(p).name for p in fp_unknown],
+                                   strict=strict_fingerprints)
     return Comparison(models=[by_model[m] for m in model_order],
                       scenario_ids=order, scenario_names=names, judge_ids=judge_ids,
                       determinism=determinism, library_ids=library_ids,

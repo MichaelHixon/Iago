@@ -176,7 +176,8 @@ def _cmd_delta(args: argparse.Namespace) -> int:
         out, raw_rows, guarded_rows = delta_from_artifacts(
             raw_path, guarded_path,
             allow_judge_mismatch=getattr(args, "allow_judge_mismatch", False),
-            allow_library_mismatch=getattr(args, "allow_library_mismatch", False))
+            allow_library_mismatch=getattr(args, "allow_library_mismatch", False),
+            strict_fingerprints=getattr(args, "strict_fingerprints", False))
     except ValueError as exc:  # wrong-surface artifact (ISC-33), or the arms' fingerprints differ
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -197,7 +198,8 @@ def _cmd_gate(args: argparse.Namespace) -> int:
     try:
         checks = evaluate(args.artifact, args.baseline, max_rate=args.max_rate,
                           allow_judge_mismatch=args.allow_judge_mismatch,
-                          allow_library_mismatch=args.allow_library_mismatch, notes=notes)
+                          allow_library_mismatch=args.allow_library_mismatch,
+                          strict_fingerprints=args.strict_fingerprints, notes=notes)
     except (ValueError, OSError, KeyError) as exc:  # GateError, wrong surface, unreadable/malformed
         # Exit 1 means "regressed"; anything that stopped the gate from judging must not read as that.
         print(f"ERROR: {exc!r}" if isinstance(exc, KeyError) else f"ERROR: {exc}", file=sys.stderr)
@@ -219,7 +221,8 @@ def _cmd_compare(args: argparse.Namespace) -> int:
             return 2
     try:
         comp = build_comparison(paths, allow_judge_mismatch=getattr(args, "allow_judge_mismatch", False),
-                                allow_library_mismatch=getattr(args, "allow_library_mismatch", False))
+                                allow_library_mismatch=getattr(args, "allow_library_mismatch", False),
+                                strict_fingerprints=getattr(args, "strict_fingerprints", False))
     except ValueError as exc:  # wrong surface, oracle code or scenario library differs between runs
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -749,6 +752,9 @@ def build_parser() -> argparse.ArgumentParser:
     dl.add_argument("--allow-library-mismatch", action="store_true",
                     help="compute the delta even when the two arms fired different technique "
                          "libraries (technique_library_sha256) — the delta may then be the attack text")
+    dl.add_argument("--strict-fingerprints", action="store_true",
+                    help="exit 2 when either artifact's manifest lacks a judge_id or library hash "
+                         "(UNKNOWN is otherwise a note), so CI fails closed on an unverifiable pair")
     dl.set_defaults(func=_cmd_delta)
 
     cmp = sub.add_parser("compare",
@@ -763,6 +769,9 @@ def build_parser() -> argparse.ArgumentParser:
                      help="compare artifacts even when their manifests name different scenario "
                           "libraries (scenario_library_sha256) — the same scenario id then names a "
                           "different stimulus in each, so the delta may be the attack text")
+    cmp.add_argument("--strict-fingerprints", action="store_true",
+                     help="exit 2 when any artifact's manifest lacks a judge_id or library hash "
+                          "(UNKNOWN is otherwise a note), so CI fails closed on an unverifiable pair")
     cmp.set_defaults(func=_cmd_compare)
 
     gt = sub.add_parser("gate",
@@ -778,6 +787,9 @@ def build_parser() -> argparse.ArgumentParser:
     gt.add_argument("--allow-library-mismatch", action="store_true",
                     help="gate even when the two artifacts fired different technique libraries "
                          "(technique_library_sha256) — the delta may then be the attack text")
+    gt.add_argument("--strict-fingerprints", action="store_true",
+                    help="exit 2 when either artifact's manifest lacks a judge_id or library hash "
+                         "(UNKNOWN is otherwise a note), so CI fails closed on an unverifiable pair")
     gt.set_defaults(func=_cmd_gate)
 
     je = sub.add_parser("judge-eval",
