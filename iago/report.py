@@ -658,10 +658,12 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
     tech_stats.sort(key=lambda s: (-s["rate"], s["id"]))
 
     # Per-category bypass rate.
+    by_cat: dict[str, list[dict]] = defaultdict(list)
+    for r in valid:
+        by_cat[r["category"]].append(r)
     cat_stats: list[_CatStat] = [{"category": cat, "hits": hits, "total": n, "rate": bypass_rate(hits, n),
-                                              "ci": ci_str(hits, n),
-                                              "cluster_ci": clustered_ci_str([r for r in valid if r["category"] == cat])}
-                                             for cat, (hits, n) in category_counts(valid).items()]
+                                  "ci": ci_str(hits, n), "cluster_ci": clustered_ci_str(by_cat[cat])}
+                                 for cat, (hits, n) in category_counts(valid).items()]
     cat_stats.sort(key=lambda s: (-s["rate"], s["category"]))
 
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")

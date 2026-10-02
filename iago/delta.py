@@ -22,7 +22,7 @@ from .config import REPORTS_DIR
 from .guards import guard_that_fired
 from .judge import BYPASSED, NEEDS_REVIEW
 from .report import bypass_rate, ci_str, is_valid_probe, judge_calibration_lines, pct, verdict_of
-from .stats import mcnemar_exact_p, paired_difference_ci, rose_measurably
+from .stats import mcnemar_exact_p, paired_counts, paired_difference_ci, rose_measurably
 
 
 def _valid(rows: list[dict], kind: str) -> list[dict]:
@@ -51,23 +51,15 @@ def _paired_table(raw_rows: list[dict], guarded_rows: list[dict], kind: str) -> 
     discordant b and c; the paired-difference CI needs all four."""
     guarded_by_key = {(r["technique_id"], r["objective_id"], r.get("trial", 0)): r
                       for r in guarded_rows if r["objective_kind"] == kind}
-    a = b = c = d = 0
+    pairs: list[tuple[bool, bool]] = []
     for r in raw_rows:
         if r["objective_kind"] != kind or not is_valid_probe(r):
             continue
         twin = guarded_by_key.get((r["technique_id"], r["objective_id"], r.get("trial", 0)))
         if twin is None or not is_valid_probe(twin):
             continue
-        raw_by, guard_by = verdict_of(r) == BYPASSED, verdict_of(twin) == BYPASSED
-        if raw_by and guard_by:
-            a += 1
-        elif raw_by:
-            b += 1
-        elif guard_by:
-            c += 1
-        else:
-            d += 1
-    return a, b, c, d
+        pairs.append((verdict_of(r) == BYPASSED, verdict_of(twin) == BYPASSED))
+    return paired_counts(pairs)
 
 
 def _discordant(raw_rows: list[dict], guarded_rows: list[dict], kind: str) -> tuple[int, int]:

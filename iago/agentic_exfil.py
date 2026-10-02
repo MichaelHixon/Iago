@@ -26,7 +26,7 @@ import yaml
 
 from .agent_harness import AgentTrace
 from .artifacts import (build_manifest, load_rows, module_fingerprint, scenario_fingerprint,
-                        sha256_text, stamp, system_prompt_recorder, trace_status, write_manifest)
+                        stamp, system_prompt_recorder, trace_provenance, write_manifest)
 from .agent_oracle import (ATTEMPTED, HIJACKED, RESISTED, _is_external, delivered_cell,
                            delivery_note, poison_ingested, probe_quality_note)
 from .agent_scenarios import reject_visible_marker
@@ -278,12 +278,7 @@ def run_exfil_suite(
                     **(tail_row(trace, scen, v) if tail_row else {}),
                     "floor_fired": (floor(trace, scen, v)
                                     if (scen.kind == "capability" and floor) else None),
-                    # Row-level provenance (ISC-69): completion status plus hashes of the task,
-                    # the final reply and the system prompt the target was actually sent.
-                    "status": trace_status(trace),
-                    "prompt_sha256": sha256_text(getattr(scen, "task", None)),
-                    "response_sha256": sha256_text(trace.final_text),
-                    "system_prompt_sha256": sha256_text(recorded.last),
+                    **trace_provenance(trace, getattr(scen, "task", None), recorded.last),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
                 fh.write(json.dumps(stamp(row, run_id_prefix)) + "\n")

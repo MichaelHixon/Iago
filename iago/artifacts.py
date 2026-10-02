@@ -298,6 +298,15 @@ def trace_status(trace) -> str:
     return "ok"
 
 
+def trace_provenance(trace, task: str | None, system_prompt: str | None) -> dict:
+    """Row-level provenance for an agent trial (ISC-69): completion status plus hashes of the
+    task, the final reply and the system prompt the target was actually sent."""
+    return {"status": trace_status(trace),
+            "prompt_sha256": sha256_text(task),
+            "response_sha256": sha256_text(trace.final_text),
+            "system_prompt_sha256": sha256_text(system_prompt)}
+
+
 def system_prompt_recorder(chat_fn):
     """Wrap an agent `chat_fn(messages, tools, options)` so the system message it is actually
     sent is captured from the wire. `recorder.last` holds the text of the most recent system
