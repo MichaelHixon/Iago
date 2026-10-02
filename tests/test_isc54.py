@@ -590,7 +590,9 @@ def test_the_hardening_advice_names_the_leakiest_categories_in_rate_order(render
     order itself: highest harmful-content bypass rate first, ties by name, top three, zero-rate
     categories never named. Revert check: flipping either renderer's `cat_stats.sort` key, or
     dropping its tie-break, reds the matching parameter."""
-    plan = {"c-high": (2, 2), "b-mid": (1, 2), "d-tie": (1, 2), "a-low": (1, 4), "e-zero": (0, 2)}
+    # Insertion order puts d-tie before b-mid, so a sort that drops the name tie-break keeps
+    # d-tie first (sorted() is stable) and the test sees it.
+    plan = {"e-zero": (0, 2), "a-low": (1, 4), "d-tie": (1, 2), "b-mid": (1, 2), "c-high": (2, 2)}
     rows = [_row(category=cat, technique_id=f"{cat}-{i}", objective_id=f"o-{cat}-{i}",
                  verdict="bypassed" if i < hits else "refused")
             for cat, (hits, total) in plan.items() for i in range(total)]

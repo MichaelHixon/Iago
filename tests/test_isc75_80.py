@@ -4,6 +4,7 @@ policy, and the YAML loaders refuse an empty, null or wrong-shape file by name."
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -118,8 +119,10 @@ BAD_DOCUMENTS = {"empty": "", "null": "null\n", "empty-list": "[]\n", "mapping":
 @pytest.mark.parametrize("doc", BAD_DOCUMENTS.values(), ids=BAD_DOCUMENTS.keys())
 @pytest.mark.parametrize("loader", LOADERS.values(), ids=LOADERS.keys())
 def test_every_record_loader_refuses_a_file_with_no_usable_records(tmp_path, loader, doc):
-    """`yaml.safe_load(...) or []` read these as zero records (or iterated a mapping's keys).
-    Revert check: restoring `or []` in any one loader reds its row of this table."""
+    """Every loader names the file when it holds no usable records. For these single-file loaders
+    this pins the contract rather than catching a revert: restoring `or []` in one was measured
+    still red-free, because each already failed later (no attack scenario, a missing field). The
+    library test below is the one where `or []` was silent."""
     path = tmp_path / "bad.yaml"
     path.write_text(doc)
     with pytest.raises(ValueError, match=r"^bad\.yaml: "):
@@ -127,9 +130,16 @@ def test_every_record_loader_refuses_a_file_with_no_usable_records(tmp_path, loa
 
 
 @pytest.mark.parametrize("doc", BAD_DOCUMENTS.values(), ids=BAD_DOCUMENTS.keys())
-def test_the_technique_library_refuses_an_empty_technique_file(tmp_path, doc):
-    (tmp_path / "bad.yaml").write_text(doc)
-    with pytest.raises(ValueError, match=r"^bad\.yaml: "):
+def test_the_technique_library_refuses_an_empty_file_beside_good_ones(tmp_path, doc):
+    """The silent case the old `or []` really had: the library spans many files, so one emptied
+    file just shrank the run while the others loaded. (A lone bad file in a single-file loader
+    already failed later, on "no attack scenarios" or a missing field.)
+    Revert check: restoring `or []` in `load_library` makes the empty/null/empty-list rows pass."""
+    shipped = Path(__file__).resolve().parent.parent / "attacks" / "direct_ask.yaml"
+    (tmp_path / "direct_ask.yaml").write_text(shipped.read_text())
+    assert load_library(tmp_path), "the good file alone must load"
+    (tmp_path / "zz_bad.yaml").write_text(doc)
+    with pytest.raises(ValueError, match=r"^zz_bad\.yaml: "):
         load_library(tmp_path)
 
 
