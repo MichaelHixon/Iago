@@ -556,7 +556,9 @@ def run_adaptive_suite(
                   "attacker": attacker_kind, "deterministic": deterministic,
                   "unsupported_controls": sampling_gap(target, temperature=temperature,
                                                        seed=base_seed)},
-        judge_id=module_fingerprint("adaptive", "judge", "canary"))
+        judge_id=module_fingerprint("adaptive", "judge", "canary"),
+        # The target conversation is user turns only; no system message is ever sent (ISC-69).
+        system_prompt_scope="none")
     with out_path.open("w") as fh:
         write_manifest(fh, manifest)
         for trial in range(trials):
