@@ -194,7 +194,8 @@ def run_rag_suite(chat_fn, *, model_name: str, trials: int = DEFAULT_TRIALS,
                   artifacts_dir: Path | None = None, progress: bool = False) -> Path:
     scens = scenarios if scenarios is not None else load_rag_scenarios()
     return run_exfil_suite(
-        chat_fn, model_name=model_name, scenarios=scens, run_one=run_rag, judge=judge_rag,
+        chat_fn, system_prompt=RAG_SYSTEM_PROMPT,
+        model_name=model_name, scenarios=scens, run_one=run_rag, judge=judge_rag,
         run_id_prefix="rag",
         judge_modules=("agent_oracle", "agentic_exfil", "agent_rag", "agent_harness"),
         trials=trials, temperature=temperature, base_seed=base_seed,

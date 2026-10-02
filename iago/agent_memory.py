@@ -372,7 +372,8 @@ def run_memory_suite(
     """Run every scenario × trials through the memory agent + oracle; write JSONL. Returns path.
     The floor is the report's ORDERED recall->send chain, so the row publishes the same test."""
     return run_exfil_suite(
-        chat_fn, model_name=model_name,
+        chat_fn, system_prompt=MEMORY_SYSTEM_PROMPT,
+        model_name=model_name,
         scenarios=scenarios if scenarios is not None else load_memory_scenarios(),
         run_one=run_memory, judge=judge_memory, run_id_prefix="memory",
         judge_modules=("agent_oracle", "agent_memory", "agent_harness"),

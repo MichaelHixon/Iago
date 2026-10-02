@@ -464,6 +464,32 @@ def _cmd_judge_eval(args: argparse.Namespace) -> int:
     return rc
 
 
+def _cmd_power(args: argparse.Namespace) -> int:
+    """How many paired trials (raw/guarded twins, or the same seeded prompt on two models) are
+    needed to detect a given difference in bypass rate with McNemar's test (ISC-70)."""
+    from .stats import paired_sample_size
+
+    try:
+        n = paired_sample_size(diff=args.diff, discordant=args.discordant,
+                               alpha=args.alpha, power=args.power)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    psi = abs(args.diff) if args.discordant is None else args.discordant
+    print(f"Pairs needed: {n}  (difference {args.diff:+.3f}, discordant proportion {psi:.3f}, "
+          f"two-sided alpha {args.alpha:.2f}, power {args.power:.2f})")
+    print("Method: Connor (1987) sample size for McNemar's test on paired binary outcomes, "
+          "n = [z_a/2 sqrt(psi) + z_b sqrt(psi - diff^2)]^2 / diff^2.")
+    if args.discordant is None:
+        print("No --discordant given, so psi = |diff| — every pair that differs falls the same way. "
+              "That is a LOWER BOUND on the pairs needed; a real run has some pairs going the other "
+              "way and needs more. Pass the discordant proportion from a pilot (b + c over n in "
+              "the delta report's paired-difference line) for a usable number.")
+    print("One pair = one (technique, objective, trial) run on both arms; with t techniques × o "
+          f"objectives, that is ceil({n} / (t·o)) trials each.")
+    return 0
+
+
 def _cmd_lexical_leak(args: argparse.Namespace) -> int:
     """Advisory lexical-overlap paraphrased-leak band — SECONDARY to the canary oracle."""
     from pathlib import Path
@@ -1174,6 +1200,18 @@ def build_parser() -> argparse.ArgumentParser:
     dd.add_argument("--authorized", action="store_true",
                     help="permit a non-local target (only for models you own/are authorized to test)")
     dd.set_defaults(func=_cmd_defense_delta)
+
+    pw = sub.add_parser("power",
+                        help="how many paired trials detect a given bypass-rate difference "
+                             "(McNemar; alpha 0.05 / power 0.8 by default)")
+    pw.add_argument("--diff", type=float, required=True,
+                    help="the paired difference in bypass rate to detect, as a fraction (0.10 = 10 pts)")
+    pw.add_argument("--discordant", type=float, default=None,
+                    help="expected proportion of pairs whose verdicts differ (b + c over n); omitted = "
+                         "|diff|, the lower bound")
+    pw.add_argument("--alpha", type=float, default=0.05, help="two-sided significance level")
+    pw.add_argument("--power", type=float, default=0.8, help="target power")
+    pw.set_defaults(func=_cmd_power)
 
     sl = sub.add_parser("lexical-leak",
                         help="advisory lexical-overlap paraphrased-leak band over an artifact "

@@ -19,8 +19,9 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .agent_harness import LLMMessage, run_agent
+from .agent_harness import AGENT_SYSTEM_PROMPT, LLMMessage, run_agent
 from .artifacts import (build_manifest, load_rows, module_fingerprint, scenario_fingerprint,
+                        sha256_text, system_prompt_recorder, trace_status,
                         stamp, write_manifest)
 from .agent_oracle import (ATTEMPTED, HIJACKED, delivered_cell, delivery_note, judge_agent,
                            poison_ingested, probe_quality_note)
@@ -170,14 +171,17 @@ def run_agent_suite(
                   "seed_rule": "base_seed + trial", "max_steps": max_steps},
         judge_id=module_fingerprint("agent_oracle", "agent_run", "agent_harness"),
         extra={"scenario_library_sha256": scenario_fingerprint(scens),
-               "scenarios": len(scens)})
+               "scenarios": len(scens)},
+        system_prompt=AGENT_SYSTEM_PROMPT)
+    recorded = system_prompt_recorder(chat_fn)  # the system message actually sent, per row
     with out_path.open("w") as fh:
         write_manifest(fh, manifest)
         for trial in range(trials):
             seed = base_seed + trial
             options = {"temperature": temperature, "seed": seed}
             for scen in scens:
-                trace = run_agent(scen, chat_fn, options=options, max_steps=max_steps)
+                recorded.last = None
+                trace = run_agent(scen, recorded, options=options, max_steps=max_steps)
                 verdict = judge_agent(trace, scen)
                 row = {
                     "scenario_id": scen.id,
@@ -206,6 +210,12 @@ def run_agent_suite(
                     # `compare` reads the surface's own floor instead of guessing (ISC-32).
                     "floor_fired": (any(c.name == "send_message" for c in trace.calls)
                                     if scen.kind == "capability" else None),
+                    # Row-level provenance (ISC-69): completion status plus hashes of the task,
+                    # the final reply and the system prompt the target was actually sent.
+                    "status": trace_status(trace),
+                    "prompt_sha256": sha256_text(scen.task),
+                    "response_sha256": sha256_text(trace.final_text),
+                    "system_prompt_sha256": sha256_text(recorded.last),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
                 fh.write(json.dumps(stamp(row, "agent")) + "\n")

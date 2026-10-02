@@ -366,7 +366,8 @@ def run_privilege_suite(
 ) -> Path:
     """Run every scenario × trials through the sandboxed agent + oracle; write JSONL. Returns path."""
     return run_exfil_suite(
-        chat_fn, model_name=model_name,
+        chat_fn, system_prompt=PRIVILEGE_SYSTEM_PROMPT,
+        model_name=model_name,
         scenarios=scenarios if scenarios is not None else load_privilege_scenarios(),
         run_one=run_privilege, judge=judge_privilege, run_id_prefix="privilege",
         judge_modules=("agent_oracle", "agent_privilege", "agent_harness"),
