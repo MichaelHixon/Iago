@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from iago.artifacts import read_artifact
 from iago.attacks import Technique
 from iago.objectives import Objective
 from iago.runner import AuthorizationError, load_artifacts, run
@@ -116,8 +117,6 @@ def test_run_error_records_exception_class(tmp_path):
 
 
 def test_manifest_names_controls_the_backend_drops(tmp_path, capsys):
-    from iago.artifacts import read_artifact
-
     class NoSeed(FakeTarget):
         supported_options = frozenset({"temperature", "num_predict"})
 
@@ -129,10 +128,21 @@ def test_manifest_names_controls_the_backend_drops(tmp_path, capsys):
 
 
 def test_manifest_records_no_gap_for_pass_through_backend(tmp_path, capsys):
-    from iago.artifacts import read_artifact
-
     out = run(FakeTarget(), trials=1, artifacts_dir=tmp_path, techniques=TECHS,
               objectives=OBJS[:1], determinism_check=False)
     manifest, _ = read_artifact(out)
     assert manifest["sampling"]["unsupported_controls"] == []
     assert "ignores" not in capsys.readouterr().err
+
+
+def test_guarded_target_keeps_the_inner_backends_gap(tmp_path):
+    # A wrapper that defaulted supported_options to pass-through hid the dropped seed.
+    from iago.guards import GuardedTarget
+
+    class NoSeed(FakeTarget):
+        supported_options = frozenset({"temperature"})
+
+    out = run(GuardedTarget(NoSeed(), []), trials=1, artifacts_dir=tmp_path, techniques=TECHS,
+              objectives=OBJS[:1], determinism_check=False)
+    manifest, _ = read_artifact(out)
+    assert manifest["sampling"]["unsupported_controls"] == ["seed"]

@@ -19,7 +19,6 @@ a future Claude-API judge (planned) can re-score the same artifacts without re-r
 from __future__ import annotations
 
 import json
-import sys
 import time
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -29,7 +28,6 @@ from .artifacts import (SCHEMA_VERSION, build_manifest, load_rows, module_finger
                         write_manifest)
 from .guards_thirdparty import GuardBackendUnavailable
 from .judge import ERROR as _ERROR_VERDICT
-from .judge import run_error
 
 from .attacks import (
     NEUTRAL_HISTORY_USER,
@@ -39,9 +37,10 @@ from .attacks import (
 )
 from .config import ARTIFACTS_DIR, BASE_SEED, CATEGORIES, DEFAULT_TEMPERATURE, DEFAULT_TRIALS
 from .decode import decode_recovered, is_decode_gated
-from .judge import _trust_arm_signal, judge, judge_deadend, judge_leak, judge_trust, judge_unsafe_output
+from .judge import (_trust_arm_signal, judge, judge_deadend, judge_leak, judge_trust,
+                    judge_unsafe_output, run_error)
 from .objectives import Objective, load_objectives
-from .target import Target, unsupported_options
+from .target import Target, sampling_gap
 
 
 @dataclass(frozen=True)
@@ -376,13 +375,7 @@ def run(
               "replies at the same seed — this host/build is not bit-reproducible at these "
               "settings, and the reports from this run say so.")
 
-    # The manifest records what was REQUESTED; a backend that drops a control (no seed on a
-    # hosted API) would make that read as pinned when it was not, so name the gap beside it.
-    dropped = unsupported_options(target, {"temperature": temperature, "seed": base_seed})
-    if dropped:
-        print(f"  WARNING: {target.name} ignores {', '.join(dropped)} — those controls are "
-              "requested but not applied, and the manifest records them as unsupported.",
-              file=sys.stderr)
+    dropped = sampling_gap(target, temperature=temperature, seed=base_seed)
 
     with out_path.open("w") as fh:
         write_manifest(fh, build_manifest(

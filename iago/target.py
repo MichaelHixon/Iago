@@ -7,6 +7,7 @@ same `Target` contract — no runner changes required.
 
 from __future__ import annotations
 
+import sys
 from abc import ABC, abstractmethod
 
 from .config import DEFAULT_MODEL
@@ -21,10 +22,7 @@ class Target(ABC):
     #: concern). The runner refuses a non-local target unless --authorized is set.
     is_local: bool = False
 
-    #: The sampling controls this backend actually honors. `None` means every option is passed
-    #: through to the backend untouched. A backend that silently drops a control (e.g. a hosted
-    #: API with no seed) names what it keeps, so the runner can record the gap in the manifest
-    #: and warn instead of implying a pinned control that never took effect.
+    #: The sampling controls this backend honors; `None` means every option passes through.
     supported_options: frozenset[str] | None = None
 
     @abstractmethod
@@ -57,6 +55,18 @@ def unsupported_options(target: object, options: dict) -> list[str]:
     if supported is None:
         return []
     return sorted(k for k in options if k not in supported)
+
+
+def sampling_gap(target: object, *, temperature: float, seed: int) -> list[str]:
+    """The pinned controls (temperature, seed) `target` drops, warning on stderr when any are.
+    A manifest records what was REQUESTED, so a surface stores this beside it; otherwise a
+    dropped seed reads as pinned."""
+    dropped = unsupported_options(target, {"temperature": temperature, "seed": seed})
+    if dropped:
+        print(f"  WARNING: {getattr(target, 'name', target)} ignores {', '.join(dropped)}: "
+              "requested but not applied; the manifest records them as unsupported_controls.",
+              file=sys.stderr)
+    return dropped
 
 
 class OllamaTarget(Target):
@@ -162,21 +172,25 @@ class AnthropicTarget(Target):
         self._client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
         return self._client
 
+    def _create(self, system: str, messages: list[dict], options: dict | None):
+        """One Messages API call; maps the supported_options onto the API's parameters."""
+        opts = options or {}
+        return self._get_client().messages.create(
+            model=self.model,
+            max_tokens=opts.get("num_predict", _ANTHROPIC_MAX_TOKENS),
+            temperature=opts.get("temperature", 1.0),
+            system=system,
+            messages=messages,
+        )
+
     def generate(
         self,
         prompt: str,
         system: str | None = None,
         options: dict | None = None,
     ) -> str:
-        opts = options or {}
         try:
-            msg = self._get_client().messages.create(
-                model=self.model,
-                max_tokens=opts.get("num_predict", _ANTHROPIC_MAX_TOKENS),
-                temperature=opts.get("temperature", 1.0),
-                system=system or "",
-                messages=[{"role": "user", "content": prompt}],
-            )
+            msg = self._create(system or "", [{"role": "user", "content": prompt}], options)
         except Exception as exc:
             raise RuntimeError(f"Anthropic request failed: {exc}") from exc
         # Concatenate text blocks from the response content.
@@ -191,28 +205,19 @@ class AnthropicTarget(Target):
         return content
 
     def chat(self, messages: list[dict], options: dict | None = None) -> str:
-        opts = options or {}
         # Anthropic takes system separately; pull the system message out. A second one has no
         # faithful mapping (overwriting it silently drops instructions), so refuse it loudly.
-        system = ""
+        system = None
         convo = []
-        seen_system = False
         for m in messages:
             if m.get("role") == "system":
-                if seen_system:
+                if system is not None:
                     raise ValueError("AnthropicTarget.chat accepts at most one system message")
-                seen_system = True
                 system = m.get("content", "")
             else:
                 convo.append({"role": m["role"], "content": m["content"]})
         try:
-            msg = self._get_client().messages.create(
-                model=self.model,
-                max_tokens=opts.get("num_predict", _ANTHROPIC_MAX_TOKENS),
-                temperature=opts.get("temperature", 1.0),
-                system=system,
-                messages=convo,
-            )
+            msg = self._create(system or "", convo, options)
         except Exception as exc:
             raise RuntimeError(f"Anthropic chat failed: {exc}") from exc
         parts = [getattr(b, "text", None) if not isinstance(b, dict) else b.get("text")

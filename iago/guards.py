@@ -205,6 +205,7 @@ class GuardedTarget(Target):
         self.inner = inner
         self.guards = list(guards)
         self.is_local = inner.is_local
+        self.supported_options = inner.supported_options  # a wrapper must not hide a dropped seed
         gnames = "+".join(g.name for g in self.guards) or "none"
         self.name = f"{inner.name}+guard[{gnames}]"
 
