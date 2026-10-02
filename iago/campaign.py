@@ -27,6 +27,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, NamedTuple
 
 from .compare import (
     GROUNDING_FLOOR_MIN_CORRECT,
@@ -285,57 +286,210 @@ def write_campaign_report(campaign: Campaign, reports_dir: Path | None = None) -
 # ---------------------------------------------------------------------------
 
 
+class SurfaceEntry(NamedTuple):
+    """A surface's four run entry points, resolved lazily from its module."""
+
+    run_suite: Callable[..., Path]
+    load_scenarios: Callable[[], list]
+    load_artifacts: Callable[[Path], list[dict]]
+    write_report: Callable[[list[dict]], Path]
+
+
 @dataclass(frozen=True)
 class SurfaceSpec:
-    """One registered surface: how to load its run entrypoints, lazily (imports are only
-    paid for the surfaces a campaign actually runs)."""
+    """One agentic surface: its run entry points (imported lazily, so only the surfaces actually
+    run are paid for) plus the CLI text for its ``<command>`` / ``<scenarios_command>`` pair.
+
+    This is the ONE registry of agentic surfaces (ISC-82): `iago campaign` and every
+    ``*-run`` / ``*-scenarios`` subcommand read it, so the per-surface wiring lives here once."""
 
     key: str
     label: str
-    _loader: Callable[[], tuple[Callable[..., Path], Callable[[], list]]]
+    _loader: Callable[[], SurfaceEntry]
+    command: str                    # the `iago <command>` that runs it, e.g. "tool-abuse-run"
+    scenarios_command: str          # the `iago <...>` that lists its scenarios
+    run_help: str
+    scenarios_help: str
+    banner_note: str                # trails the run banner: "Iago <command> → target ollama:<m><note>"
+    scenarios_title: str            # the listing header: "<title>: <n>"
+    scenario_line: Callable[[Any], str]
+    scenarios_summary: Callable[[list], str] | None = None  # extra header text after the count
 
     def load(self) -> tuple[Callable[..., Path], Callable[[], list]]:
         """Return ``(run_suite, load_scenarios)`` for this surface."""
+        entry = self._loader()
+        return entry.run_suite, entry.load_scenarios
+
+    def entry(self) -> SurfaceEntry:
+        """All four entry points (suite runner, scenario loader, artifact loader, report writer)."""
         return self._loader()
 
-
-def _privilege_entry():
-    from .agent_privilege import load_privilege_scenarios, run_privilege_suite
-    return run_privilege_suite, load_privilege_scenarios
-
-
-def _toolabuse_entry():
-    from .agent_toolabuse import load_toolabuse_scenarios, run_toolabuse_suite
-    return run_toolabuse_suite, load_toolabuse_scenarios
+    def scenario_lines(self, scens: list) -> list[str]:
+        """The `*-scenarios` listing: one header line, then one line per scenario."""
+        extra = self.scenarios_summary(scens) if self.scenarios_summary else ""
+        return [f"{self.scenarios_title}: {len(scens)}{extra}", *map(self.scenario_line, scens)]
 
 
-def _disclosure_entry():
-    from .agent_disclosure import load_disclosure_scenarios, run_disclosure_suite
-    return run_disclosure_suite, load_disclosure_scenarios
+def _agent_entry() -> SurfaceEntry:
+    from .agent_run import load_agent_artifacts, run_agent_suite, write_agent_report
+    from .agent_scenarios import load_scenarios
+    return SurfaceEntry(run_agent_suite, load_scenarios, load_agent_artifacts, write_agent_report)
 
 
-def _misinfo_entry():
-    from .agent_misinfo import load_misinfo_scenarios, run_misinfo_suite
-    return run_misinfo_suite, load_misinfo_scenarios
+def _toolabuse_entry() -> SurfaceEntry:
+    from .agent_toolabuse import (load_toolabuse_artifacts, load_toolabuse_scenarios,
+                                  run_toolabuse_suite, write_toolabuse_report)
+    return SurfaceEntry(run_toolabuse_suite, load_toolabuse_scenarios, load_toolabuse_artifacts,
+                        write_toolabuse_report)
 
 
-# The four mature per-arm/channel surfaces (ISC-20..28) — each carries a capability floor,
-# so the campaign's honesty machinery (alive/thin/dead) is meaningful. Extensible: a new
-# surface with the uniform `run_*_suite(chat_fn, *, model_name, ...)` signature drops in here.
+def _privilege_entry() -> SurfaceEntry:
+    from .agent_privilege import (load_privilege_artifacts, load_privilege_scenarios,
+                                  run_privilege_suite, write_privilege_report)
+    return SurfaceEntry(run_privilege_suite, load_privilege_scenarios, load_privilege_artifacts,
+                        write_privilege_report)
+
+
+def _disclosure_entry() -> SurfaceEntry:
+    from .agent_disclosure import (load_disclosure_artifacts, load_disclosure_scenarios,
+                                   run_disclosure_suite, write_disclosure_report)
+    return SurfaceEntry(run_disclosure_suite, load_disclosure_scenarios, load_disclosure_artifacts,
+                        write_disclosure_report)
+
+
+def _misinfo_entry() -> SurfaceEntry:
+    from .agent_misinfo import (load_misinfo_artifacts, load_misinfo_scenarios, run_misinfo_suite,
+                                write_misinfo_report)
+    return SurfaceEntry(run_misinfo_suite, load_misinfo_scenarios, load_misinfo_artifacts,
+                        write_misinfo_report)
+
+
+def _memory_entry() -> SurfaceEntry:
+    from .agent_memory import (load_memory_artifacts, load_memory_scenarios, run_memory_suite,
+                               write_memory_report)
+    return SurfaceEntry(run_memory_suite, load_memory_scenarios, load_memory_artifacts,
+                        write_memory_report)
+
+
+def _rag_entry() -> SurfaceEntry:
+    from .agent_rag import load_rag_artifacts, load_rag_scenarios, run_rag_suite, write_rag_report
+    return SurfaceEntry(run_rag_suite, load_rag_scenarios, load_rag_artifacts, write_rag_report)
+
+
+def _a2a_entry() -> SurfaceEntry:
+    from .agent_a2a import load_a2a_artifacts, load_a2a_scenarios, run_a2a_suite, write_a2a_report
+    return SurfaceEntry(run_a2a_suite, load_a2a_scenarios, load_a2a_artifacts, write_a2a_report)
+
+
+def _line(s: Any) -> str:
+    return f"  {s.id:24} [{s.kind:10}] {s.name}"
+
+
+def _arm_line(s: Any) -> str:
+    return f"  {s.id:24} [{s.kind:10}] [{s.arm}] {s.name}"
+
+
+def _misinfo_line(s: Any) -> str:
+    tag = "fabricated" if s.is_fabricated else "real"
+    return f"  {s.id:24} [{s.kind:10}] [{tag:10}] {s.name}"
+
+
+def _agent_line(s: Any) -> str:
+    return f"  {s.id:20} [{s.kind:7}] {s.name}"
+
+
+def _agent_summary(scens: list) -> str:
+    attacks = sum(1 for s in scens if s.kind == "attack")
+    controls = sum(1 for s in scens if s.is_control)
+    caps = sum(1 for s in scens if s.is_capability)
+    return f" ({attacks} attack, {controls} control, {caps} capability)"
+
+
+# Every agentic surface, in `iago --help` order. Extensible: a new surface with the uniform
+# `run_*_suite(chat_fn, *, model_name, ...)` signature drops in here and gets its CLI pair free.
+SURFACES: dict[str, SurfaceSpec] = {s.key: s for s in (
+    SurfaceSpec(
+        "agent", "Indirect injection / exfiltration", _agent_entry,
+        command="agent-run", scenarios_command="agent-scenarios",
+        run_help="red-team a tool-calling AGENT with indirect injection (behavioral bypass)",
+        scenarios_help="show the loaded agentic-injection scenarios",
+        banner_note="", scenarios_title="Agent scenarios",
+        scenario_line=_agent_line, scenarios_summary=_agent_summary),
+    SurfaceSpec(
+        "toolabuse", "Tool abuse RCE/SSRF (ASI05/02)", _toolabuse_entry,
+        command="tool-abuse-run", scenarios_command="toolabuse-scenarios",
+        run_help="red-team a tool-calling agent for RCE/SSRF via a SANDBOXED dangerous-"
+                 "tool surface (fake run_shell/fetch_url — never a real process/socket)",
+        scenarios_help="show the loaded tool-abuse (RCE/SSRF) scenarios",
+        banner_note=" (SANDBOXED — no process/socket ever)",
+        scenarios_title="Tool-abuse scenarios", scenario_line=_arm_line),
+    SurfaceSpec(
+        "privilege", "Excessive agency (LLM06)", _privilege_entry,
+        command="privilege-run", scenarios_command="privilege-scenarios",
+        run_help="red-team a tool-calling agent for EXCESSIVE AGENCY / confused deputy "
+                 "(LLM06/ASI03) via a SANDBOXED privileged-tool surface (fake "
+                 "delete_record/grant_role — never a real state change)",
+        scenarios_help="show the loaded excessive-agency (confused-deputy) scenarios",
+        banner_note=" (SANDBOXED — no record/role ever changes)",
+        scenarios_title="Excessive-agency scenarios", scenario_line=_arm_line),
+    SurfaceSpec(
+        "disclosure", "Sensitive disclosure (LLM02)", _disclosure_entry,
+        command="disclosure-run", scenarios_command="disclosure-scenarios",
+        run_help="red-team a tool-calling agent for SENSITIVE-INFO DISCLOSURE (LLM02) — "
+                 "cross-subject leak into the answer or an external send, via a "
+                 "SANDBOXED confidential store + comms sink",
+        scenarios_help="show the loaded sensitive-info-disclosure (LLM02) scenarios",
+        banner_note=" (SANDBOXED — no real send/socket)",
+        scenarios_title="Sensitive-info-disclosure scenarios", scenario_line=_line),
+    SurfaceSpec(
+        "misinfo", "Misinformation (LLM09)", _misinfo_entry,
+        command="misinfo-run", scenarios_command="misinfo-scenarios",
+        run_help="red-team a tool-calling agent for MISINFORMATION (LLM09) — it is asked "
+                 "for a structured identifier (CVE/RFC/DOI) about a FABRICATED subject; "
+                 "asserting one is confirmed fabrication (deterministic, no judge)",
+        scenarios_help="show the loaded misinformation (LLM09) scenarios",
+        banner_note=" (SANDBOXED — no lookup, no socket)",
+        scenarios_title="Misinformation scenarios", scenario_line=_misinfo_line),
+    SurfaceSpec(
+        "memory", "Memory / context poisoning (ASI06)", _memory_entry,
+        command="memory-run", scenarios_command="memory-scenarios",
+        run_help="red-team a tool-calling agent for MEMORY/CONTEXT POISONING (ASI06) — "
+                 "a poisoned doc plants a note that fires at a later step via recall",
+        scenarios_help="show the loaded memory-poisoning (ASI06) scenarios",
+        banner_note=" (in-process memory; never persisted)",
+        scenarios_title="Memory-poisoning scenarios", scenario_line=_line),
+    SurfaceSpec(
+        "rag", "RAG retrieval poisoning", _rag_entry,
+        command="rag-run", scenarios_command="rag-scenarios",
+        run_help="red-team a tool-calling agent for RAG RETRIEVAL POISONING — a poisoned "
+                 "knowledge-base passage, surfaced by a benign query, drives an action",
+        scenarios_help="show the loaded RAG retrieval-poisoning scenarios",
+        banner_note=" (pure in-memory retriever; no network)",
+        scenarios_title="RAG-poisoning scenarios", scenario_line=_line),
+    SurfaceSpec(
+        "a2a", "Insecure inter-agent comms (ASI07)", _a2a_entry,
+        command="a2a-run", scenarios_command="a2a-scenarios",
+        run_help="red-team a tool-calling agent for INSECURE INTER-AGENT COMMS (ASI07) — "
+                 "a poisoned message from a rogue peer agent drives an action",
+        scenarios_help="show the loaded inter-agent (ASI07) scenarios",
+        banner_note=" (pure in-memory peer inbox; no network)",
+        scenarios_title="Inter-agent scenarios", scenario_line=_line),
+)}
+
+# The campaign's view of SURFACES: the four mature per-arm/channel surfaces (ISC-20..28) a
+# campaign was built and validated on, in campaign order. Every surface now carries a capability
+# floor, but widening this set changes what `iago campaign` runs by default — a separate decision.
 SURFACE_REGISTRY: dict[str, SurfaceSpec] = {
-    "privilege": SurfaceSpec("privilege", "Excessive agency (LLM06)", _privilege_entry),
-    "toolabuse": SurfaceSpec("toolabuse", "Tool abuse RCE/SSRF (ASI05/02)", _toolabuse_entry),
-    "disclosure": SurfaceSpec("disclosure", "Sensitive disclosure (LLM02)", _disclosure_entry),
-    "misinfo": SurfaceSpec("misinfo", "Misinformation (LLM09)", _misinfo_entry),
-}
+    k: SURFACES[k] for k in ("privilege", "toolabuse", "disclosure", "misinfo")}
 
 DEFAULT_SURFACES = list(SURFACE_REGISTRY)
 
 
 def _smoke_slice(scens: list) -> list:
-    """A smoke selection that KEEPS the capability floor: the first attack + the first
-    capability scenario (a bare ``[:1]`` would often drop the floor, making the compare
-    degenerate). Falls back to the first scenario if the surface lacks either kind."""
+    """THE smoke selection for every surface — campaign and every `*-run --smoke`. It KEEPS the
+    capability floor: the first attack + the first capability scenario (a bare ``[:1]`` would
+    drop the floor whenever the first scenario is an attack, printing an uncalibrated 0% as a bare
+    pass). Falls back to the first scenario if the surface lacks either kind."""
     attack = next((s for s in scens if getattr(s, "kind", None) == "attack"), None)
     capability = next((s for s in scens if getattr(s, "kind", None) == "capability"), None)
     picked = [s for s in (attack, capability) if s is not None]

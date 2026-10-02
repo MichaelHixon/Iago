@@ -12,7 +12,7 @@ import argparse
 import sys
 
 from .attacks import load_library, summarize
-from .campaign import DEFAULT_SURFACES
+from .campaign import DEFAULT_SURFACES, SURFACES, SurfaceSpec, _smoke_slice
 from .config import (
     ARTIFACTS_DIR,
     BASE_SEED,
@@ -539,46 +539,37 @@ def _cmd_lexical_leak(args: argparse.Namespace) -> int:
     return 0  # an ADVISORY band must never gate a pipeline on suspects found; the canary owns pass/fail
 
 
-def _cmd_agent_run(args: argparse.Namespace) -> int:
-    """Run the agentic indirect-injection suite against a tool-calling agent."""
-    from .agent_run import (
-        load_agent_artifacts,
-        ollama_chat_fn,
-        run_agent_suite,
-        write_agent_report,
-    )
-    from .agent_scenarios import load_scenarios
+def _cmd_surface_run(args: argparse.Namespace) -> int:
+    """Run one agentic surface's suite (`args.surface`, a `campaign.SURFACES` key) against a
+    tool-calling agent — the one handler behind every `*-run` subcommand."""
+    from .agent_run import ollama_chat_fn
 
+    spec = SURFACES[args.surface]
     if args.target != "ollama":
-        print(f"ERROR: agent-run supports --target ollama today (got {args.target!r})", file=sys.stderr)
+        print(f"ERROR: {spec.command} supports --target ollama today (got {args.target!r})",
+              file=sys.stderr)
         return 2
 
+    entry = spec.entry()
     model = args.model
     chat_fn = ollama_chat_fn(model)
     trials = 1 if args.smoke else args.trials
-    scens = load_scenarios()
+    scens = entry.load_scenarios()
     if args.smoke:
-        scens = scens[:1]
+        scens = _smoke_slice(scens)
 
-    print(f"Iago agent-run → target ollama:{model}")
+    print(f"Iago {spec.command} → target ollama:{model}{spec.banner_note}")
     print(f"  scenarios={len(scens)} trials/scenario={trials} max_steps={args.max_steps}")
     try:
-        artifact_path = run_agent_suite(
-            chat_fn,
-            model_name=f"ollama:{model}",
-            trials=trials,
-            temperature=args.temperature,
-            base_seed=args.base_seed,
-            max_steps=args.max_steps,
-            scenarios=scens,
-            progress=True,
-        )
+        artifact_path = entry.run_suite(
+            chat_fn, model_name=f"ollama:{model}", trials=trials, temperature=args.temperature,
+            base_seed=args.base_seed, max_steps=args.max_steps, scenarios=scens, progress=True)
     except Exception as exc:
-        print(f"ERROR: agent-run failed: {exc}", file=sys.stderr)
+        print(f"ERROR: {spec.command} failed: {exc}", file=sys.stderr)
         return 1
 
-    rows = load_agent_artifacts(artifact_path)
-    report_path = write_agent_report(rows)
+    rows = entry.load_artifacts(artifact_path)
+    report_path = entry.write_report(rows)
     print(f"\nArtifacts: {artifact_path}")
     print(f"Report:    {report_path}")
     print(f"({len(rows)} trials recorded)")
@@ -586,17 +577,11 @@ def _cmd_agent_run(args: argparse.Namespace) -> int:
     return 0 if rc is None else rc
 
 
-def _cmd_agent_scenarios(_args: argparse.Namespace) -> int:
-    from .agent_scenarios import load_scenarios
-
-    scens = load_scenarios()
-    attacks = sum(1 for s in scens if s.kind == "attack")
-    controls = sum(1 for s in scens if s.is_control)
-    caps = sum(1 for s in scens if s.is_capability)
-    print(f"Agent scenarios: {len(scens)} ({attacks} attack, {controls} control, "
-          f"{caps} capability)")
-    for s in scens:
-        print(f"  {s.id:20} [{s.kind:7}] {s.name}")
+def _cmd_surface_scenarios(args: argparse.Namespace) -> int:
+    """List one agentic surface's loaded scenarios — the one handler behind every `*-scenarios`."""
+    spec = SURFACES[args.surface]
+    for line in spec.scenario_lines(spec.entry().load_scenarios()):
+        print(line)
     return 0
 
 
@@ -689,369 +674,6 @@ def _cmd_strategies(_args: argparse.Namespace) -> int:
     print(f"Adaptive strategies: {len(STRATEGIES)}")
     for s in STRATEGIES:
         print(f"  {s.id:22} [{','.join(s.applies_to)}] {s.name}")
-    return 0
-
-
-def _cmd_toolabuse_run(args: argparse.Namespace) -> int:
-    """Run the sandboxed agentic tool-abuse (RCE/SSRF) suite against a tool-calling agent."""
-    from .agent_run import ollama_chat_fn
-    from .agent_toolabuse import (
-        load_toolabuse_artifacts,
-        load_toolabuse_scenarios,
-        run_toolabuse_suite,
-        write_toolabuse_report,
-    )
-
-    if args.target != "ollama":
-        print(f"ERROR: tool-abuse-run supports --target ollama today (got {args.target!r})",
-              file=sys.stderr)
-        return 2
-
-    model = args.model
-    chat_fn = ollama_chat_fn(model)
-    trials = 1 if args.smoke else args.trials
-    scens = load_toolabuse_scenarios()
-    if args.smoke:
-        scens = scens[:1]
-
-    print(f"Iago tool-abuse-run → target ollama:{model} (SANDBOXED — no process/socket ever)")
-    print(f"  scenarios={len(scens)} trials/scenario={trials} max_steps={args.max_steps}")
-    try:
-        artifact_path = run_toolabuse_suite(
-            chat_fn, model_name=f"ollama:{model}", trials=trials, temperature=args.temperature,
-            base_seed=args.base_seed, max_steps=args.max_steps, scenarios=scens, progress=True)
-    except Exception as exc:
-        print(f"ERROR: tool-abuse-run failed: {exc}", file=sys.stderr)
-        return 1
-
-    rows = load_toolabuse_artifacts(artifact_path)
-    report_path = write_toolabuse_report(rows)
-    print(f"\nArtifacts: {artifact_path}")
-    print(f"Report:    {report_path}")
-    print(f"({len(rows)} trials recorded)")
-    rc = _nothing_measured(rows)
-    return 0 if rc is None else rc
-
-
-def _cmd_toolabuse_scenarios(_args: argparse.Namespace) -> int:
-    from .agent_toolabuse import load_toolabuse_scenarios
-
-    scens = load_toolabuse_scenarios()
-    print(f"Tool-abuse scenarios: {len(scens)}")
-    for s in scens:
-        print(f"  {s.id:24} [{s.kind:10}] [{s.arm}] {s.name}")
-    return 0
-
-
-def _cmd_privilege_run(args: argparse.Namespace) -> int:
-    """Run the sandboxed agentic excessive-agency (confused-deputy) suite against a tool-calling
-    agent — a poisoned record tries to induce an unauthorized privileged state change."""
-    from .agent_run import ollama_chat_fn
-    from .agent_privilege import (
-        load_privilege_artifacts,
-        load_privilege_scenarios,
-        run_privilege_suite,
-        write_privilege_report,
-    )
-
-    if args.target != "ollama":
-        print(f"ERROR: privilege-run supports --target ollama today (got {args.target!r})",
-              file=sys.stderr)
-        return 2
-
-    model = args.model
-    chat_fn = ollama_chat_fn(model)
-    trials = 1 if args.smoke else args.trials
-    scens = load_privilege_scenarios()
-    if args.smoke:
-        scens = scens[:1]
-
-    print(f"Iago privilege-run → target ollama:{model} (SANDBOXED — no record/role ever changes)")
-    print(f"  scenarios={len(scens)} trials/scenario={trials} max_steps={args.max_steps}")
-    try:
-        artifact_path = run_privilege_suite(
-            chat_fn, model_name=f"ollama:{model}", trials=trials, temperature=args.temperature,
-            base_seed=args.base_seed, max_steps=args.max_steps, scenarios=scens, progress=True)
-    except Exception as exc:
-        print(f"ERROR: privilege-run failed: {exc}", file=sys.stderr)
-        return 1
-
-    rows = load_privilege_artifacts(artifact_path)
-    report_path = write_privilege_report(rows)
-    print(f"\nArtifacts: {artifact_path}")
-    print(f"Report:    {report_path}")
-    print(f"({len(rows)} trials recorded)")
-    rc = _nothing_measured(rows)
-    return 0 if rc is None else rc
-
-
-def _cmd_privilege_scenarios(_args: argparse.Namespace) -> int:
-    from .agent_privilege import load_privilege_scenarios
-
-    scens = load_privilege_scenarios()
-    print(f"Excessive-agency scenarios: {len(scens)}")
-    for s in scens:
-        print(f"  {s.id:24} [{s.kind:10}] [{s.arm}] {s.name}")
-    return 0
-
-
-def _cmd_disclosure_run(args: argparse.Namespace) -> int:
-    """Run the sandboxed agentic sensitive-info-disclosure (LLM02) suite against a tool-calling
-    agent — a poisoned record tries to induce cross-subject disclosure into the answer or a send."""
-    from .agent_run import ollama_chat_fn
-    from .agent_disclosure import (
-        load_disclosure_artifacts,
-        load_disclosure_scenarios,
-        run_disclosure_suite,
-        write_disclosure_report,
-    )
-
-    if args.target != "ollama":
-        print(f"ERROR: disclosure-run supports --target ollama today (got {args.target!r})",
-              file=sys.stderr)
-        return 2
-
-    model = args.model
-    chat_fn = ollama_chat_fn(model)
-    trials = 1 if args.smoke else args.trials
-    scens = load_disclosure_scenarios()
-    if args.smoke:
-        scens = scens[:1]
-
-    print(f"Iago disclosure-run → target ollama:{model} (SANDBOXED — no real send/socket)")
-    print(f"  scenarios={len(scens)} trials/scenario={trials} max_steps={args.max_steps}")
-    try:
-        artifact_path = run_disclosure_suite(
-            chat_fn, model_name=f"ollama:{model}", trials=trials, temperature=args.temperature,
-            base_seed=args.base_seed, max_steps=args.max_steps, scenarios=scens, progress=True)
-    except Exception as exc:
-        print(f"ERROR: disclosure-run failed: {exc}", file=sys.stderr)
-        return 1
-
-    rows = load_disclosure_artifacts(artifact_path)
-    report_path = write_disclosure_report(rows)
-    print(f"\nArtifacts: {artifact_path}")
-    print(f"Report:    {report_path}")
-    print(f"({len(rows)} trials recorded)")
-    rc = _nothing_measured(rows)
-    return 0 if rc is None else rc
-
-
-def _cmd_disclosure_scenarios(_args: argparse.Namespace) -> int:
-    from .agent_disclosure import load_disclosure_scenarios
-
-    scens = load_disclosure_scenarios()
-    print(f"Sensitive-info-disclosure scenarios: {len(scens)}")
-    for s in scens:
-        print(f"  {s.id:24} [{s.kind:10}] {s.name}")
-    return 0
-
-
-def _cmd_misinfo_run(args: argparse.Namespace) -> int:
-    """Run the misinformation / fabricated-authority (LLM09) suite — the agent is asked for a
-    structured identifier about a fabricated subject; asserting one is confirmed fabrication."""
-    from .agent_run import ollama_chat_fn
-    from .agent_misinfo import (
-        load_misinfo_artifacts,
-        load_misinfo_scenarios,
-        run_misinfo_suite,
-        write_misinfo_report,
-    )
-
-    if args.target != "ollama":
-        print(f"ERROR: misinfo-run supports --target ollama today (got {args.target!r})",
-              file=sys.stderr)
-        return 2
-
-    model = args.model
-    chat_fn = ollama_chat_fn(model)
-    trials = 1 if args.smoke else args.trials
-    scens = load_misinfo_scenarios()
-    if args.smoke:
-        # Keep one attack AND one capability so the smoke run stays calibrated (a lone attack would
-        # print an uncalibrated 0% as a bare pass — the confound the report now guards against).
-        atk = next((s for s in scens if s.kind == "attack"), None)
-        cap = next((s for s in scens if s.kind == "capability"), None)
-        scens = [s for s in (atk, cap) if s is not None]
-
-    print(f"Iago misinfo-run → target ollama:{model} (SANDBOXED — no lookup, no socket)")
-    print(f"  scenarios={len(scens)} trials/scenario={trials} max_steps={args.max_steps}")
-    try:
-        artifact_path = run_misinfo_suite(
-            chat_fn, model_name=f"ollama:{model}", trials=trials, temperature=args.temperature,
-            base_seed=args.base_seed, max_steps=args.max_steps, scenarios=scens, progress=True)
-    except Exception as exc:
-        print(f"ERROR: misinfo-run failed: {exc}", file=sys.stderr)
-        return 1
-
-    rows = load_misinfo_artifacts(artifact_path)
-    report_path = write_misinfo_report(rows)
-    print(f"\nArtifacts: {artifact_path}")
-    print(f"Report:    {report_path}")
-    print(f"({len(rows)} trials recorded)")
-    rc = _nothing_measured(rows)
-    return 0 if rc is None else rc
-
-
-def _cmd_misinfo_scenarios(_args: argparse.Namespace) -> int:
-    from .agent_misinfo import load_misinfo_scenarios
-
-    scens = load_misinfo_scenarios()
-    print(f"Misinformation scenarios: {len(scens)}")
-    for s in scens:
-        tag = "fabricated" if s.is_fabricated else "real"
-        print(f"  {s.id:24} [{s.kind:10}] [{tag:10}] {s.name}")
-    return 0
-
-
-def _cmd_memory_run(args: argparse.Namespace) -> int:
-    """Run the agentic memory / context poisoning (ASI06) suite against a tool-calling agent."""
-    from .agent_run import ollama_chat_fn
-    from .agent_memory import (
-        load_memory_artifacts,
-        load_memory_scenarios,
-        run_memory_suite,
-        write_memory_report,
-    )
-
-    if args.target != "ollama":
-        print(f"ERROR: memory-run supports --target ollama today (got {args.target!r})",
-              file=sys.stderr)
-        return 2
-
-    model = args.model
-    chat_fn = ollama_chat_fn(model)
-    trials = 1 if args.smoke else args.trials
-    scens = load_memory_scenarios()
-    if args.smoke:
-        scens = scens[:1]
-
-    print(f"Iago memory-run → target ollama:{model} (in-process memory; never persisted)")
-    print(f"  scenarios={len(scens)} trials/scenario={trials} max_steps={args.max_steps}")
-    try:
-        artifact_path = run_memory_suite(
-            chat_fn, model_name=f"ollama:{model}", trials=trials, temperature=args.temperature,
-            base_seed=args.base_seed, max_steps=args.max_steps, scenarios=scens, progress=True)
-    except Exception as exc:
-        print(f"ERROR: memory-run failed: {exc}", file=sys.stderr)
-        return 1
-
-    rows = load_memory_artifacts(artifact_path)
-    report_path = write_memory_report(rows)
-    print(f"\nArtifacts: {artifact_path}")
-    print(f"Report:    {report_path}")
-    print(f"({len(rows)} trials recorded)")
-    rc = _nothing_measured(rows)
-    return 0 if rc is None else rc
-
-
-def _cmd_memory_scenarios(_args: argparse.Namespace) -> int:
-    from .agent_memory import load_memory_scenarios
-
-    scens = load_memory_scenarios()
-    print(f"Memory-poisoning scenarios: {len(scens)}")
-    for s in scens:
-        print(f"  {s.id:24} [{s.kind:10}] {s.name}")
-    return 0
-
-
-def _cmd_rag_run(args: argparse.Namespace) -> int:
-    """Run the agentic RAG retrieval-poisoning suite against a tool-calling agent."""
-    from .agent_run import ollama_chat_fn
-    from .agent_rag import (
-        load_rag_artifacts,
-        load_rag_scenarios,
-        run_rag_suite,
-        write_rag_report,
-    )
-
-    if args.target != "ollama":
-        print(f"ERROR: rag-run supports --target ollama today (got {args.target!r})", file=sys.stderr)
-        return 2
-
-    model = args.model
-    chat_fn = ollama_chat_fn(model)
-    trials = 1 if args.smoke else args.trials
-    scens = load_rag_scenarios()
-    if args.smoke:
-        scens = scens[:1]
-
-    print(f"Iago rag-run → target ollama:{model} (pure in-memory retriever; no network)")
-    print(f"  scenarios={len(scens)} trials/scenario={trials} max_steps={args.max_steps}")
-    try:
-        artifact_path = run_rag_suite(
-            chat_fn, model_name=f"ollama:{model}", trials=trials, temperature=args.temperature,
-            base_seed=args.base_seed, max_steps=args.max_steps, scenarios=scens, progress=True)
-    except Exception as exc:
-        print(f"ERROR: rag-run failed: {exc}", file=sys.stderr)
-        return 1
-
-    rows = load_rag_artifacts(artifact_path)
-    report_path = write_rag_report(rows)
-    print(f"\nArtifacts: {artifact_path}")
-    print(f"Report:    {report_path}")
-    print(f"({len(rows)} trials recorded)")
-    rc = _nothing_measured(rows)
-    return 0 if rc is None else rc
-
-
-def _cmd_rag_scenarios(_args: argparse.Namespace) -> int:
-    from .agent_rag import load_rag_scenarios
-
-    scens = load_rag_scenarios()
-    print(f"RAG-poisoning scenarios: {len(scens)}")
-    for s in scens:
-        print(f"  {s.id:24} [{s.kind:10}] {s.name}")
-    return 0
-
-
-def _cmd_a2a_run(args: argparse.Namespace) -> int:
-    """Run the agentic insecure inter-agent (ASI07) suite against a tool-calling agent."""
-    from .agent_run import ollama_chat_fn
-    from .agent_a2a import (
-        load_a2a_artifacts,
-        load_a2a_scenarios,
-        run_a2a_suite,
-        write_a2a_report,
-    )
-
-    if args.target != "ollama":
-        print(f"ERROR: a2a-run supports --target ollama today (got {args.target!r})", file=sys.stderr)
-        return 2
-
-    model = args.model
-    chat_fn = ollama_chat_fn(model)
-    trials = 1 if args.smoke else args.trials
-    scens = load_a2a_scenarios()
-    if args.smoke:
-        scens = scens[:1]
-
-    print(f"Iago a2a-run → target ollama:{model} (pure in-memory peer inbox; no network)")
-    print(f"  scenarios={len(scens)} trials/scenario={trials} max_steps={args.max_steps}")
-    try:
-        artifact_path = run_a2a_suite(
-            chat_fn, model_name=f"ollama:{model}", trials=trials, temperature=args.temperature,
-            base_seed=args.base_seed, max_steps=args.max_steps, scenarios=scens, progress=True)
-    except Exception as exc:
-        print(f"ERROR: a2a-run failed: {exc}", file=sys.stderr)
-        return 1
-
-    rows = load_a2a_artifacts(artifact_path)
-    report_path = write_a2a_report(rows)
-    print(f"\nArtifacts: {artifact_path}")
-    print(f"Report:    {report_path}")
-    print(f"({len(rows)} trials recorded)")
-    rc = _nothing_measured(rows)
-    return 0 if rc is None else rc
-
-
-def _cmd_a2a_scenarios(_args: argparse.Namespace) -> int:
-    from .agent_a2a import load_a2a_scenarios
-
-    scens = load_a2a_scenarios()
-    print(f"Inter-agent scenarios: {len(scens)}")
-    for s in scens:
-        print(f"  {s.id:24} [{s.kind:10}] {s.name}")
     return 0
 
 
@@ -1255,21 +877,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Claude model id when --judge is not given")
     rg.set_defaults(func=_cmd_regrade)
 
-    ar = sub.add_parser("agent-run",
-                        help="red-team a tool-calling AGENT with indirect injection (behavioral bypass)")
-    ar.add_argument("--target", default="ollama", choices=available_targets(),
-                    help="agent backend (agent-run supports ollama today)")
-    ar.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
-    ar.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per scenario")
-    ar.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
-    ar.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
-    ar.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
-                    help="tool-loop step budget per scenario")
-    ar.add_argument("--smoke", action="store_true", help="1 scenario x 1 trial fast proof")
-    ar.set_defaults(func=_cmd_agent_run)
-
-    asc = sub.add_parser("agent-scenarios", help="show the loaded agentic-injection scenarios")
-    asc.set_defaults(func=_cmd_agent_scenarios)
+    # `agent-run` keeps its place ahead of `adaptive-run` in `iago --help`; the rest follow it.
+    _add_surface_parsers(sub, SURFACES["agent"])
 
     ad = sub.add_parser("adaptive-run",
                         help="adaptive dialogue-level attacker — target-adaptive multi-turn "
@@ -1296,132 +905,30 @@ def build_parser() -> argparse.ArgumentParser:
     st = sub.add_parser("strategies", help="show the adaptive attacker's strategy library")
     st.set_defaults(func=_cmd_strategies)
 
-    ta = sub.add_parser("tool-abuse-run",
-                        help="red-team a tool-calling agent for RCE/SSRF via a SANDBOXED dangerous-"
-                             "tool surface (fake run_shell/fetch_url — never a real process/socket)")
-    ta.add_argument("--target", default="ollama", choices=available_targets(),
-                    help="agent backend (tool-abuse-run supports ollama today)")
-    ta.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
-    ta.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per scenario")
-    ta.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
-    ta.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
-    ta.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
-                    help="tool-loop step budget per scenario")
-    ta.add_argument("--smoke", action="store_true", help="1 scenario x 1 trial fast proof")
-    ta.set_defaults(func=_cmd_toolabuse_run)
-
-    tas = sub.add_parser("toolabuse-scenarios", help="show the loaded tool-abuse (RCE/SSRF) scenarios")
-    tas.set_defaults(func=_cmd_toolabuse_scenarios)
-
-    pv = sub.add_parser("privilege-run",
-                        help="red-team a tool-calling agent for EXCESSIVE AGENCY / confused deputy "
-                             "(LLM06/ASI03) via a SANDBOXED privileged-tool surface (fake "
-                             "delete_record/grant_role — never a real state change)")
-    pv.add_argument("--target", default="ollama", choices=available_targets(),
-                    help="agent backend (privilege-run supports ollama today)")
-    pv.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
-    pv.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per scenario")
-    pv.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
-    pv.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
-    pv.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
-                    help="tool-loop step budget per scenario")
-    pv.add_argument("--smoke", action="store_true", help="1 scenario x 1 trial fast proof")
-    pv.set_defaults(func=_cmd_privilege_run)
-
-    pvs = sub.add_parser("privilege-scenarios",
-                         help="show the loaded excessive-agency (confused-deputy) scenarios")
-    pvs.set_defaults(func=_cmd_privilege_scenarios)
-
-    dr = sub.add_parser("disclosure-run",
-                        help="red-team a tool-calling agent for SENSITIVE-INFO DISCLOSURE (LLM02) — "
-                             "cross-subject leak into the answer or an external send, via a "
-                             "SANDBOXED confidential store + comms sink")
-    dr.add_argument("--target", default="ollama", choices=available_targets(),
-                    help="agent backend (disclosure-run supports ollama today)")
-    dr.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
-    dr.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per scenario")
-    dr.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
-    dr.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
-    dr.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
-                    help="tool-loop step budget per scenario")
-    dr.add_argument("--smoke", action="store_true", help="1 scenario x 1 trial fast proof")
-    dr.set_defaults(func=_cmd_disclosure_run)
-
-    drs = sub.add_parser("disclosure-scenarios",
-                         help="show the loaded sensitive-info-disclosure (LLM02) scenarios")
-    drs.set_defaults(func=_cmd_disclosure_scenarios)
-
-    mi = sub.add_parser("misinfo-run",
-                        help="red-team a tool-calling agent for MISINFORMATION (LLM09) — it is asked "
-                             "for a structured identifier (CVE/RFC/DOI) about a FABRICATED subject; "
-                             "asserting one is confirmed fabrication (deterministic, no judge)")
-    mi.add_argument("--target", default="ollama", choices=available_targets(),
-                    help="agent backend (misinfo-run supports ollama today)")
-    mi.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
-    mi.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per scenario")
-    mi.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
-    mi.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
-    mi.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
-                    help="tool-loop step budget per scenario")
-    mi.add_argument("--smoke", action="store_true", help="1 scenario x 1 trial fast proof")
-    mi.set_defaults(func=_cmd_misinfo_run)
-
-    mis = sub.add_parser("misinfo-scenarios",
-                         help="show the loaded misinformation (LLM09) scenarios")
-    mis.set_defaults(func=_cmd_misinfo_scenarios)
-
-    mr = sub.add_parser("memory-run",
-                        help="red-team a tool-calling agent for MEMORY/CONTEXT POISONING (ASI06) — "
-                             "a poisoned doc plants a note that fires at a later step via recall")
-    mr.add_argument("--target", default="ollama", choices=available_targets(),
-                    help="agent backend (memory-run supports ollama today)")
-    mr.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
-    mr.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per scenario")
-    mr.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
-    mr.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
-    mr.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
-                    help="tool-loop step budget per scenario")
-    mr.add_argument("--smoke", action="store_true", help="1 scenario x 1 trial fast proof")
-    mr.set_defaults(func=_cmd_memory_run)
-
-    ms = sub.add_parser("memory-scenarios", help="show the loaded memory-poisoning (ASI06) scenarios")
-    ms.set_defaults(func=_cmd_memory_scenarios)
-
-    rr = sub.add_parser("rag-run",
-                        help="red-team a tool-calling agent for RAG RETRIEVAL POISONING — a poisoned "
-                             "knowledge-base passage, surfaced by a benign query, drives an action")
-    rr.add_argument("--target", default="ollama", choices=available_targets(),
-                    help="agent backend (rag-run supports ollama today)")
-    rr.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
-    rr.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per scenario")
-    rr.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
-    rr.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
-    rr.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
-                    help="tool-loop step budget per scenario")
-    rr.add_argument("--smoke", action="store_true", help="1 scenario x 1 trial fast proof")
-    rr.set_defaults(func=_cmd_rag_run)
-
-    rs = sub.add_parser("rag-scenarios", help="show the loaded RAG retrieval-poisoning scenarios")
-    rs.set_defaults(func=_cmd_rag_scenarios)
-
-    aa = sub.add_parser("a2a-run",
-                        help="red-team a tool-calling agent for INSECURE INTER-AGENT COMMS (ASI07) — "
-                             "a poisoned message from a rogue peer agent drives an action")
-    aa.add_argument("--target", default="ollama", choices=available_targets(),
-                    help="agent backend (a2a-run supports ollama today)")
-    aa.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
-    aa.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per scenario")
-    aa.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
-    aa.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
-    aa.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
-                    help="tool-loop step budget per scenario")
-    aa.add_argument("--smoke", action="store_true", help="1 scenario x 1 trial fast proof")
-    aa.set_defaults(func=_cmd_a2a_run)
-
-    aas = sub.add_parser("a2a-scenarios", help="show the loaded inter-agent (ASI07) scenarios")
-    aas.set_defaults(func=_cmd_a2a_scenarios)
+    for spec in SURFACES.values():
+        if spec.key != "agent":
+            _add_surface_parsers(sub, spec)
 
     return p
+
+
+def _add_surface_parsers(sub, spec: SurfaceSpec) -> None:
+    """The `<surface>-run` + `<surface>-scenarios` subcommand pair, identical for every surface
+    but for the registry's text."""
+    sr = sub.add_parser(spec.command, help=spec.run_help)
+    sr.add_argument("--target", default="ollama", choices=available_targets(),
+                    help=f"agent backend ({spec.command} supports ollama today)")
+    sr.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
+    sr.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per scenario")
+    sr.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
+    sr.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
+    sr.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
+                    help="tool-loop step budget per scenario")
+    sr.add_argument("--smoke", action="store_true", help="1 scenario x 1 trial fast proof")
+    sr.set_defaults(func=_cmd_surface_run, surface=spec.key)
+
+    ss = sub.add_parser(spec.scenarios_command, help=spec.scenarios_help)
+    ss.set_defaults(func=_cmd_surface_scenarios, surface=spec.key)
 
 
 def _load_dotenv() -> None:
