@@ -28,7 +28,7 @@ from pathlib import Path
 from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED
 from .artifacts import read_artifact, require_surface
 from .config import GROUNDING_FLOOR_MIN_CORRECT, REPORTS_DIR
-from .stats import wilson_interval
+from .stats import paired_difference_ci, wilson_interval
 
 # The adjudicated attack verdicts — the only ones that belong in a hijack-rate DENOMINATOR.
 # A non-adjudicated row (a future ERROR/TIMEOUT, or a malformed verdict) must be EXCLUDED, never
@@ -53,6 +53,10 @@ class ModelStats:
     # Kept per scenario, not just per model, because a scenario whose every trial was dropped has no
     # entry in `scen` at all and would otherwise render identically to one the model never ran (ISC-36).
     scen_excluded: dict[str, int] = field(default_factory=dict)
+    # (scenario_id, trial) -> hijacked?, for the adjudicated attack trials only. The pairing key
+    # for the between-model paired-difference CI (ISC-70): the same scenario at the same trial
+    # index ran at the same seed on every model, so trials pair across models by this key.
+    trial_hits: dict[tuple[str, int], bool] = field(default_factory=dict)
 
     @property
     def has_floor(self) -> bool:
@@ -173,6 +177,8 @@ def build_comparison(artifact_paths: list[Path | str], *, allow_judge_mismatch: 
                     continue
                 hj, n = ms.scen.get(sid, (0, 0))
                 ms.scen[sid] = (hj + (1 if verdict == HIJACKED else 0), n + 1)
+                ms.trial_hits[(sid, r.get("trial", n))] = verdict == HIJACKED
+                ms.trial_hits[(sid, r.get("trial", n))] = verdict == HIJACKED
     distinct = {j for j in judge_ids.values() if j}
     # A legacy artifact carries no manifest and so no judge_id. It is NOT checkable against the
     # others, and silently treating that as agreement is the failure the guard exists to prevent
@@ -220,6 +226,62 @@ def divergent_scenarios(comp: Comparison) -> list[Divergence]:
                                   spread=max(vals) - min(vals), rates=rates))
     out.sort(key=lambda d: d.spread, reverse=True)
     return out
+
+
+def paired_table(first: ModelStats, second: ModelStats, sid: str) -> tuple[int, int, int, int]:
+    """(a, b, c, d) over the trials of `sid` that BOTH models adjudicated, paired by trial index:
+    a = both hijacked, b = first only, c = second only, d = neither."""
+    a = b = c = d = 0
+    for key, hit1 in first.trial_hits.items():
+        if key[0] != sid or key not in second.trial_hits:
+            continue
+        hit2 = second.trial_hits[key]
+        if hit1 and hit2:
+            a += 1
+        elif hit1:
+            b += 1
+        elif hit2:
+            c += 1
+        else:
+            d += 1
+    return a, b, c, d
+
+
+def _paired_section(comp: Comparison) -> list[str]:
+    """Per-scenario 95% CI on the paired difference in hijack rate between the FIRST two models
+    (artifact order), on the trials both ran. Newcombe's (1998) hybrid-score method for paired
+    proportions; the pairing is by (scenario, trial index), i.e. the same seeded prompt on each
+    model — a matched-item design, not the same model twice."""
+    if len(comp.models) < 2:
+        return []
+    first, second = comp.models[0], comp.models[1]
+    lines = ["## Paired difference between models", "",
+             f"`{first.model}` − `{second.model}` per scenario, on the trials both adjudicated, paired "
+             "by trial index (same scenario, same seed). 95% CI by Newcombe's hybrid-score method for "
+             "paired proportions — Wilson small-sample behaviour, narrowed by the correlation the "
+             "matched trials carry. An interval that excludes 0 is a difference the pairing supports; "
+             "one that crosses 0 is directional only. The interval sizes the difference; it is an "
+             "asymptotic score interval and can run liberal under ~10 discordant pairs (first-only + "
+             "second-only), so at that size treat it as directional whatever it excludes. Rates here "
+             "are on the paired trials, so they can differ from the matrix above when one model "
+             "dropped trials.", "",
+             "| Scenario | Pairs | Difference | 95% CI (paired) | both / first-only / second-only / neither |",
+             "|---|---:|---:|---:|---:|"]
+    for sid in comp.scenario_ids:
+        a, b, c, d = paired_table(first, second, sid)
+        n = a + b + c + d
+        if n == 0:
+            lines.append(f"| {sid} | 0 | n/a | n/a (0 pairs) | – |")
+            continue
+        lo, hi = paired_difference_ci(a=a, b=b, c=c, d=d)
+        lines.append(f"| {sid} | {n} | {(b - c) / n:+.0%} | {lo:+.0%} to {hi:+.0%} | {a} / {b} / {c} / {d} |")
+    lines.append("")
+    if len(comp.models) > 2:
+        others = ", ".join(f"`{m.model}`" for m in comp.models[2:])
+        lines.append(f"_Only the first two artifacts are paired here; {others} appear in the matrix "
+                     "above. Re-run `iago compare` with a different first pair for another contrast._")
+        lines.append("")
+    return lines
 
 
 def _floor_label(m: ModelStats) -> str:
@@ -374,6 +436,8 @@ def write_comparison_report(comp: Comparison, reports_dir: Path | None = None) -
                      "proxy is inverted (a grounded model reads DEAD); re-run the surface to remove the "
                      "bias._")
         lines.append("")
+
+    lines.extend(_paired_section(comp))
 
     out_path.write_text("\n".join(lines))
     return out_path

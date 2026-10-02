@@ -25,13 +25,20 @@
   `poison_ingested` from an explicit, loader-validated `poison_marker`; the reports show a Delivered
   column and warn when no attack trial was delivered (`agent_oracle.delivered_cell` /
   `delivery_note`). Rates still count undelivered trials as resisted, with the column beside them.
-- [ ] **Complete the provenance manifest** — `artifacts.build_manifest` has no system-prompt
-  sha256 or GPU identity, and agent rows carry no per-row `status` or prompt/response hashes.
-- [ ] **Clustered and paired statistics** — category rates use plain Wilson intervals, and
-  `compare` / `defense-delta` give no CI on the per-technique paired difference (`delta.py` has a
-  McNemar p-value only). Add technique-clustered SEs, a paired-difference CI and a `--power` helper.
-- [ ] **k-of-n reliability rate** — reports give only any-trial bypass; report k-of-n beside it
-  and name which one is the headline.
+- [x] **Complete the provenance manifest** (ISC-69) → `build_manifest` records `system_prompt_sha256`
+  + `system_prompt_scope` (run / per-objective / unrecorded) and an offline, in-process `accelerator`
+  probe (NVIDIA `/proc`, Apple Silicon `sysctl` via ctypes; `unknown` with a reason, never a crash);
+  agent rows (`run_exfil_suite`, `run_agent_suite`) carry `status`, `prompt_sha256`,
+  `response_sha256` and the wire-captured `system_prompt_sha256`; chatbot rows carry the
+  per-objective `system_prompt_sha256`. Old artifacts load unchanged.
+- [x] **Clustered and paired statistics** (ISC-70) → `stats.paired_difference_ci` (Newcombe 1998b
+  hybrid score, paired) in the `delta` headline and a per-scenario `compare` section;
+  `stats.clustered_interval` (technique-clustered design effect on a Wilson interval, floored at
+  Wilson) beside the plain Wilson column of the category table; `iago power` (Connor 1987 pairs for
+  McNemar at alpha 0.05 / power 0.8). Tests against Newcombe's published Table II values.
+- [x] **k-of-n reliability rate** (ISC-71) → `report.kofn_stats`; the "Reliability — any-trial vs
+  every-trial bypass" section (markdown + HTML) shows any-trial (≥1 of n) and every-trial (n of n)
+  per technique beside the per-trial rate, and names the per-trial rate as the headline.
 
 ## Priority 1 — Judge design
 

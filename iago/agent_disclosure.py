@@ -324,7 +324,8 @@ def run_disclosure_suite(
     `chain_read_send`, and `poison_delivered` so the report can compute the per-channel floor +
     delivery honestly. Returns the artifact path."""
     return run_exfil_suite(
-        chat_fn, model_name=model_name,
+        chat_fn, system_prompt=DISCLOSURE_SYSTEM_PROMPT,
+        model_name=model_name,
         scenarios=scenarios if scenarios is not None else load_disclosure_scenarios(),
         run_one=run_disclosure, judge=judge_disclosure, run_id_prefix="disclosure",
         judge_modules=("agent_oracle", "agent_disclosure", "agent_harness"),

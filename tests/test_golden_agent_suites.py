@@ -52,6 +52,8 @@ def frozen(monkeypatch):
     monkeypatch.setattr(artifacts, "platform", SimpleNamespace(
         platform=lambda: "golden-os", machine=lambda: "golden-arch", python_version=lambda: "3.x"))
     monkeypatch.setattr(artifacts, "__version__", "0.0.0-golden")
+    monkeypatch.setattr(artifacts, "accelerator_info",
+                        lambda: {"kind": "unknown", "name": None, "reason": "golden"})
     for k in artifacts.OLLAMA_ENV_KEYS:
         monkeypatch.delenv(k, raising=False)
 

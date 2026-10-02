@@ -102,13 +102,19 @@ def git_info(root: Path | None = None) -> dict:
                     break
                 git_dir = Path(pointer[len("gitdir: "):])
             head = (git_dir / "HEAD").read_text().strip()
+            # A linked worktree's gitdir holds HEAD but its branch refs and packed-refs live in
+            # the common dir named by `commondir` (relative to the gitdir).
+            common = git_dir
+            commondir = git_dir / "commondir"
+            if commondir.exists():
+                common = (git_dir / commondir.read_text().strip()).resolve()
             if head.startswith("ref: "):
                 ref = head[len("ref: "):].strip()
-                ref_file = git_dir / ref
+                ref_file = git_dir / ref if (git_dir / ref).exists() else common / ref
                 if ref_file.exists():
                     out["commit"] = ref_file.read_text().strip()
                 else:  # packed refs
-                    packed = git_dir / "packed-refs"
+                    packed = common / "packed-refs"
                     if packed.exists():
                         for line in packed.read_text().splitlines():
                             if line.endswith(" " + ref):
@@ -180,10 +186,66 @@ def scenario_fingerprint(scenarios) -> str | None:
         return sha256_text(repr(scenarios))
 
 
+#: Linux NVIDIA driver's per-GPU text files (`<bus-id>/information`, "Model: <name>" line).
+_NVIDIA_PROC = Path("/proc/driver/nvidia/gpus")
+
+
+def accelerator_info() -> dict:
+    """Which accelerator the target most likely ran on, from an OFFLINE, in-process, fail-soft
+    probe: `{"kind": apple-silicon | nvidia | unknown, "name": str | None, "reason": str | None}`.
+
+    Bypass rates move with the kernel the backend picked (Metal vs CUDA vs CPU, and the chip's
+    numeric paths), so a manifest that names the chip is what lets two runs be compared on equal
+    footing (ISC-69). Two sources only, both file/libc reads: the NVIDIA driver's `/proc` text on
+    Linux, and `sysctlbyname("machdep.cpu.brand_string")` through ctypes on an arm64 Mac — never a
+    child process (`nvidia-smi`, `system_profiler`) and never a socket, because provenance is
+    collected on the agent surfaces that carry a no-process / no-socket anti-claim. Anything the
+    probe cannot see is reported as `unknown` WITH a reason, never guessed and never a crash."""
+    out: dict = {"kind": "unknown", "name": None, "reason": None}
+    try:
+        if _NVIDIA_PROC.is_dir():
+            for info in sorted(_NVIDIA_PROC.glob("*/information")):
+                for line in info.read_text(errors="replace").splitlines():
+                    key, _, value = line.partition(":")
+                    if key.strip() == "Model" and value.strip():
+                        return {"kind": "nvidia", "name": value.strip(), "reason": None}
+    except Exception as exc:  # unreadable driver files: fall through to the other probe
+        out["reason"] = f"nvidia /proc unreadable: {type(exc).__name__}"
+    if platform.system() == "Darwin" and platform.machine() == "arm64":
+        try:
+            import ctypes
+            import ctypes.util
+
+            libc = ctypes.CDLL(ctypes.util.find_library("c"))
+            buf = ctypes.create_string_buffer(256)
+            size = ctypes.c_size_t(len(buf))
+            rc = libc.sysctlbyname(b"machdep.cpu.brand_string", buf, ctypes.byref(size), None, 0)
+            name = buf.value.decode("utf-8", "replace").strip() if rc == 0 else ""
+            if name:
+                return {"kind": "apple-silicon", "name": name, "reason": None}
+            out["reason"] = f"sysctl machdep.cpu.brand_string returned rc={rc}"
+        except Exception as exc:
+            out["reason"] = f"sysctl via ctypes failed: {type(exc).__name__}"
+        return out
+    if out["reason"] is None:
+        out["reason"] = (f"no offline probe for {platform.system()}/{platform.machine()} "
+                         "(only NVIDIA /proc and Apple Silicon sysctl are read)")
+    return out
+
+
 def build_manifest(*, surface: str, model: str, sampling: dict, judge_id: str | None,
-                   extra: dict | None = None) -> dict:
+                   extra: dict | None = None, system_prompt: str | None = None,
+                   system_prompt_scope: str | None = None) -> dict:
     """The first JSONL line of every artifact. `sampling` is every option that shapes generation
-    (temperature, seeds, trials, step/turn caps, shots); `judge_id` names the scoring code."""
+    (temperature, seeds, trials, step/turn caps, shots); `judge_id` names the scoring code.
+
+    `system_prompt` is the prompt the target ran under for the WHOLE run (hashed, never stored);
+    `system_prompt_scope` says what the hash covers: "run" (set here), "per-objective" (the
+    chatbot surface plants a different prompt per objective, so each ROW carries its own hash and
+    the run-level one is null), "none" (the surface sends no system message) or "unrecorded" (the
+    caller did not pass it — a null that means unknown, not absent)."""
+    if system_prompt is not None and system_prompt_scope is None:
+        system_prompt_scope = "run"
     manifest = {
         "record": MANIFEST_RECORD,
         "schema_version": SCHEMA_VERSION,
@@ -194,6 +256,9 @@ def build_manifest(*, surface: str, model: str, sampling: dict, judge_id: str | 
         "model": model,
         "sampling": sampling,
         "judge_id": judge_id,
+        "system_prompt_sha256": sha256_text(system_prompt),
+        "system_prompt_scope": system_prompt_scope or "unrecorded",
+        "accelerator": accelerator_info(),
         # ONLY for an Ollama target. The first gate also matched every non-Ollama tag (`"/" not in
         # model` is true for `gpt-4o`), so an Anthropic run opened three calls to the local daemon
         # and wrote an `ollama` block naming a model Ollama never served (code-review major).
@@ -211,6 +276,38 @@ def build_manifest(*, surface: str, model: str, sampling: dict, judge_id: str | 
 def write_manifest(fh: IO[str], manifest: dict) -> None:
     fh.write(json.dumps(manifest) + "\n")
     fh.flush()
+
+
+def trace_status(trace) -> str:
+    """The per-row completion status of an agent trace (ISC-69): "ok", "step_limit" (the loop
+    exhausted `max_steps` — an incomplete probe, which `compare` already excludes) or
+    "empty_final" (the loop ended on a turn with no tool call and no text). The old boolean flags
+    stay on the row; this names the state in one field so a row can be filtered without
+    re-deriving it."""
+    if getattr(trace, "hit_step_limit", False):
+        return "step_limit"
+    if getattr(trace, "empty_final", False):
+        return "empty_final"
+    return "ok"
+
+
+def system_prompt_recorder(chat_fn):
+    """Wrap an agent `chat_fn(messages, tools, options)` so the system message it is actually
+    sent is captured from the wire. `recorder.last` holds the text of the most recent system
+    message seen (None when the surface sent none); the artifact row hashes it. This is the
+    prompt the target really ran under — not what a caller says it configured."""
+    class _Recorder:
+        last: str | None = None
+
+        def __call__(self, messages, *args, **kwargs):
+            try:
+                first = messages[0] if messages else None
+                if isinstance(first, dict) and first.get("role") == "system":
+                    self.last = first.get("content")
+            except Exception:  # an unusual message shape must never break the run
+                pass
+            return chat_fn(messages, *args, **kwargs)
+    return _Recorder()
 
 
 def stamp(row: dict, surface: str) -> dict:

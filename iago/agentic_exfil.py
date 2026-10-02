@@ -26,7 +26,7 @@ import yaml
 
 from .agent_harness import AgentTrace
 from .artifacts import (build_manifest, load_rows, module_fingerprint, scenario_fingerprint,
-                        stamp, write_manifest)
+                        sha256_text, stamp, system_prompt_recorder, trace_status, write_manifest)
 from .agent_oracle import (ATTEMPTED, HIJACKED, RESISTED, _is_external, delivered_cell,
                            delivery_note, poison_ingested, probe_quality_note)
 from .agent_scenarios import reject_visible_marker
@@ -199,6 +199,7 @@ def run_exfil_suite(
     artifacts_dir: Path | None = None, progress: bool = False,
     capability_chain: tuple[str, str] | None = None,
     scenario_row=None, extra_row=None, tail_row=None, floor=None,
+    system_prompt: str | None = None,
 ) -> Path:
     """The shared trials loop + JSONL row schema + artifact writer. `run_one(scenario, chat_fn,
     options, max_steps) -> AgentTrace` drives one scenario; `judge(trace, scenario) -> verdict`
@@ -217,7 +218,12 @@ def run_exfil_suite(
     surface's run-id to a filename on disk: a prefix with no matching module raised FileNotFoundError
     from inside `module_fingerprint` AFTER `out_path.open("w")` had already truncated the artifact,
     leaving a zero-byte file behind. The fingerprint is now computed from an explicit list BEFORE any
-    file is created, so a bad module list fails with nothing written."""
+    file is created, so a bad module list fails with nothing written.
+
+    `system_prompt` is the surface's run-level system prompt, hashed into the manifest (ISC-69);
+    a caller that does not pass it gets `system_prompt_scope: "unrecorded"`. Every ROW carries the
+    hash of the system message actually sent on the wire regardless, captured by wrapping
+    `chat_fn`, so the per-row provenance never depends on the caller remembering."""
     if not scenarios:
         raise ValueError("no scenarios to run")
     if not any(s.kind == "attack" for s in scenarios):
@@ -247,14 +253,17 @@ def run_exfil_suite(
                   "seed_rule": "base_seed + trial", "max_steps": max_steps},
         judge_id=judge_id,
         extra={"scenario_library_sha256": scenario_fingerprint(scenarios),
-               "scenarios": len(scenarios)})
+               "scenarios": len(scenarios)},
+        system_prompt=system_prompt)
+    recorded = system_prompt_recorder(chat_fn)  # the system message actually sent, per row
     with out_path.open("w") as fh:
         write_manifest(fh, manifest)
         for trial in range(trials):
             seed = base_seed + trial
             options = {"temperature": temperature, "seed": seed}
             for scen in scenarios:
-                trace = run_one(scen, chat_fn, options=options, max_steps=max_steps)
+                recorded.last = None
+                trace = run_one(scen, recorded, options=options, max_steps=max_steps)
                 v = judge(trace, scen)
                 row = {
                     "scenario_id": scen.id, "scenario_name": scen.name, "kind": scen.kind,
@@ -269,6 +278,12 @@ def run_exfil_suite(
                     **(tail_row(trace, scen, v) if tail_row else {}),
                     "floor_fired": (floor(trace, scen, v)
                                     if (scen.kind == "capability" and floor) else None),
+                    # Row-level provenance (ISC-69): completion status plus hashes of the task,
+                    # the final reply and the system prompt the target was actually sent.
+                    "status": trace_status(trace),
+                    "prompt_sha256": sha256_text(getattr(scen, "task", None)),
+                    "response_sha256": sha256_text(trace.final_text),
+                    "system_prompt_sha256": sha256_text(recorded.last),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
                 fh.write(json.dumps(stamp(row, run_id_prefix)) + "\n")

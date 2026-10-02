@@ -432,7 +432,8 @@ def run_toolabuse_suite(
 ) -> Path:
     """Run every scenario × trials through the sandboxed agent + oracle; write JSONL. Returns path."""
     return run_exfil_suite(
-        chat_fn, model_name=model_name,
+        chat_fn, system_prompt=TOOLABUSE_SYSTEM_PROMPT,
+        model_name=model_name,
         scenarios=scenarios if scenarios is not None else load_toolabuse_scenarios(),
         run_one=run_toolabuse, judge=judge_tool_abuse, run_id_prefix="toolabuse",
         judge_modules=("agent_oracle", "agent_toolabuse", "agent_harness"),
