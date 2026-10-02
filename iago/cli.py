@@ -924,7 +924,7 @@ def _add_surface_parsers(sub, spec: SurfaceSpec) -> None:
     sr.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
     sr.add_argument("--max-steps", type=int, default=DEFAULT_AGENT_STEPS, dest="max_steps",
                     help="tool-loop step budget per scenario")
-    sr.add_argument("--smoke", action="store_true", help="1 scenario x 1 trial fast proof")
+    sr.add_argument("--smoke", action="store_true", help="1 trial of the first attack + first capability scenario: a fast proof that keeps the floor")
     sr.set_defaults(func=_cmd_surface_run, surface=spec.key)
 
     ss = sub.add_parser(spec.scenarios_command, help=spec.scenarios_help)
