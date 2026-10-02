@@ -105,6 +105,10 @@ class TrialResult:
     prompt_sha256: str | None = None
     response_sha256: str | None = None
     judge_id: str | None = None          # fingerprint of the offline scoring code (judge+canary+decode)
+    # ISC-69: the chatbot surface plants a different system prompt per objective (prompt-leak,
+    # dead-end, trust-escalation) or none at all, so the hash lives on the row, not the manifest
+    # (whose `system_prompt_scope` is "per-objective"). None = no system message on this trial.
+    system_prompt_sha256: str | None = None
 
 
 class AuthorizationError(RuntimeError):
@@ -384,6 +388,7 @@ def run(
                       "seed_rule": "base_seed + trial", "shots": shots,
                       "unsupported_controls": dropped},
             judge_id=offline_judge_id,
+            system_prompt_scope="per-objective",
             extra={"technique_library_sha256": sha256_text(json.dumps([asdict(t) for t in lib],
                                                                       sort_keys=True, default=str)),
                    "techniques": len(lib), "objectives": len(objs), "compatible_pairs": compatible,
@@ -460,6 +465,9 @@ def run(
                     # A guard block replaces the model's reply, so there is nothing to decode.
                     decoded = (decode_recovered(obj.objective, response)
                                if gated and guard_that_fired(response) is None else None)
+                    planted_system = (obj.system_prompt
+                                      if (obj.is_trust_escalation or obj.is_prompt_leak or obj.is_dead_end)
+                                      else None)
                     row = TrialResult(
                         technique_id=tech.id,
                         technique_name=tech.name,
@@ -497,6 +505,7 @@ def run(
                         prompt_sha256=sha256_text(prompt),
                         response_sha256=sha256_text(response),
                         judge_id=offline_judge_id,
+                        system_prompt_sha256=sha256_text(planted_system),
                     )
                     fh.write(json.dumps(asdict(row)) + "\n")
                     fh.flush()

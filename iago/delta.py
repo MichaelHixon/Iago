@@ -22,7 +22,7 @@ from .config import REPORTS_DIR
 from .guards import guard_that_fired
 from .judge import BYPASSED, NEEDS_REVIEW
 from .report import bypass_rate, ci_str, is_valid_probe, judge_calibration_lines, pct, verdict_of
-from .stats import mcnemar_exact_p, rose_measurably
+from .stats import mcnemar_exact_p, paired_difference_ci, rose_measurably
 
 
 def _valid(rows: list[dict], kind: str) -> list[dict]:
@@ -44,15 +44,14 @@ def _delta_pts(raw: dict, guarded: dict) -> float:
     return (guarded["rate"] - raw["rate"]) * 100.0
 
 
-def _discordant(raw_rows: list[dict], guarded_rows: list[dict], kind: str) -> tuple[int, int]:
-    """McNemar discordant-pair counts on the paired (technique, objective, trial) twins for one
-    objective kind: (b, c) where b = raw bypassed AND guard held (the guard's wins), c = raw held
-    AND guard bypassed (regressions). Concordant pairs (both bypass / both hold) carry no signal.
-    Exposes the pairing the independent-CI gate ignores — for a real significance claim McNemar
-    conditions on exactly these discordants."""
+def _paired_table(raw_rows: list[dict], guarded_rows: list[dict], kind: str) -> tuple[int, int, int, int]:
+    """The 2x2 table of paired (technique, objective, trial) twins for one objective kind, both
+    sides valid probes: (a, b, c, d) = (both bypassed, raw bypassed AND guard held — the guard's
+    wins, raw held AND guard bypassed — regressions, both held). McNemar conditions on the
+    discordant b and c; the paired-difference CI needs all four."""
     guarded_by_key = {(r["technique_id"], r["objective_id"], r.get("trial", 0)): r
                       for r in guarded_rows if r["objective_kind"] == kind}
-    b = c = 0
+    a = b = c = d = 0
     for r in raw_rows:
         if r["objective_kind"] != kind or not is_valid_probe(r):
             continue
@@ -60,11 +59,38 @@ def _discordant(raw_rows: list[dict], guarded_rows: list[dict], kind: str) -> tu
         if twin is None or not is_valid_probe(twin):
             continue
         raw_by, guard_by = verdict_of(r) == BYPASSED, verdict_of(twin) == BYPASSED
-        if raw_by and not guard_by:
+        if raw_by and guard_by:
+            a += 1
+        elif raw_by:
             b += 1
-        elif guard_by and not raw_by:
+        elif guard_by:
             c += 1
+        else:
+            d += 1
+    return a, b, c, d
+
+
+def _discordant(raw_rows: list[dict], guarded_rows: list[dict], kind: str) -> tuple[int, int]:
+    """McNemar discordant-pair counts (b, c) — see `_paired_table`. Exposes the pairing the
+    independent-CI gate ignores: for a real significance claim McNemar conditions on exactly
+    these discordants."""
+    _, b, c, _ = _paired_table(raw_rows, guarded_rows, kind)
     return b, c
+
+
+def paired_delta_line(label: str, table: tuple[int, int, int, int]) -> str:
+    """One report line: the 95% CI on the paired difference (guarded − raw, in points) for one
+    objective kind, or an explicit n/a when there are no pairs. The interval is on the SAME
+    quantity as the headline arrow (guarded minus raw), so a wholly negative interval is a
+    reduction the pairing supports; an interval that crosses 0 is directional only."""
+    a, b, c, d = table
+    n = a + b + c + d
+    if n == 0:
+        return f"- **{label}:** n/a (0 pairs)"
+    lo, hi = paired_difference_ci(a=a, b=b, c=c, d=d)   # raw − guarded
+    return (f"- **{label}:** 95% CI on the paired difference "
+            f"{-hi * 100:+.1f} to {-lo * 100:+.1f} pts (Newcombe hybrid score, paired; n = {n} pairs: "
+            f"{a} both bypassed, {b} raw-only, {c} guarded-only, {d} both held)")
 
 
 def _significant(raw: dict, guarded: dict) -> bool:
@@ -185,6 +211,19 @@ def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict]) -> str:
     b_leak, c_leak = _discordant(raw_rows, guarded_rows, "prompt-leak")
     n_disc = b_leak + c_leak
     p_leak = mcnemar_exact_p(b_leak, c_leak)
+    a("**95% CI on the paired difference** — guarded − raw, per objective kind, on the twins both")
+    a("arms measured. Newcombe's (1998) hybrid-score method for paired proportions: Wilson")
+    a("small-sample behaviour, narrowed by the raw/guarded correlation the pairing buys, and it does")
+    a("not collapse to a zero-width point when every discordant pair falls the same way, which the")
+    a("Wald interval does. The interval is on the headline's own Δ, so read it beside the arrow. It")
+    a("sizes the effect; it does not replace the exact test below. The two can disagree under ~10")
+    a("discordant pairs (the score interval is asymptotic and can run liberal there; McNemar's")
+    a("exact test is not), and when they do, the exact test decides whether the reduction is")
+    a("asserted at all:")
+    a("")
+    a(paired_delta_line("Harmful-content bypass", _paired_table(raw_rows, guarded_rows, "forbidden")))
+    a(paired_delta_line("System-prompt exfiltration (LLM07)", _paired_table(raw_rows, guarded_rows, "prompt-leak")))
+    a("")
     a("> **Paired data — McNemar's exact test.** Each guarded trial has a raw twin (same technique,")
     a("> objective, seed), so the correct significance test is McNemar's, which conditions on the")
     if n_disc == 0:
