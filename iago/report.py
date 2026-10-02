@@ -598,18 +598,43 @@ def determinism_disclosure(manifest: dict | None) -> str:
             "failure. See `determinism.probes` in the artifact manifest._")
 
 
-def build_report(rows: list[dict], manifest: dict | None = None) -> str:
-    """Render the markdown report from artifact rows.
+@dataclass(frozen=True)
+class _Aggregates:
+    """Every row partition and statistic the markdown and HTML reports share, computed once.
 
-    `manifest` carries the run's recorded determinism result; omitted, the report says the
-    measurement was not read rather than implying it was clean (ISC-50)."""
-    require_surface(rows, "chatbot", reader="iago report")
-    if not rows:
-        return "# Iago Report\n\n_No artifacts — nothing to report._\n"
+    The two renderers each used to rebuild these from the rows, and two copies of an aggregate are
+    two chances to diverge: the category sort once lacked its tiebreak in one copy only, so the two
+    reports recommended fixing different categories. Render reads this; it never recomputes it."""
+    model: str
+    forbidden: list[dict]
+    controls: list[dict]
+    leaks: list[dict]
+    trust: list[dict]
+    unsafe: list[dict]
+    deadend: list[dict]
+    errored: list[dict]        # forbidden-only: the harmful-content evidence fallback needs it
+    errored_all: list[dict]    # the whole run: the "excluded from every rate" disclosure
+    decode_failed: list[dict]
+    valid: list[dict]
+    leak_valid: list[dict]
+    trust_valid: list[dict]
+    unsafe_valid: list[dict]
+    deadend_valid: list[dict]
+    deadend_errored: list[dict]
+    deadend_controls: list[dict]
+    deadend_unsolvable: list[dict]
+    deadend_errored_unsolvable: list[dict]
+    deadend_errored_unknown: bool
+    gated: list[dict]          # gated forbidden trials that reached the model
+    bypasses: list[dict]
+    needs_review: list[dict]
+    tech_stats: list[_TechStat]
+    cat_stats: list[_CatStat]
 
-    model = rows[0]["model"]
+
+def _aggregate(rows: list[dict]) -> _Aggregates:
+    """Partition non-empty chatbot rows and compute the shared statistics, once."""
     forbidden = [r for r in rows if r["objective_kind"] == "forbidden"]
-    controls = [r for r in rows if r["objective_kind"] == "control"]
     leaks = [r for r in rows if r["objective_kind"] == "prompt-leak"]
     trust = [r for r in rows if r["objective_kind"] == "trust-escalation"]
     unsafe = [r for r in rows if r["objective_kind"] == "unsafe-output"]
@@ -617,45 +642,28 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
 
     # A transport/run error is not a valid probe of the guardrail — exclude it from the
     # denominator so a flaky target never deflates (or inflates) the bypass rate.
-    errored = [r for r in forbidden if verdict_of(r) == ERROR]
     # `errored` is forbidden-only because the harmful-content evidence fallback needs that subset.
-    # The reader-facing disclosure below claims exclusion from "every rate above", and those rates
-    # span all five kinds — so it counts the whole run (#152: 5 errored trials across 5 kinds
-    # reported as 1).
-    errored_all = [r for r in rows if verdict_of(r) == ERROR]
-    probed = [r for r in forbidden if verdict_of(r) != ERROR]
+    # The reader-facing disclosure claims exclusion from "every rate above", and those rates
+    # span all five kinds — so `errored_all` counts the whole run (#152: 5 errored trials across
+    # 5 kinds reported as 1).
     # A cipher / low-resource trial the model never DECODED did not exercise the guardrail: the
     # refusal is confusion, not a hold (decode.py). Such rows used to sit in `valid` and inflate
     # every "held" denominator while the decode section claimed they were not silently counted
-    # (ISC-32). They are excluded here and reported in the decode-gating section.
-    decode_failed = harmful_decode_failed(rows)
+    # (ISC-32). They are excluded from `valid` and reported in the decode-gating section.
     valid = harmful_valid(rows)
-    leak_valid = [r for r in leaks if verdict_of(r) != ERROR]
-    trust_valid = [r for r in trust if verdict_of(r) != ERROR]
-    unsafe_valid = [r for r in unsafe if verdict_of(r) != ERROR]
+
     # dead-end: a control row (solvable) is a capability check, not a guardrail test, so it is
     # split out of the stop/fabrication rates. Control rows are the ones judge_deadend tagged
     # `control-*`; the rest are the unsolvable rows the stop rate is measured over.
     deadend_valid = [r for r in deadend if verdict_of(r) != ERROR]
     deadend_errored = [r for r in deadend if verdict_of(r) == ERROR]
-    deadend_controls = [r for r in deadend_valid if _is_deadend_control(r)]
-    deadend_unsolvable = [r for r in deadend_valid if not _is_deadend_control(r)]
     # Only an errored UNSOLVABLE row can make "all unsolvable trials errored" true.
     deadend_errored_unsolvable = [r for r in deadend_errored if not _is_deadend_control(r)]
-    # Legacy rows carry no solvability, so "all UNSOLVABLE trials errored" is a claim the artifact
-    # cannot support — the fallback reads them as unsolvable only to keep them visible.
-    deadend_errored_unknown = any(r.get("deadend_control") is None for r in deadend_errored_unsolvable)
-
-    trials_total = len(valid)
-    bypasses = [r for r in valid if verdict_of(r) == BYPASSED]
-    needs_review = [r for r in valid if verdict_of(r) == NEEDS_REVIEW]
-    overall_rate = bypass_rate(len(bypasses), trials_total)
 
     # Per-technique bypass rate (valid forbidden trials only).
     by_tech: dict[str, list[dict]] = defaultdict(list)
     for r in valid:
         by_tech[r["technique_id"]].append(r)
-
     tech_stats: list[_TechStat] = []
     for tid, trs in by_tech.items():
         hits = sum(1 for r in trs if verdict_of(r) == BYPASSED)
@@ -676,7 +684,7 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
         )
     tech_stats.sort(key=lambda s: (-s["rate"], s["id"]))
 
-    # Per-category bypass rate.
+    # Per-category bypass rate. The tiebreak matters: `_hardening_recs` takes the top three.
     by_cat: dict[str, list[dict]] = defaultdict(list)
     for r in valid:
         by_cat[r["category"]].append(r)
@@ -684,6 +692,58 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
                                   "ci": ci_str(hits, n), "cluster_ci": clustered_ci_str(by_cat[cat])}
                                  for cat, (hits, n) in category_counts(valid).items()]
     cat_stats.sort(key=lambda s: (-s["rate"], s["category"]))
+
+    return _Aggregates(
+        model=rows[0]["model"],
+        forbidden=forbidden,
+        controls=[r for r in rows if r["objective_kind"] == "control"],
+        leaks=leaks, trust=trust, unsafe=unsafe, deadend=deadend,
+        errored=[r for r in forbidden if verdict_of(r) == ERROR],
+        errored_all=[r for r in rows if verdict_of(r) == ERROR],
+        decode_failed=harmful_decode_failed(rows),
+        valid=valid,
+        leak_valid=[r for r in leaks if verdict_of(r) != ERROR],
+        trust_valid=[r for r in trust if verdict_of(r) != ERROR],
+        unsafe_valid=[r for r in unsafe if verdict_of(r) != ERROR],
+        deadend_valid=deadend_valid,
+        deadend_errored=deadend_errored,
+        deadend_controls=[r for r in deadend_valid if _is_deadend_control(r)],
+        deadend_unsolvable=[r for r in deadend_valid if not _is_deadend_control(r)],
+        deadend_errored_unsolvable=deadend_errored_unsolvable,
+        # Legacy rows carry no solvability, so "all UNSOLVABLE trials errored" is a claim the
+        # artifact cannot support — the fallback reads them as unsolvable only to keep them visible.
+        deadend_errored_unknown=any(r.get("deadend_control") is None for r in deadend_errored_unsolvable),
+        # A guard block on a gated trial never reached the model, so it says nothing about decoding.
+        gated=[r for r in forbidden if verdict_of(r) != ERROR and r.get("gated")
+               and guard_that_fired(r.get("response") or "") is None],
+        bypasses=[r for r in valid if verdict_of(r) == BYPASSED],
+        needs_review=[r for r in valid if verdict_of(r) == NEEDS_REVIEW],
+        tech_stats=tech_stats,
+        cat_stats=cat_stats,
+    )
+
+
+def build_report(rows: list[dict], manifest: dict | None = None) -> str:
+    """Render the markdown report from artifact rows.
+
+    `manifest` carries the run's recorded determinism result; omitted, the report says the
+    measurement was not read rather than implying it was clean (ISC-50)."""
+    require_surface(rows, "chatbot", reader="iago report")
+    if not rows:
+        return "# Iago Report\n\n_No artifacts — nothing to report._\n"
+
+    g = _aggregate(rows)
+    model, forbidden, controls, leaks, trust, unsafe, deadend = (
+        g.model, g.forbidden, g.controls, g.leaks, g.trust, g.unsafe, g.deadend)
+    errored, errored_all, decode_failed, valid = g.errored, g.errored_all, g.decode_failed, g.valid
+    leak_valid, trust_valid, unsafe_valid = g.leak_valid, g.trust_valid, g.unsafe_valid
+    deadend_valid, deadend_errored = g.deadend_valid, g.deadend_errored
+    deadend_controls, deadend_unsolvable = g.deadend_controls, g.deadend_unsolvable
+    deadend_errored_unsolvable = g.deadend_errored_unsolvable
+    deadend_errored_unknown = g.deadend_errored_unknown
+    bypasses, needs_review, tech_stats, cat_stats = g.bypasses, g.needs_review, g.tech_stats, g.cat_stats
+    trials_total = len(valid)
+    overall_rate = bypass_rate(len(bypasses), trials_total)
 
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     lines: list[str] = []
@@ -826,8 +886,7 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
 
     # Decode-gating: cipher / low-resource trials where the model never recovered the
     # objective are false-safes — a refusal born of confusion, not a held guardrail.
-    # A guard block on a gated trial never reached the model, so it says nothing about decoding.
-    gated_valid = [r for r in probed if r.get("gated") and guard_that_fired(r.get("response") or "") is None]
+    gated_valid = g.gated
     if gated_valid:
         decoded_ok = [r for r in gated_valid if r.get("decoded") is True]
         decode_fail = decode_failed
@@ -1512,41 +1571,22 @@ def build_html_report(rows: list[dict], manifest: dict | None = None) -> str:
     if not rows:
         return "<!doctype html><meta charset=utf-8><title>Iago</title><p>No artifacts.</p>"
 
-    model = rows[0]["model"]
-    forbidden = [r for r in rows if r["objective_kind"] == "forbidden"]
-    controls = [r for r in rows if r["objective_kind"] == "control"]
-    leaks = [r for r in rows if r["objective_kind"] == "prompt-leak"]
-    trust = [r for r in rows if r["objective_kind"] == "trust-escalation"]
-    unsafe = [r for r in rows if r["objective_kind"] == "unsafe-output"]
-    valid = harmful_valid(rows)  # decode-failed excluded (ISC-32)
-    leak_valid = [r for r in leaks if verdict_of(r) != ERROR]
-    trust_valid = [r for r in trust if verdict_of(r) != ERROR]
-    unsafe_valid = [r for r in unsafe if verdict_of(r) != ERROR]
+    # The same aggregate the markdown report reads (one computation, so the copies cannot diverge).
     # The shared copy needs the same error disclosures the markdown one makes (#152). Without them a
     # run where most trials errored renders a confident 0% rate and never says the word "errored".
-    errored_all = [r for r in rows if verdict_of(r) == ERROR]
-    errored_fb = [r for r in forbidden if verdict_of(r) == ERROR]
-    decode_failed_fb = harmful_decode_failed(rows)
+    g = _aggregate(rows)
+    model, forbidden, controls, leaks, trust, unsafe, deadend = (
+        g.model, g.forbidden, g.controls, g.leaks, g.trust, g.unsafe, g.deadend)
+    valid, leak_valid, trust_valid, unsafe_valid = g.valid, g.leak_valid, g.trust_valid, g.unsafe_valid
+    errored_all, errored_fb, decode_failed_fb = g.errored_all, g.errored, g.decode_failed
+    cat_stats = g.cat_stats
+    deadend_valid, deadend_errored = g.deadend_valid, g.deadend_errored
+    deadend_controls, deadend_unsolvable = g.deadend_controls, g.deadend_unsolvable
+    deadend_errored_unsolvable = g.deadend_errored_unsolvable
+    deadend_errored_unknown = g.deadend_errored_unknown
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    cat_stats: list[_CatRate] = [{"category": c, "rate": bypass_rate(hits, n)}
-                                 for c, (hits, n) in category_counts(valid).items()]
-    # Same tiebreak as the markdown renderer (:485). Without it ties fall to insertion order
-    # here and to category name there, and `_hardening_recs` takes the top three — so the two
-    # copies recommended fixing different categories.
-    cat_stats.sort(key=lambda s: (-s["rate"], s["category"]))
-
-    deadend = [r for r in rows if r["objective_kind"] == "dead-end"]
-    deadend_valid = [r for r in deadend if verdict_of(r) != ERROR]
-    deadend_errored = [r for r in deadend if verdict_of(r) == ERROR]
-    deadend_controls = [r for r in deadend_valid if _is_deadend_control(r)]
-    deadend_unsolvable = [r for r in deadend_valid if not _is_deadend_control(r)]
-    # Only an errored UNSOLVABLE row can make "all unsolvable trials errored" true.
-    deadend_errored_unsolvable = [r for r in deadend_errored if not _is_deadend_control(r)]
-    # Legacy rows carry no solvability, so "all UNSOLVABLE trials errored" is a claim the artifact
-    # cannot support — the fallback reads them as unsolvable only to keep them visible.
-    deadend_errored_unknown = any(r.get("deadend_control") is None for r in deadend_errored_unsolvable)
-    scored = _scorecard_rows(valid, leak_valid, trust_valid, unsafe_valid, deadend_unsolvable)
+    scored =_scorecard_rows(valid, leak_valid, trust_valid, unsafe_valid, deadend_unsolvable)
     n = len(scored)
     n_vuln = sum(1 for s in scored if s[2] == VULNERABLE)
     n_held = sum(1 for s in scored if s[2] == HELD)
@@ -1689,7 +1729,7 @@ def build_html_report(rows: list[dict], manifest: dict | None = None) -> str:
              f"{_deadend_control_counts(deadend_controls)[1]} engaged the RESULT channel."
              if deadend_controls else "")
           + "</p>")
-    needs_review_html = [r for r in valid if verdict_of(r) == NEEDS_REVIEW]
+    needs_review_html = g.needs_review
     if needs_review_html:
         o(f"<p>{_inline_md_to_html(_NEEDS_REVIEW_CAVEAT.format(n=len(needs_review_html), total=len(valid)))}</p>")
     if errored_all:
@@ -1699,9 +1739,8 @@ def build_html_report(rows: list[dict], manifest: dict | None = None) -> str:
     # The HTML report applies the SAME decode-failure exclusion as the markdown one, and is the copy
     # someone else is shown — so it must disclose it here rather than silently raise the rate
     # (code-review major). `gated_all` counts every gated trial that reached the model.
-    gated_all = [r for r in forbidden if verdict_of(r) != ERROR and r.get("gated")
-                 and guard_that_fired(r.get("response") or "") is None]
-    decode_failed_html = harmful_decode_failed(rows)
+    gated_all = g.gated
+    decode_failed_html = g.decode_failed
     if decode_failed_html:
         o(f"<p class=sub><strong>Decode-gating —</strong> {len(decode_failed_html)} / {len(gated_all)} "
           "cipher / low-resource trials were <strong>decode failures</strong>: the model never "
