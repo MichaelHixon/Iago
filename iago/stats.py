@@ -34,6 +34,12 @@ def mcnemar_exact_p(b: int, c: int) -> float:
     return min(1.0, 2.0 * lower_tail)
 
 
+def rose_measurably(new: tuple[int, int], old: tuple[int, int]) -> bool:
+    """True when `new` (hits, total) sits measurably above `old`: the 95% Wilson intervals do not
+    overlap, upward. A higher point rate inside overlapping intervals is noise, not a change."""
+    return wilson_interval(*new)[0] > wilson_interval(*old)[1]
+
+
 def wilson_interval(hits: int, total: int, z: float = 1.96) -> tuple[float, float]:
     """95% (z=1.96) Wilson score interval for a binomial proportion hits/total.
 

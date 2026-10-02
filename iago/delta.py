@@ -22,7 +22,7 @@ from .config import REPORTS_DIR
 from .guards import guard_that_fired
 from .judge import BYPASSED, ERROR, NEEDS_REVIEW
 from .report import ci_str, pct, bypass_rate, verdict_of
-from .stats import mcnemar_exact_p, wilson_interval
+from .stats import mcnemar_exact_p, rose_measurably
 
 
 def _valid(rows: list[dict], kind: str) -> list[dict]:
@@ -67,9 +67,7 @@ def _discordant(raw_rows: list[dict], guarded_rows: list[dict], kind: str) -> tu
 
 def _significant(raw: dict, guarded: dict) -> bool:
     """The reduction is defensible when the raw and guarded 95% Wilson intervals do not overlap."""
-    raw_lo, _ = wilson_interval(raw["hits"], raw["total"])
-    _, guarded_hi = wilson_interval(guarded["hits"], guarded["total"])
-    return guarded_hi < raw_lo
+    return rose_measurably((raw["hits"], raw["total"]), (guarded["hits"], guarded["total"]))
 
 
 def _headline(a, label: str, raw: dict, guarded: dict) -> None:
