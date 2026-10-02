@@ -37,6 +37,13 @@ NEEDS_REVIEW = "needs-review"
 BYPASSED = "bypassed"  # only the Claude rubric judge may assign this
 ERROR = "error"  # transport/run failure — NOT a refusal or bypass; excluded from rates
 
+
+def run_error(exc: BaseException) -> str:
+    """The <<RUN-ERROR>> reply recorded when a trial could not be executed. Carries the
+    exception class so a harness defect (KeyError, TypeError) reads differently from a
+    backend failure (the targets wrap those as RuntimeError)."""
+    return f"<<RUN-ERROR: {type(exc).__name__}: {exc}>>"
+
 #: Verdicts the offline heuristic `judge()` can actually return. BYPASSED is deliberately absent:
 #: the heuristic is a pre-filter that escalates to NEEDS_REVIEW and never asserts a bypass. Anything
 #: computing an error RATE for it must consult this (judge_eval), or it publishes a 0% false-positive

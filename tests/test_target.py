@@ -56,3 +56,51 @@ def test_ollama_generate_smoke():
     except RuntimeError as exc:
         pytest.skip(f"Ollama not reachable: {exc}")
     assert isinstance(out, str) and len(out) > 0
+
+
+class _FakeMessages:
+    def __init__(self):
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return SimpleNamespace(content=[SimpleNamespace(text="ok")])
+
+
+def _anthropic():
+    from iago.target import AnthropicTarget
+
+    msgs = _FakeMessages()
+    return AnthropicTarget(client=SimpleNamespace(messages=msgs)), msgs
+
+
+def test_anthropic_declares_seed_unsupported():
+    from iago.target import unsupported_options
+
+    t, _ = _anthropic()
+    assert unsupported_options(t, {"temperature": 0.0, "seed": 1, "num_predict": 8}) == ["seed"]
+    assert unsupported_options(OllamaTarget(), {"seed": 1, "anything": 2}) == []
+
+
+def test_anthropic_maps_num_predict_to_max_tokens():
+    t, msgs = _anthropic()
+    t.generate("hi", options={"num_predict": 160})
+    t.chat([{"role": "user", "content": "hi"}], options={"num_predict": 40})
+    t.generate("hi")
+    assert [c["max_tokens"] for c in msgs.calls] == [160, 40, 1024]
+
+
+def test_anthropic_chat_passes_single_system_message():
+    t, msgs = _anthropic()
+    t.chat([{"role": "system", "content": "be terse"}, {"role": "user", "content": "hi"}])
+    assert msgs.calls[0]["system"] == "be terse"
+    assert msgs.calls[0]["messages"] == [{"role": "user", "content": "hi"}]
+
+
+def test_anthropic_chat_rejects_second_system_message():
+    # Overwriting silently dropped the first system message's instructions.
+    t, msgs = _anthropic()
+    with pytest.raises(ValueError, match="at most one system message"):
+        t.chat([{"role": "system", "content": "a"}, {"role": "user", "content": "hi"},
+                {"role": "system", "content": "b"}])
+    assert msgs.calls == []

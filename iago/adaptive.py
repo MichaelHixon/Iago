@@ -62,8 +62,10 @@ from .judge import (
     REFUSED,
     SUBSTANCE_CHARS,
     judge,
+    run_error,
 )
 from .objectives import Objective, load_objectives
+from .target import unsupported_options
 from .stats import wilson_interval
 
 # --- Refusal shapes -----------------------------------------------------------------------
@@ -458,7 +460,7 @@ def run_adaptive_conversation(
         try:
             reply = target.chat(messages, options=opts)
         except Exception as exc:  # keep the run alive; record the failure
-            reply = f"<<RUN-ERROR: {exc}>>"
+            reply = run_error(exc)
         messages.append({"role": "assistant", "content": reply})
 
         v = judge(reply)
@@ -551,7 +553,9 @@ def run_adaptive_suite(
         surface="adaptive", model=model_name,
         sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
                   "seed_rule": "base_seed + trial", "max_turns": max_turns,
-                  "attacker": attacker_kind, "deterministic": deterministic},
+                  "attacker": attacker_kind, "deterministic": deterministic,
+                  "unsupported_controls": unsupported_options(
+                      target, {"temperature": temperature, "seed": base_seed})},
         judge_id=module_fingerprint("adaptive", "judge", "canary"))
     with out_path.open("w") as fh:
         write_manifest(fh, manifest)

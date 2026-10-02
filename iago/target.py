@@ -21,6 +21,12 @@ class Target(ABC):
     #: concern). The runner refuses a non-local target unless --authorized is set.
     is_local: bool = False
 
+    #: The sampling controls this backend actually honors. `None` means every option is passed
+    #: through to the backend untouched. A backend that silently drops a control (e.g. a hosted
+    #: API with no seed) names what it keeps, so the runner can record the gap in the manifest
+    #: and warn instead of implying a pinned control that never took effect.
+    supported_options: frozenset[str] | None = None
+
     @abstractmethod
     def generate(
         self,
@@ -41,6 +47,16 @@ class Target(ABC):
         override this. Enables crescendo / context-priming attacks that build across turns.
         """
         raise NotImplementedError(f"{type(self).__name__} does not support multi-turn chat")
+
+
+def unsupported_options(target: object, options: dict) -> list[str]:
+    """The requested sampling controls `target` will silently drop, sorted. Empty when the
+    backend honors all of them (or passes everything through). Uses getattr so a duck-typed
+    test double without the attribute reads as pass-through."""
+    supported = getattr(target, "supported_options", None)
+    if supported is None:
+        return []
+    return sorted(k for k in options if k not in supported)
 
 
 class OllamaTarget(Target):
@@ -113,6 +129,7 @@ def _extract_content(response: object) -> str | None:
 
 
 DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
+_ANTHROPIC_MAX_TOKENS = 1024
 
 
 class AnthropicTarget(Target):
@@ -124,6 +141,9 @@ class AnthropicTarget(Target):
     """
 
     is_local = False
+    # No seed parameter exists on the Messages API, so a seed is dropped; `num_predict` maps to
+    # max_tokens so a capped probe stays capped on this backend too.
+    supported_options = frozenset({"temperature", "num_predict"})
 
     def __init__(self, model: str = DEFAULT_ANTHROPIC_MODEL, client=None) -> None:
         self.model = model
@@ -152,7 +172,7 @@ class AnthropicTarget(Target):
         try:
             msg = self._get_client().messages.create(
                 model=self.model,
-                max_tokens=1024,
+                max_tokens=opts.get("num_predict", _ANTHROPIC_MAX_TOKENS),
                 temperature=opts.get("temperature", 1.0),
                 system=system or "",
                 messages=[{"role": "user", "content": prompt}],
@@ -172,18 +192,23 @@ class AnthropicTarget(Target):
 
     def chat(self, messages: list[dict], options: dict | None = None) -> str:
         opts = options or {}
-        # Anthropic takes system separately; pull any leading system message out.
+        # Anthropic takes system separately; pull the system message out. A second one has no
+        # faithful mapping (overwriting it silently drops instructions), so refuse it loudly.
         system = ""
         convo = []
+        seen_system = False
         for m in messages:
             if m.get("role") == "system":
+                if seen_system:
+                    raise ValueError("AnthropicTarget.chat accepts at most one system message")
+                seen_system = True
                 system = m.get("content", "")
             else:
                 convo.append({"role": m["role"], "content": m["content"]})
         try:
             msg = self._get_client().messages.create(
                 model=self.model,
-                max_tokens=1024,
+                max_tokens=opts.get("num_predict", _ANTHROPIC_MAX_TOKENS),
                 temperature=opts.get("temperature", 1.0),
                 system=system,
                 messages=convo,

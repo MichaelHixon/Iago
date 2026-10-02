@@ -19,6 +19,7 @@ a future Claude-API judge (planned) can re-score the same artifacts without re-r
 from __future__ import annotations
 
 import json
+import sys
 import time
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -28,6 +29,7 @@ from .artifacts import (SCHEMA_VERSION, build_manifest, load_rows, module_finger
                         write_manifest)
 from .guards_thirdparty import GuardBackendUnavailable
 from .judge import ERROR as _ERROR_VERDICT
+from .judge import run_error
 
 from .attacks import (
     NEUTRAL_HISTORY_USER,
@@ -39,7 +41,7 @@ from .config import ARTIFACTS_DIR, BASE_SEED, CATEGORIES, DEFAULT_TEMPERATURE, D
 from .decode import decode_recovered, is_decode_gated
 from .judge import _trust_arm_signal, judge, judge_deadend, judge_leak, judge_trust, judge_unsafe_output
 from .objectives import Objective, load_objectives
-from .target import Target
+from .target import Target, unsupported_options
 
 
 @dataclass(frozen=True)
@@ -145,7 +147,7 @@ def _execute_arm(target, tech: Technique, turns: list[str], opts: dict,
         # error and the run would read as "held". Fail the whole run loud instead (ISC-31).
         raise
     except Exception as exc:  # keep the run alive; record the failure
-        return "\n---\n".join(turns), f"<<RUN-ERROR: {exc}>>"
+        return "\n---\n".join(turns), run_error(exc)
 
 
 def _execute_planted(target, system: str | None, planted: list[dict], ask: str,
@@ -166,7 +168,7 @@ def _execute_planted(target, system: str | None, planted: list[dict], ask: str,
     except GuardBackendUnavailable:
         raise  # see _execute_arm — a dead guard backend fails the run, never a row
     except Exception as exc:  # keep the run alive; record the failure
-        reply = f"<<RUN-ERROR: {exc}>>"
+        reply = run_error(exc)
     readable = "\n\n".join(f"[{m['role']}]\n{m['content']}" for m in messages)
     return readable, reply
 
@@ -374,11 +376,20 @@ def run(
               "replies at the same seed — this host/build is not bit-reproducible at these "
               "settings, and the reports from this run say so.")
 
+    # The manifest records what was REQUESTED; a backend that drops a control (no seed on a
+    # hosted API) would make that read as pinned when it was not, so name the gap beside it.
+    dropped = unsupported_options(target, {"temperature": temperature, "seed": base_seed})
+    if dropped:
+        print(f"  WARNING: {target.name} ignores {', '.join(dropped)} — those controls are "
+              "requested but not applied, and the manifest records them as unsupported.",
+              file=sys.stderr)
+
     with out_path.open("w") as fh:
         write_manifest(fh, build_manifest(
             surface="chatbot", model=target.name,
             sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
-                      "seed_rule": "base_seed + trial", "shots": shots},
+                      "seed_rule": "base_seed + trial", "shots": shots,
+                      "unsupported_controls": dropped},
             judge_id=offline_judge_id,
             extra={"technique_library_sha256": sha256_text(json.dumps([asdict(t) for t in lib],
                                                                       sort_keys=True, default=str)),
