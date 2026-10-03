@@ -558,7 +558,7 @@ def _cmd_surface_run(args: argparse.Namespace) -> int:
     trials = 1 if args.smoke else args.trials
     scens = entry.load_scenarios()
     if args.smoke:
-        scens = _smoke_slice(scens)
+        scens = _smoke_slice(scens, spec.floor_key)
 
     print(f"Iago {spec.command} → target ollama:{model}{spec.banner_note}")
     print(f"  scenarios={len(scens)} trials/scenario={trials} max_steps={args.max_steps}")

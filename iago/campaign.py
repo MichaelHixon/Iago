@@ -314,6 +314,9 @@ class SurfaceSpec:
     scenarios_title: str            # the listing header: "<title>: <n>"
     scenario_line: Callable[[Any], str]
     scenarios_summary: Callable[[list], str] | None = None  # extra header text after the count
+    # The scenario attribute each capability floor is calibrated per (arm / channel / id kind),
+    # so the smoke slice pairs its attack with a floor that calibrates it. None = one floor.
+    floor_key: str | None = None
 
     def entry(self) -> SurfaceEntry:
         """All four entry points (suite runner, scenario loader, artifact loader, report writer)."""
@@ -417,7 +420,7 @@ SURFACES: dict[str, SurfaceSpec] = {s.key: s for s in (
                  "tool surface (fake run_shell/fetch_url — never a real process/socket)",
         scenarios_help="show the loaded tool-abuse (RCE/SSRF) scenarios",
         banner_note=" (SANDBOXED — no process/socket ever)",
-        scenarios_title="Tool-abuse scenarios", scenario_line=_arm_line),
+        scenarios_title="Tool-abuse scenarios", scenario_line=_arm_line, floor_key="arm"),
     SurfaceSpec(
         "privilege", "Excessive agency (LLM06)", _privilege_entry,
         command="privilege-run", scenarios_command="privilege-scenarios",
@@ -426,7 +429,7 @@ SURFACES: dict[str, SurfaceSpec] = {s.key: s for s in (
                  "delete_record/grant_role — never a real state change)",
         scenarios_help="show the loaded excessive-agency (confused-deputy) scenarios",
         banner_note=" (SANDBOXED — no record/role ever changes)",
-        scenarios_title="Excessive-agency scenarios", scenario_line=_arm_line),
+        scenarios_title="Excessive-agency scenarios", scenario_line=_arm_line, floor_key="arm"),
     SurfaceSpec(
         "disclosure", "Sensitive disclosure (LLM02)", _disclosure_entry,
         command="disclosure-run", scenarios_command="disclosure-scenarios",
@@ -435,7 +438,8 @@ SURFACES: dict[str, SurfaceSpec] = {s.key: s for s in (
                  "SANDBOXED confidential store + comms sink",
         scenarios_help="show the loaded sensitive-info-disclosure (LLM02) scenarios",
         banner_note=" (SANDBOXED — no real send/socket)",
-        scenarios_title="Sensitive-info-disclosure scenarios", scenario_line=_line),
+        scenarios_title="Sensitive-info-disclosure scenarios", scenario_line=_line,
+        floor_key="channel"),
     SurfaceSpec(
         "misinfo", "Misinformation (LLM09)", _misinfo_entry,
         command="misinfo-run", scenarios_command="misinfo-scenarios",
@@ -444,7 +448,8 @@ SURFACES: dict[str, SurfaceSpec] = {s.key: s for s in (
                  "asserting one is confirmed fabrication (deterministic, no judge)",
         scenarios_help="show the loaded misinformation (LLM09) scenarios",
         banner_note=" (SANDBOXED — no lookup, no socket)",
-        scenarios_title="Misinformation scenarios", scenario_line=_misinfo_line),
+        scenarios_title="Misinformation scenarios", scenario_line=_misinfo_line,
+        floor_key="id_kind"),
     SurfaceSpec(
         "memory", "Memory / context poisoning (ASI06)", _memory_entry,
         command="memory-run", scenarios_command="memory-scenarios",
@@ -480,14 +485,23 @@ SURFACE_REGISTRY: dict[str, SurfaceSpec] = {
 DEFAULT_SURFACES = list(SURFACE_REGISTRY)
 
 
-def _smoke_slice(scens: list) -> list:
+def _smoke_slice(scens: list, floor_key: str | None = None) -> list:
     """THE smoke selection for every surface — campaign and every `*-run --smoke`. It KEEPS the
-    capability floor: the first attack + the first capability scenario (a bare ``[:1]`` would
-    drop the floor whenever the first scenario is an attack, printing an uncalibrated 0% as a bare
-    pass). Falls back to the first scenario if the surface lacks either kind."""
-    attack = next((s for s in scens if getattr(s, "kind", None) == "attack"), None)
-    capability = next((s for s in scens if getattr(s, "kind", None) == "capability"), None)
-    picked = [s for s in (attack, capability) if s is not None]
+    capability floor: one attack + one capability scenario (a bare ``[:1]`` would drop the floor
+    whenever the first scenario is an attack, printing an uncalibrated 0% as a bare pass). On a
+    surface whose floor is per `floor_key` (arm, channel, id kind) the pair must share that value,
+    or the floor calibrates a different arm than the attack: the first attack with a matching
+    capability wins. Falls back to first attack + first capability when no pair matches, and to
+    the first scenario if the surface lacks either kind."""
+    attacks = [s for s in scens if getattr(s, "kind", None) == "attack"]
+    caps = [s for s in scens if getattr(s, "kind", None) == "capability"]
+    if floor_key is not None:
+        for attack in attacks:
+            key = getattr(attack, floor_key, None)
+            match = next((c for c in caps if getattr(c, floor_key, None) == key), None)
+            if match is not None:
+                return [attack, match]
+    picked = attacks[:1] + caps[:1]
     return picked or scens[:1]
 
 
@@ -534,7 +548,7 @@ def run_campaign(
         run_suite = entry.run_suite
         scens = entry.load_scenarios()
         if smoke:
-            scens = _smoke_slice(scens)
+            scens = _smoke_slice(scens, spec.floor_key)
         paths: list[Path] = []
         for model in models:
             emit(f"[{skey}] ollama:{model} — {len(scens)} scenarios × {trials} trials")
