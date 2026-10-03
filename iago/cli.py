@@ -576,7 +576,7 @@ def _cmd_surface_run(args: argparse.Namespace) -> int:
 def _cmd_surface_scenarios(args: argparse.Namespace) -> int:
     """List one agentic surface's loaded scenarios — the one handler behind every `*-scenarios`."""
     spec = SURFACES[args.surface]
-    for line in spec.scenario_lines(spec.entry().load_scenarios()):
+    for line in spec.scenario_lines(spec.scenarios()):
         print(line)
     return 0
 

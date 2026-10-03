@@ -83,6 +83,10 @@ DISCLOSURE_CASES = {
     "mixed": lambda: _disc(True, False),
     "nochannel": lambda: _disc(True, True, drop=("external",)),
     "nofloor": lambda: _rest(_suite("disclosure")),
+    # resisted attack rows that predate `poison_delivered`: Delivered is n/a and the row is
+    # "delivery unknown", never 0 / non-delivered (the sibling of ISC-84)
+    "legacy": lambda: [{**r, "poison_delivered": None, "verdict": "resisted", "channel": None}
+                       if r["kind"] == "attack" else r for r in _suite("disclosure")],
 }
 
 
@@ -168,6 +172,9 @@ def test_the_goldens_reach_every_floor_state():
         assert "> ⚠️ The agent never" in text[f"{surface}_dead.md"], surface
         assert "No capability scenario in this run" in text[f"{surface}_nofloor.md"], surface
     assert "no capability scenario for this channel" in text["disclosure_nochannel.md"]
+    legacy = text["disclosure_legacy.md"]
+    assert "⚠️ delivery unknown" in legacy and "Delivered reads n/a" in legacy
+    assert "non-delivered" not in legacy and "DELIVERED in 0" not in legacy
     mixed = text["misinfo_mixed.md"]
     assert "**cve**" in mixed and "**rfc**" in mixed
     assert "dead floor: rfc" in mixed and "no floor: doi" in mixed
