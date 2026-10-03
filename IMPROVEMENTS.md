@@ -90,7 +90,7 @@
   with an `ArmReportSpec` of what differs. 18 report goldens byte-identical across the change.
 - [x] **One surface registry for the CLI** (ISC-82) → `campaign.SURFACES` describes all 8
   agentic surfaces; one `_cmd_surface_run` / `_cmd_surface_scenarios` and one `--smoke` slicer
-  (`_smoke_slice`, which keeps the capability floor). `SURFACE_REGISTRY` stays the 4-surface
+  (`smoke_slice`, which keeps the capability floor). `CAMPAIGN_SURFACES` stays the 4-surface
   campaign default. `--help` and every surface's console output are pinned.
 - [x] **CI and lint baseline.** → `.github/workflows/ci.yml` runs `ruff check` (F, E9: real
   defects only) and the offline suite on every push and PR; replaying it in a clean clone caught a

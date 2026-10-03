@@ -11,7 +11,7 @@ Two layers, mirroring `compare`'s discipline:
 
 * **Pure core** (`build_campaign` + `write_campaign_report`) — aggregation over rows
   already on disk. No live model, no network, no new oracle. Fully unit-testable.
-* **Orchestration** (`run_campaign` + `SURFACE_REGISTRY`) — the live wrapper that
+* **Orchestration** (`run_campaign` + `CAMPAIGN_SURFACES`) — the live wrapper that
   fires each registered surface × model via its existing `run_*_suite`, grouping the
   artifact paths by surface for the pure core.
 
@@ -325,7 +325,7 @@ class SurfaceSpec:
     def scenarios(self, *, smoke: bool = False) -> list:
         """The surface's loaded scenarios, or their floor-keeping smoke slice."""
         scens = self.entry().load_scenarios()
-        return _smoke_slice(scens, self.floor_key) if smoke else scens
+        return smoke_slice(scens, self.floor_key) if smoke else scens
 
     def run(self, model: str, scenarios: list, **suite_kwargs: Any) -> Path:
         """Fire the suite at local Ollama `model` over `scenarios` (from `scenarios()`) and return
@@ -491,13 +491,13 @@ SURFACES: dict[str, SurfaceSpec] = {s.key: s for s in (
 # The campaign's view of SURFACES: the four mature per-arm/channel surfaces (ISC-20..28) a
 # campaign was built and validated on, in campaign order. Every surface now carries a capability
 # floor, but widening this set changes what `iago campaign` runs by default — a separate decision.
-SURFACE_REGISTRY: dict[str, SurfaceSpec] = {
+CAMPAIGN_SURFACES: dict[str, SurfaceSpec] = {
     k: SURFACES[k] for k in ("privilege", "toolabuse", "disclosure", "misinfo")}
 
-DEFAULT_SURFACES = list(SURFACE_REGISTRY)
+DEFAULT_SURFACES = list(CAMPAIGN_SURFACES)
 
 
-def _smoke_slice(scens: list, floor_key: str | None = None) -> list:
+def smoke_slice(scens: list, floor_key: str | None = None) -> list:
     """THE smoke selection for every surface — campaign and every `*-run --smoke`. It KEEPS the
     capability floor: one attack + one capability scenario (a bare ``[:1]`` would drop the floor
     whenever the first scenario is an attack, printing an uncalibrated 0% as a bare pass). On a
@@ -550,9 +550,9 @@ def run_campaign(
     surface_paths: dict[str, list[Path]] = {}
     errors: list[str] = []
     for skey in surfaces:
-        spec = SURFACE_REGISTRY.get(skey)
+        spec = CAMPAIGN_SURFACES.get(skey)
         if spec is None:
-            errors.append(f"{skey}: unknown surface (known: {', '.join(SURFACE_REGISTRY)})")
+            errors.append(f"{skey}: unknown surface (known: {', '.join(CAMPAIGN_SURFACES)})")
             continue
         scens = spec.scenarios(smoke=smoke)
         paths: list[Path] = []

@@ -7,8 +7,8 @@ from pathlib import Path
 
 from iago.agent_oracle import HIJACKED, RESISTED
 from iago.campaign import (
-    SURFACE_REGISTRY,
-    _smoke_slice,
+    CAMPAIGN_SURFACES,
+    smoke_slice,
     build_campaign,
     write_campaign_report,
 )
@@ -110,13 +110,13 @@ def test_per_surface_table_lists_only_alive_models_and_marks_thin(tmp_path):
 
 
 def test_smoke_slice_keeps_a_capability_scenario():
-    # A bare [:1] would drop the floor if the first scenario is an attack; _smoke_slice keeps both.
+    # A bare [:1] would drop the floor if the first scenario is an attack; smoke_slice keeps both.
     class S:
         def __init__(self, kind):
             self.kind = kind
 
     scens = [S("attack"), S("attack"), S("capability"), S("control")]
-    picked = _smoke_slice(scens)
+    picked = smoke_slice(scens)
     kinds = [s.kind for s in picked]
     assert "attack" in kinds and "capability" in kinds and len(picked) == 2
 
@@ -155,8 +155,8 @@ def test_clean_campaign_has_no_incomplete_banner(tmp_path):
 
 
 def test_registry_covers_the_four_mature_surfaces():
-    assert set(SURFACE_REGISTRY) == {"privilege", "toolabuse", "disclosure", "misinfo"}
-    for spec in SURFACE_REGISTRY.values():
+    assert set(CAMPAIGN_SURFACES) == {"privilege", "toolabuse", "disclosure", "misinfo"}
+    for spec in CAMPAIGN_SURFACES.values():
         entry = spec.entry()   # lazy import resolves without error
         run_suite, load_scenarios = entry.run_suite, entry.load_scenarios
         assert callable(run_suite) and callable(load_scenarios)
