@@ -3,7 +3,7 @@
 `--smoke` on every `*-run` subcommand used to take a bare `scens[:1]` (misinfo alone kept a
 capability scenario). Every shipped library opens with an attack, so that slice dropped the
 capability floor and a smoke run printed an uncalibrated 0% as a pass. Now every surface goes
-through `campaign._smoke_slice`: first attack + first capability scenario.
+through `campaign.smoke_slice`: one attack plus a capability scenario that calibrates it.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from iago import campaign, cli
-from iago.campaign import DEFAULT_SURFACES, SURFACE_REGISTRY, SURFACES
+from iago.campaign import DEFAULT_SURFACES, CAMPAIGN_SURFACES, SURFACES
 
 from test_cli_surface_stdout import RUN_ARGV, SURFACES as PINNED, Harness, _scen, invoke
 
@@ -24,7 +24,7 @@ def test_one_registry_names_every_agentic_surface_and_its_commands():
 
 def test_campaign_view_and_default_surfaces_are_unchanged():
     assert DEFAULT_SURFACES == ["privilege", "toolabuse", "disclosure", "misinfo"]
-    for key, spec in SURFACE_REGISTRY.items():
+    for key, spec in CAMPAIGN_SURFACES.items():
         assert spec is SURFACES[key]   # a view of the one registry, not a second copy
 
 
@@ -54,7 +54,7 @@ def test_smoke_run_keeps_the_capability_floor(monkeypatch, key):
 @pytest.mark.parametrize("key", list(SURFACES))
 def test_smoke_slice_of_the_shipped_library_keeps_a_capability_scenario(key):
     scens = SURFACES[key].entry().load_scenarios()
-    picked = campaign._smoke_slice(scens)
+    picked = campaign.smoke_slice(scens)
     # Unconditional: every shipped surface carries a capability floor, and a library that lost
     # its floor is exactly the degenerate compare the slicer exists to prevent.
     assert any(s.kind == "capability" for s in scens), f"{key}: shipped library has no capability floor"

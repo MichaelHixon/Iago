@@ -249,7 +249,7 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
     """Cross-surface multi-model differential campaign (ISC-30): fire every requested surface x
     model (LOCAL/Ollama) and roll every per-surface differential into ONE consolidated report —
     the whole-picture cross-surface artifact."""
-    from .campaign import build_campaign, run_campaign, write_campaign_report, SURFACE_REGISTRY
+    from .campaign import build_campaign, run_campaign, write_campaign_report, CAMPAIGN_SURFACES
 
     models = [m.strip() for m in args.models.split(",") if m.strip()]
     surfaces = [s.strip() for s in args.surfaces.split(",") if s.strip()]
@@ -257,9 +257,9 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
         print(f"ERROR: campaign needs >=2 models to compare (got {models}). "
               "e.g. --models llama3.1,llama3.2:3b", file=sys.stderr)
         return 2
-    unknown = [s for s in surfaces if s not in SURFACE_REGISTRY]
+    unknown = [s for s in surfaces if s not in CAMPAIGN_SURFACES]
     if unknown:
-        print(f"ERROR: unknown surface(s) {unknown}; known: {', '.join(SURFACE_REGISTRY)}",
+        print(f"ERROR: unknown surface(s) {unknown}; known: {', '.join(CAMPAIGN_SURFACES)}",
               file=sys.stderr)
         return 2
 
@@ -276,7 +276,7 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
         print("ERROR: no surface produced an artifact; nothing to compare.", file=sys.stderr)
         return 1
 
-    labels = {k: SURFACE_REGISTRY[k].label for k in surface_paths}
+    labels = {k: CAMPAIGN_SURFACES[k].label for k in surface_paths}
     # run_campaign stamps artifact model names as "ollama:<tag>", so the absent-model check must
     # compare against the SAME canonical form or it falsely flags every present model as absent.
     requested = [f"ollama:{m}" for m in models]

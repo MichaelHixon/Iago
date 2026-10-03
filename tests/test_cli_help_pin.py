@@ -40,12 +40,28 @@ def help_texts() -> dict[str, str]:
                 os.environ[k] = v
 
 
+def changed_commands(got: dict[str, str], golden: dict[str, str]) -> list[str]:
+    """Every command whose help differs from the golden, plus any added or removed, in one list:
+    a bisect over a refactor that broke several commands needs all of them, not the first."""
+    names = list(golden) + [n for n in got if n not in golden]
+    return [f"`{'iago' if n == 'iago' else 'iago ' + n} --help` "
+            + ("added" if n not in golden else "removed" if n not in got else "changed")
+            for n in names if got.get(n) != golden.get(n)]
+
+
 def test_help_text_of_every_command_is_unchanged():
     golden = json.loads(GOLDEN.read_text())
     got = help_texts()
-    assert list(got) == list(golden), "subcommand set or registration order changed"
-    for name in golden:
-        assert got[name] == golden[name], f"`iago {name} --help` changed"
+    assert changed_commands(got, golden) == []
+    assert list(got) == list(golden), "subcommand registration order changed"
+
+
+def test_the_pin_names_every_changed_command_at_once():
+    golden = {"iago": "top", "run": "r", "gate": "g", "old": "o"}
+    got = {"iago": "TOP", "run": "R", "gate": "G", "new": "n"}
+    assert changed_commands(got, golden) == [
+        "`iago --help` changed", "`iago run --help` changed", "`iago gate --help` changed", "`iago old --help` removed",
+        "`iago new --help` added"]
 
 
 if __name__ == "__main__":  # pragma: no cover — regeneration entry point
