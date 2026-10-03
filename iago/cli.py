@@ -782,8 +782,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="gate even when the two artifacts fired different technique libraries "
                          "(technique_library_sha256) — the delta may then be the attack text")
     gt.add_argument("--strict-fingerprints", action="store_true",
-                    help="exit 2 when either artifact's manifest lacks a judge_id or library hash "
-                         "(UNKNOWN is otherwise a note), so CI fails closed on an unverifiable pair")
+                    help="exit 2 when the artifact's (or the baseline's) manifest lacks a judge_id "
+                         "or technique_library_sha256 (UNKNOWN is otherwise a note), so CI fails "
+                         "closed on an artifact it cannot attribute")
     gt.set_defaults(func=_cmd_gate)
 
     je = sub.add_parser("judge-eval",

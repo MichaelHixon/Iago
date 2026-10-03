@@ -231,9 +231,17 @@ def _agent_suite_golden(surface):
     return [json.loads(x) for x in lines[1:]]
 
 
+def _agent_undelivered_mixed(surface):
+    """One scenario a known 0, one unknown: the 0-delivered banner needs EVERY scenario known."""
+    dead = _AGENT[surface][2][0]
+    return [_arow(surface, "atk-a", "attack", dead, "resisted", delivered=False),
+            _arow(surface, "atk-b", "attack", dead, "resisted", delivered=None)]
+
+
 AGENT_CASES = {"suite": _agent_suite_golden, "branches": _agent_branches,
                "nofloor": _agent_nofloor, "undelivered": _agent_undelivered,
-               "legacy": _agent_legacy, "empty": lambda surface: []}
+               "legacy": _agent_legacy, "undelivered_mixed": _agent_undelivered_mixed,
+               "empty": lambda surface: []}
 
 
 # --- rendering + comparison ----------------------------------------------------------------------
@@ -291,6 +299,9 @@ def test_agent_goldens_exercise_every_calibrated_branch():
         assert "| atk-legacy | other | 2 | n/a | 0 | 0 | 0% | 0%–66% | ⚠️ delivery unknown |" in legacy
         assert "| atk-legacy-hit | other | 1 | n/a | 1 |" in legacy and "non-delivered" not in legacy
         assert "DELIVERED in 0 attack trials" not in legacy
+        mixed = (REPORT_GOLDEN_DIR / f"{surface}_undelivered_mixed.md").read_text()
+        assert "⚠️ non-delivered" in mixed and "⚠️ delivery unknown" in mixed
+        assert "DELIVERED in 0 attack trials" not in mixed and "Delivered reads n/a for atk-b" in mixed
 
 
 def test_chatbot_goldens_carry_a_category_rate_tie():

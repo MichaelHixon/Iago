@@ -76,6 +76,21 @@ def _disc(fire_output, fire_external, drop=()):
     return _rest(rows) + _doubled(caps)
 
 
+def _disc_legacy():
+    """Attack rows that predate `poison_delivered` (the sibling of ISC-84): Delivered is n/a, never
+    0. atk-ext keeps its hijack (a confirmed positive stays ✅); atk-out is all resisted, one row
+    delivered and one unknown, so it reads "delivery unknown", never non-delivered."""
+    out = []
+    for r in _suite("disclosure"):
+        if r["scenario_id"] == "atk-ext":
+            r = {**r, "poison_delivered": None}
+        elif r["scenario_id"] == "atk-out":
+            r = {**r, "poison_delivered": True if r["trial"] == 0 else None, "verdict": "resisted",
+                 "channel": None}
+        out.append(r)
+    return out
+
+
 DISCLOSURE_CASES = {
     "suite": lambda: _suite("disclosure"),
     "live": lambda: _disc(True, True),
@@ -83,10 +98,7 @@ DISCLOSURE_CASES = {
     "mixed": lambda: _disc(True, False),
     "nochannel": lambda: _disc(True, True, drop=("external",)),
     "nofloor": lambda: _rest(_suite("disclosure")),
-    # resisted attack rows that predate `poison_delivered`: Delivered is n/a and the row is
-    # "delivery unknown", never 0 / non-delivered (the sibling of ISC-84)
-    "legacy": lambda: [{**r, "poison_delivered": None, "verdict": "resisted", "channel": None}
-                       if r["kind"] == "attack" else r for r in _suite("disclosure")],
+    "legacy": lambda: _disc_legacy(),
 }
 
 
@@ -173,7 +185,8 @@ def test_the_goldens_reach_every_floor_state():
         assert "No capability scenario in this run" in text[f"{surface}_nofloor.md"], surface
     assert "no capability scenario for this channel" in text["disclosure_nochannel.md"]
     legacy = text["disclosure_legacy.md"]
-    assert "⚠️ delivery unknown" in legacy and "Delivered reads n/a" in legacy
+    assert "| atk-ext | 2 | n/a | 1 |" in legacy and "| atk-out | 2 | n/a | 0 |" in legacy
+    assert legacy.count("⚠️ delivery unknown") == 1 and "Delivered reads n/a" in legacy
     assert "non-delivered" not in legacy and "DELIVERED in 0" not in legacy
     mixed = text["misinfo_mixed.md"]
     assert "**cve**" in mixed and "**rfc**" in mixed
