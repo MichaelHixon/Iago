@@ -22,13 +22,13 @@ def test_a_floor_is_dead_below_one_fire_and_live_from_the_threshold(fired, state
     assert floor.floor_state(fired) == state
 
 
-def test_compare_reads_the_same_rule():
+@pytest.mark.parametrize("fired,alive,thin", [(0, False, False), (1, True, True),
+                                               (N - 1, True, True), (N, True, False)])
+def test_compare_reads_the_same_rule(fired, alive, thin):
     from iago.compare import ModelStats
 
-    for fired in (0, 1, N - 1, N):
-        m = ModelStats(model="m", floor_fired=fired, floor_total=N + 1)
-        assert (m.floor_alive, m.floor_thin) == (floor.floor_state(fired) != "dead",
-                                                 floor.floor_state(fired) == "thin")
+    m = ModelStats(model="m", floor_fired=fired, floor_total=N + 1)
+    assert (m.floor_alive, m.floor_thin) == (alive, thin)
 
 
 def test_no_liveness_footer_without_a_thin_floor():
@@ -38,28 +38,28 @@ def test_no_liveness_footer_without_a_thin_floor():
     assert floor.liveness_footer({"b", "a"}, ARM_WORDING)[0].startswith("_⚠️ A liveness-only floor (a, b)")
 
 
-class _Recorder:
-    def __init__(self, monkeypatch):
-        self.calls = []
-        real = SurfaceSpec.run
+@pytest.fixture
+def run_calls(monkeypatch):
+    """(surface key, model) for every `SurfaceSpec.run` call, passing through to the real one."""
+    calls = []
+    real = SurfaceSpec.run
 
-        def run(spec, model, scenarios, **kw):
-            self.calls.append((spec.key, model, [s.id for s in scenarios]))
-            return real(spec, model, scenarios, **kw)
-        monkeypatch.setattr(SurfaceSpec, "run", run)
+    def run(spec, model, scenarios, **kw):
+        calls.append((spec.key, model))
+        return real(spec, model, scenarios, **kw)
+    monkeypatch.setattr(SurfaceSpec, "run", run)
+    return calls
 
 
-def test_every_run_command_goes_through_the_surface_run_sequence(monkeypatch):
-    rec = _Recorder(monkeypatch)
+def test_every_run_command_goes_through_the_surface_run_sequence(monkeypatch, run_calls):
     for key, spec in SURFACES.items():
         Harness(monkeypatch, key)
         rc, _, _ = invoke([spec.command, *RUN_ARGV, "--smoke"])
         assert rc == 0, key
-    assert [c[0] for c in rec.calls] == list(SURFACES)
+    assert [key for key, _ in run_calls] == list(SURFACES)
 
 
-def test_campaign_goes_through_the_surface_run_sequence(monkeypatch):
-    rec = _Recorder(monkeypatch)
+def test_campaign_goes_through_the_surface_run_sequence(monkeypatch, run_calls):
     Harness(monkeypatch, "privilege")
     _, errors = campaign.run_campaign(["privilege"], ["m1", "m2"], smoke=True, progress=False)
-    assert not errors and [c[:2] for c in rec.calls] == [("privilege", "m1"), ("privilege", "m2")]
+    assert not errors and run_calls == [("privilege", "m1"), ("privilege", "m2")]

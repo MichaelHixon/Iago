@@ -28,10 +28,12 @@ def test_every_per_floor_surface_declares_its_floor_key():
     assert {k: s.floor_key for k, s in SURFACES.items() if s.floor_key} == FLOOR_KEYS
 
 
-def test_the_capability_of_the_attacks_arm_is_picked_over_an_earlier_one_of_another_arm():
-    scens = [_s("atk-rce", "attack", arm="rce"), _s("cap-ssrf", "capability", arm="ssrf"),
+REORDERED = [_s("atk-rce", "attack", arm="rce"), _s("cap-ssrf", "capability", arm="ssrf"),
              _s("cap-rce", "capability", arm="rce")]
-    assert [s.id for s in smoke_slice(scens, "arm")] == ["atk-rce", "cap-rce"]
+
+
+def test_the_capability_of_the_attacks_arm_is_picked_over_an_earlier_one_of_another_arm():
+    assert [s.id for s in smoke_slice(REORDERED, "arm")] == ["atk-rce", "cap-rce"]
 
 
 def test_an_attack_with_no_floor_of_its_own_gives_way_to_one_that_has_a_floor():
@@ -54,19 +56,19 @@ def test_the_shipped_library_reversed_still_yields_a_matched_pair(key):
     assert getattr(attack, spec.floor_key) == getattr(cap, spec.floor_key), (attack.id, cap.id)
 
 
-REORDERED = [_s("atk-rce", "attack", arm="rce"), _s("cap-ssrf", "capability", arm="ssrf"),
-             _s("cap-rce", "capability", arm="rce")]
-
-
-def test_a_run_smoke_sends_the_matched_pair(monkeypatch):
-    h = Harness(monkeypatch, "toolabuse")
-    h.scenarios = REORDERED
+def _cli_smoke():
     rc, _, _ = invoke(["tool-abuse-run", *RUN_ARGV, "--smoke"])
-    assert rc == 0 and [s.id for s in h.calls[0]["scenarios"]] == ["atk-rce", "cap-rce"]
+    assert rc == 0
 
 
-def test_a_campaign_smoke_sends_the_matched_pair(monkeypatch):
+def _campaign_smoke():
+    _, errors = campaign.run_campaign(["toolabuse"], ["m"], smoke=True, progress=False)
+    assert not errors
+
+
+@pytest.mark.parametrize("smoke_run", [_cli_smoke, _campaign_smoke], ids=["cli", "campaign"])
+def test_a_smoke_run_sends_the_matched_pair(monkeypatch, smoke_run):
     h = Harness(monkeypatch, "toolabuse")
     h.scenarios = REORDERED
-    paths, errors = campaign.run_campaign(["toolabuse"], ["m"], smoke=True, progress=False)
-    assert not errors and [s.id for s in h.calls[0]["scenarios"]] == ["atk-rce", "cap-rce"]
+    smoke_run()
+    assert [s.id for s in h.calls[0]["scenarios"]] == ["atk-rce", "cap-rce"]
