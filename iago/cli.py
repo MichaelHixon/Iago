@@ -12,7 +12,7 @@ import argparse
 import sys
 
 from .attacks import load_library, summarize
-from .campaign import DEFAULT_SURFACES, SURFACES, SurfaceSpec, _smoke_slice
+from .campaign import DEFAULT_SURFACES, SURFACES, SurfaceSpec
 from .config import (
     ARTIFACTS_DIR,
     BASE_SEED,
@@ -544,32 +544,26 @@ def _cmd_lexical_leak(args: argparse.Namespace) -> int:
 def _cmd_surface_run(args: argparse.Namespace) -> int:
     """Run one agentic surface's suite (`args.surface`, a `campaign.SURFACES` key) against a
     tool-calling agent — the one handler behind every `*-run` subcommand."""
-    from .agent_run import ollama_chat_fn
-
     spec = SURFACES[args.surface]
     if args.target != "ollama":
         print(f"ERROR: {spec.command} supports --target ollama today (got {args.target!r})",
               file=sys.stderr)
         return 2
 
-    entry = spec.entry()
     model = args.model
-    chat_fn = ollama_chat_fn(model)
     trials = 1 if args.smoke else args.trials
-    scens = entry.load_scenarios()
-    if args.smoke:
-        scens = _smoke_slice(scens, spec.floor_key)
+    scens = spec.scenarios(smoke=args.smoke)
 
     print(f"Iago {spec.command} → target ollama:{model}{spec.banner_note}")
     print(f"  scenarios={len(scens)} trials/scenario={trials} max_steps={args.max_steps}")
     try:
-        artifact_path = entry.run_suite(
-            chat_fn, model_name=f"ollama:{model}", trials=trials, temperature=args.temperature,
-            base_seed=args.base_seed, max_steps=args.max_steps, scenarios=scens, progress=True)
+        artifact_path = spec.run(model, scens, trials=trials, temperature=args.temperature,
+                                 base_seed=args.base_seed, max_steps=args.max_steps, progress=True)
     except Exception as exc:
         print(f"ERROR: {spec.command} failed: {exc}", file=sys.stderr)
         return 1
 
+    entry = spec.entry()
     rows = entry.load_artifacts(artifact_path)
     report_path = entry.write_report(rows)
     print(f"\nArtifacts: {artifact_path}")

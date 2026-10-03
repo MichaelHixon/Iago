@@ -322,6 +322,18 @@ class SurfaceSpec:
         """All four entry points (suite runner, scenario loader, artifact loader, report writer)."""
         return self._loader()
 
+    def scenarios(self, *, smoke: bool = False) -> list:
+        """The surface's loaded scenarios, or their floor-keeping smoke slice."""
+        scens = self.entry().load_scenarios()
+        return _smoke_slice(scens, self.floor_key) if smoke else scens
+
+    def run(self, model: str, scenarios: list, **suite_kwargs: Any) -> Path:
+        """Fire the suite at local Ollama `model` over `scenarios` (from `scenarios()`) and return
+        the artifact path: the one run sequence `iago campaign` and every `*-run` share."""
+        from .agent_run import ollama_chat_fn
+        return self.entry().run_suite(ollama_chat_fn(model), model_name=f"ollama:{model}",
+                                      scenarios=scenarios, **suite_kwargs)
+
     def scenario_lines(self, scens: list) -> list[str]:
         """The `*-scenarios` listing: one header line, then one line per scenario."""
         extra = self.scenarios_summary(scens) if self.scenarios_summary else ""
@@ -522,8 +534,6 @@ def run_campaign(
     in ``errors`` and skipped, so one dead surface never sinks the whole campaign. LOCAL
     (Ollama) only — the same containment every surface run enforces.
     """
-    from .agent_run import ollama_chat_fn
-
     def emit(msg: str) -> None:
         if on_event:
             on_event(msg)
@@ -544,17 +554,12 @@ def run_campaign(
         if spec is None:
             errors.append(f"{skey}: unknown surface (known: {', '.join(SURFACE_REGISTRY)})")
             continue
-        entry = spec.entry()
-        run_suite = entry.run_suite
-        scens = entry.load_scenarios()
-        if smoke:
-            scens = _smoke_slice(scens, spec.floor_key)
+        scens = spec.scenarios(smoke=smoke)
         paths: list[Path] = []
         for model in models:
             emit(f"[{skey}] ollama:{model} — {len(scens)} scenarios × {trials} trials")
             try:
-                path = run_suite(ollama_chat_fn(model), model_name=f"ollama:{model}",
-                                 scenarios=scens, **common)
+                path = spec.run(model, scens, **common)
             except Exception as exc:  # noqa: BLE001 — record and keep the campaign alive
                 errors.append(f"{skey}/{model}: {exc}")
                 continue

@@ -29,6 +29,7 @@ from pathlib import Path
 from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED
 from .artifacts import fingerprint_status, read_artifact, refuse_unknown_fingerprint, require_surface
 from .config import GROUNDING_FLOOR_MIN_CORRECT, REPORTS_DIR
+from .floor import floor_state
 from .stats import newcombe_diff_ci, wilson_interval
 
 # The adjudicated attack verdicts — the only ones that belong in a hijack-rate DENOMINATOR.
@@ -65,7 +66,7 @@ class ModelStats:
         """The capability floor fired at least once — the model can operate the surface's
         tool, so a low hijack rate reflects resistance, not incapacity. Eligible for the
         divergence headline (non-degenerate), but see `floor_thin` for the certified bar."""
-        return self.floor_fired > 0
+        return floor_state(self.floor_fired) != "dead"
 
     @property
     def floor_thin(self) -> bool:
@@ -73,7 +74,7 @@ class ModelStats:
         single/thin fire is a liveness proxy, not evidence the model RELIABLY operates the
         tool. Parity with the single-model reports (ISC-27/28) — such a model stays in the
         finding but is marked `✅*`, since a low rate may partly reflect a flaky tool-caller."""
-        return self.floor_alive and self.floor_fired < GROUNDING_FLOOR_MIN_CORRECT
+        return floor_state(self.floor_fired) == "thin"
 
     def rate(self, scenario_id: str) -> float | None:
         """Hijack rate for a scenario, or None when this model has no adjudicated trial for it —
