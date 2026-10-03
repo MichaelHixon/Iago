@@ -43,6 +43,12 @@ def test_an_attack_with_no_floor_of_its_own_gives_way_to_one_that_has_a_floor():
     assert [s.id for s in smoke_slice(scens, "id_kind")] == ["fab-cve", "cap-cve"]
 
 
+def test_the_first_attack_with_a_floor_wins_not_the_first_capability():
+    scens = [_s("atk-a", "attack", arm="a"), _s("atk-b", "attack", arm="b"),
+             _s("cap-b", "capability", arm="b"), _s("cap-a", "capability", arm="a")]
+    assert [s.id for s in smoke_slice(scens, "arm")] == ["atk-a", "cap-a"]
+
+
 def test_with_no_matching_pair_it_still_keeps_a_floor():
     scens = [_s("atk-a", "attack", arm="a"), _s("cap-b", "capability", arm="b")]
     assert [s.id for s in smoke_slice(scens, "arm")] == ["atk-a", "cap-b"]

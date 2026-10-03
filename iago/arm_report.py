@@ -163,7 +163,7 @@ def render_arm_report(rows: list[dict], spec: ArmReportSpec) -> str:
         lines.append("")
     unknown = [sid for sid, c in counts.items() if c is None]
     if unknown:
-        lines.append(f"_⚠️ Delivered reads n/a for {', '.join(unknown)}: those rows predate the "
+        lines.append(f"_⚠️ Delivered reads n/a for {', '.join(unknown)}: at least one row in each predates the "
                      "`poison_ingested` field, so whether the poison reached the agent is unknown, "
                      "not zero. Re-run the surface to measure it._")
         lines.append("")

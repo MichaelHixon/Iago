@@ -174,6 +174,12 @@ def evaluate(current: Path | str, baseline: Path | str | None = None, *,
                               strict=strict_fingerprints)]
         if notes is not None:
             notes.extend(n for n in found if n)
+    elif strict_fingerprints:
+        # No baseline to match against, but a CI gate that asked to fail closed must not judge
+        # an artifact it cannot attribute: the current manifest carries both fingerprints or exits 2.
+        for key in ("judge_id", "technique_library_sha256"):
+            refuse_unknown_fingerprint(key, [] if (cur_manifest or {}).get(key) else ["current"],
+                                       strict=True)
 
     checks = []
     for cat, counts in sorted(cur.items(), key=lambda kv: (kv[0] != OVERALL, kv[0])):

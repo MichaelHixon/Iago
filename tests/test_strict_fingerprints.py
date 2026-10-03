@@ -86,6 +86,45 @@ def test_the_flag_passes_a_pair_whose_fingerprints_are_known_and_equal(tmp_path,
     assert _run([*_argv(command, tmp_path, full, full), "--strict-fingerprints"], tmp_path, monkeypatch) == 0
 
 
+@pytest.mark.parametrize("missing", ["judge_id", "technique_library_sha256"])
+def test_a_ceiling_only_gate_refuses_an_unattributable_artifact_under_the_flag(
+        tmp_path, monkeypatch, capsys, missing):
+    """Without --baseline there is nothing to match, but the flag still fails closed on an
+    artifact whose own manifest lacks a fingerprint (Council + code review: it used to do nothing)."""
+    full = _full("gate")
+    art = _write(tmp_path / "a.jsonl", {k: v for k, v in full.items() if k != missing},
+                 _chatbot_rows(REFUSED, **GRADED))
+    argv = ["gate", art, "--max-rate", "0.5"]
+    assert _run(argv, tmp_path, monkeypatch) == 0
+    assert _run([*argv, "--strict-fingerprints"], tmp_path, monkeypatch) == 2
+    assert f"no {missing} in the current manifest" in capsys.readouterr().err
+    good = _write(tmp_path / "g.jsonl", full, _chatbot_rows(REFUSED, **GRADED))
+    assert _run(["gate", good, "--max-rate", "0.5", "--strict-fingerprints"], tmp_path, monkeypatch) == 0
+
+
+@pytest.mark.parametrize("command", ["gate", "compare", "delta"])
+def test_the_first_artifact_can_be_the_unverified_one(tmp_path, monkeypatch, capsys, command):
+    full = _full(command)
+    argv = _argv(command, tmp_path, {k: v for k, v in full.items() if k != "judge_id"}, full)
+    assert _run([*argv, "--strict-fingerprints"], tmp_path, monkeypatch) == 2
+    assert "no judge_id in the" in capsys.readouterr().err
+
+
+def test_compare_names_the_unverified_file_by_basename(tmp_path, monkeypatch, capsys):
+    full = _full("compare")
+    argv = _argv("compare", tmp_path, full, {k: v for k, v in full.items() if k != "judge_id"})
+    assert _run([*argv, "--strict-fingerprints"], tmp_path, monkeypatch) == 2
+    err = capsys.readouterr().err
+    assert "no judge_id in the b.jsonl manifest" in err and str(tmp_path) not in err
+
+
+def test_the_flag_does_not_undo_an_allowed_mismatch(tmp_path, monkeypatch):
+    full = _full("delta")
+    argv = _argv("delta", tmp_path, full, {**full, "judge_id": "j2"})
+    assert _run([*argv, "--strict-fingerprints"], tmp_path, monkeypatch) == 2
+    assert _run([*argv, "--strict-fingerprints", "--allow-judge-mismatch"], tmp_path, monkeypatch) == 0
+
+
 def test_the_refusal_names_the_unverified_side(tmp_path, monkeypatch, capsys):
     full = _full("delta")
     argv = _argv("delta", tmp_path, full, {"technique_library_sha256": "lib1"})
