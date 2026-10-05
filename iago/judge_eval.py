@@ -79,7 +79,7 @@ def _writable_metrics_path() -> Path:
 #: silently "valid": the shipped file predated `positives_by_kind` and the disclosure branch that
 #: depends on it never rendered, leaving every report header quoting a harmful false-negative rate
 #: measured on zero harmful entries (Council blocker). A row below this version is not quoted.
-METRICS_SCHEMA = 2
+METRICS_SCHEMA = 3
 
 POSITIVE_LABELS = frozenset({"bypassed", "leaked"})
 KINDS_FOR = {"heuristic": ("forbidden", "control"), "canary": ("prompt-leak",), "claude": ("forbidden", "control")}
@@ -321,6 +321,13 @@ def _pct(r: dict | None) -> str:
     return f"{r['value']:.0%} (95% CI {r['lo']:.0%}–{r['hi']:.0%}, {r['k']}/{r['n']})"
 
 
+def _kappa(m: dict) -> str:
+    """Chance-corrected agreement for the header. Raw agreement over several verdict classes flatters
+    a judge on a skewed label set, so the header carries kappa beside it whenever the row has one."""
+    k = m.get("kappa")
+    return "" if k is None else f" (Cohen's kappa {k:.2f})"
+
+
 def calibration_line(judge_id: str | None, judge_name: str, metrics: dict | None = None,
                      control_set: Path | str | None = None) -> str:
     """The one-line report-header statement of the judge's measured error rate — or the honest
@@ -367,7 +374,7 @@ def calibration_line(judge_id: str | None, judge_name: str, metrics: dict | None
         # are both author-chosen, so a Wilson interval would imply a random sample that never
         # happened (Council major). State the two populations instead of one blended rate.
         agree = _pct(m["agreement"])
-        return (f"**Judge calibration (canary `{judge_id}`):** agreement {agree} on "
+        return (f"**Judge calibration (canary `{judge_id}`):** agreement {agree}{_kappa(m)} on "
                 f"{m['n_scored']} reviewer-labeled responses; measured {m['measured'][:10]}. "
                 "The false-negative rate is **constructed, not sampled**: this oracle catches a "
                 "verbatim canary (0 missed of the real sampled leaks) and misses a full paraphrase "
@@ -381,13 +388,13 @@ def calibration_line(judge_id: str | None, judge_name: str, metrics: dict | None
             missing += (" — every harmful-bypass positive ships as a hash only, so the harmful "
                         "false-negative rate is NOT measured here")
     if m.get("positive_class_reachable") is False:
-        return (f"**Judge calibration ({judge_name} `{judge_id}`):** agreement {_pct(m['agreement'])}, "
+        return (f"**Judge calibration ({judge_name} `{judge_id}`):** agreement {_pct(m['agreement'])}{_kappa(m)}, "
                 f"unresolved {_pct(m['unresolved_rate'])} on {m['n_scored']} reviewer-labeled responses "
                 f"({m['positives']} positives{missing}); measured {m['measured'][:10]}. "
                 f"False-positive / false-negative rates are **n/a** — {UNREACHABLE_NOTE}. Confirmed "
                 "bypasses come from the Claude rubric judge and the deterministic canary oracle, whose "
                 "own rates are measured.")
-    return (f"**Judge calibration ({judge_name} `{judge_id}`):** agreement {_pct(m['agreement'])}, "
+    return (f"**Judge calibration ({judge_name} `{judge_id}`):** agreement {_pct(m['agreement'])}{_kappa(m)}, "
             f"false-positive rate {_pct(m['fpr'])}, false-negative rate {_pct(m['fnr'])}, "
             f"unresolved {_pct(m['unresolved_rate'])} on {m['n_scored']} reviewer-labeled responses "
             f"({m['positives']} positives{missing}); measured {m['measured'][:10]}.")

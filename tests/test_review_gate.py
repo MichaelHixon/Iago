@@ -97,6 +97,8 @@ def test_shipped_metrics_are_public_and_reproducible_here():
             assert m["set_sha256"] == public_fp, f"{name} metrics do not match the shipped control set"
             assert m.get("metrics_schema") == METRICS_SCHEMA, f"{name} metrics are shape-stale"
             assert "positives_by_kind" in m and "positives_scored_by_kind" in m
+            assert isinstance(m.get("kappa"), float), f"{name} metrics carry no Cohen's kappa"
+            assert "Cohen's kappa" in calibration_line(judge_id, name, data), f"{name} header omits kappa"
 
 
 def test_shipped_header_states_the_harmful_rate_is_unmeasured():
