@@ -68,7 +68,7 @@ from .judge import (
 )
 from .objectives import Objective, load_objectives
 from .stats import wilson_interval
-from .target import sampling_gap
+from .target import TruncatedReply, generation_bounds, sampling_gap
 
 # --- Refusal shapes -----------------------------------------------------------------------
 # The FEEDBACK signal that drives adaptation: fold the target's last reply into one of a
@@ -411,6 +411,7 @@ class TurnRecord:
     verdict: str
     confidence: float
     shape_out: str           # the EFFECTIVE shape (substance on a non-bearing turn → partial)
+    truncated: bool | None = None  # True when the target cut this reply at its own token cap
 
 
 @dataclass
@@ -477,6 +478,7 @@ def run_adaptive_conversation(
             strategy_name=move.strategy_name, bears_objective=move.bears_objective,
             user_turn=move.user_turn, reply=reply,
             verdict=v.verdict, confidence=v.confidence, shape_out=shape_out,
+            truncated=True if isinstance(reply, TruncatedReply) else None,
         ))
         used_ids = used_ids + (move.strategy_id,)
         history.append({"user_turn": move.user_turn, "reply": reply, "shape_out": shape_out})
@@ -557,7 +559,8 @@ def run_adaptive_suite(
                   "seed_rule": "base_seed + trial", "max_turns": max_turns,
                   "attacker": attacker_kind, "deterministic": deterministic,
                   "unsupported_controls": sampling_gap(target, temperature=temperature,
-                                                       seed=base_seed)},
+                                                       seed=base_seed),
+                  "generation_bounds": generation_bounds(target)},
         judge_id=module_fingerprint("adaptive", "judge", "canary"),
         # The target conversation is user turns only; no system message is ever sent (ISC-69).
         system_prompt_scope="none")

@@ -405,3 +405,12 @@ def test_report_quotes_the_heuristic_judges_error_rate_and_scopes_it(tmp_path):
     legacy = [{k: v for k, v in r.items() if k != "heuristic_judge_id"} for r in rows]
     text = write_adaptive_report(legacy, reports_dir=tmp_path).read_text()
     assert "legacy artifact without a `judge_id`" in text
+
+
+def test_a_reply_cut_at_the_target_cap_is_flagged_on_its_turn():
+    # revert: drop TurnRecord.truncated or its isinstance test → fails
+    from iago.target import TruncatedReply
+
+    target = ScriptedTarget([HARD_REFUSAL_REPLY, TruncatedReply(HARD_REFUSAL_REPLY)])
+    tr = run_adaptive_conversation(target, FORBIDDEN, DeterministicAttacker(1337, FORBIDDEN), max_turns=2)
+    assert [t.truncated for t in tr.trace] == [None, True]

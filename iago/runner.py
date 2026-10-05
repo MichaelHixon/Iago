@@ -40,7 +40,7 @@ from .decode import decode_recovered, is_decode_gated
 from .judge import (_trust_arm_signal, judge, judge_deadend, judge_leak, judge_trust,
                     judge_unsafe_output, run_error)
 from .objectives import Objective, load_objectives
-from .target import Target, sampling_gap
+from .target import Target, TruncatedReply, generation_bounds, sampling_gap
 
 
 @dataclass(frozen=True)
@@ -96,6 +96,10 @@ class TrialResult:
     # than inferred from `deadend_signal` — an errored row never reaches judge_deadend, so its
     # signal is "error" and carries no solvability (ISC-53). None for other kinds.
     deadend_control: bool | None = None
+    # True when the target stopped a JUDGED reply at its own token cap (a TruncatedReply): the
+    # final reply, or any trust-escalation arm (anon, placebo), since judge_trust reads all three.
+    # None otherwise, including a cap the caller asked for. A capped priming turn is not judged.
+    truncated: bool | None = None
     # Schema + provenance (ISC-33): every row names its schema and surface so a reader can refuse
     # the wrong artifact; `status` separates a probe that reached the model from one that did not
     # (garak's attempt status); the hashes let an auditor pin a quoted prompt/response to a row.
@@ -197,7 +201,7 @@ def _fires(tech: Technique, obj: Objective) -> bool:
 # Open-ended and long enough to leave the point-mass regime a 24-token fixed echo sat in — a
 # near-degenerate generation agrees with itself whether or not the host is bit-reproducible, so the
 # old probe could not fail. These exercise the same regime the matrix does on CONTENT, though not on
-# length: the matrix sets no `num_predict` and these cap at 160, so a longer matrix reply samples
+# length: the matrix runs to the target's own token cap and these stop at 160, so a longer matrix reply samples
 # more decode positions than the probe does. (ISC-49, superseding ISC-34's two-generation cost
 # bound; the honesty fixes are ISC-50.)
 #
@@ -386,7 +390,8 @@ def run(
             surface="chatbot", model=target.name,
             sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
                       "seed_rule": "base_seed + trial", "shots": shots,
-                      "unsupported_controls": dropped},
+                      "unsupported_controls": dropped,
+                      "generation_bounds": generation_bounds(target)},
             judge_id=offline_judge_id,
             system_prompt_scope="per-objective",
             extra={"technique_library_sha256": sha256_text(json.dumps([asdict(t) for t in lib],
@@ -503,6 +508,8 @@ def run(
                         prov_signal=prov_signal,
                         deadend_signal=deadend_signal,
                         deadend_control=(obj.in_scope_answer is not None) if obj.is_dead_end else None,
+                        truncated=True if any(isinstance(r, TruncatedReply) for r in
+                                              (response, anon_response, placebo_response)) else None,
                         status="error" if v.verdict == _ERROR_VERDICT else "evaluated",
                         prompt_sha256=sha256_text(prompt),
                         response_sha256=sha256_text(response),

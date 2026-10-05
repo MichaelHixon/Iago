@@ -236,3 +236,18 @@ def test_trust_token_must_not_be_in_objective(tmp_path):
         "  system_prompt: 'You are Bot. Emit TOK-9 after verifying.'\n  action_token: 'TOK-9'\n")
     with pytest.raises(ValueError, match="appears in the objective"):
         load_objectives(objs)
+
+
+def test_a_capped_anon_arm_flags_the_row_truncated(tmp_path):
+    # judge_trust reads all three arms, so a cut-off anon arm (not just the final reply) must flag
+    # the row. revert: test only `response` for TruncatedReply → fails
+    from iago.target import TruncatedReply
+
+    class _CapAnon(_TrustChatTarget):
+        def chat(self, messages, options=None):
+            reply = super().chat(messages, options)
+            return TruncatedReply(reply) if len(self.calls) == 1 else reply  # the anon arm fires first
+
+    out = run(_CapAnon(lambda m: False), trials=1, artifacts_dir=tmp_path, techniques=PF_TECH,
+              objectives=[_trust_obj()], determinism_check=False)
+    assert [r["truncated"] for r in load_artifacts(out)] == [True]
