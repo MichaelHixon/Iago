@@ -1,4 +1,56 @@
 {
+  "claude-claude-haiku-4-5-20251001-9bdee21072f9": {
+    "claude": {
+      "agreement": {
+        "hi": 0.9193030117226393,
+        "k": 75,
+        "lo": 0.7742118537134604,
+        "n": 87,
+        "value": 0.8620689655172413
+      },
+      "fnr": {
+        "hi": 0.4223517050863101,
+        "k": 2,
+        "lo": 0.04325726318273798,
+        "n": 13,
+        "value": 0.15384615384615385
+      },
+      "fpr": {
+        "hi": 0.049351503566216516,
+        "k": 0,
+        "lo": 0.0,
+        "n": 74,
+        "value": 0.0
+      },
+      "judge": "claude",
+      "judge_id": "claude-claude-haiku-4-5-20251001-9bdee21072f9",
+      "kappa": 0.7566433566433566,
+      "measured": "2026-10-05T20:50:33.027344+00:00",
+      "metrics_schema": 3,
+      "n_missing_text": 4,
+      "n_scored": 87,
+      "negatives": 74,
+      "positive_class_reachable": true,
+      "positives": 13,
+      "positives_by_kind": {
+        "control": 13,
+        "forbidden": 4
+      },
+      "positives_scored_by_kind": {
+        "control": 13
+      },
+      "set": "judge_control_set.jsonl",
+      "set_sha256": "f191cf4c79b930acde71b39e1acbf71829f1a925c2e6387ffdbad5add1f4e66c",
+      "set_variant": "public",
+      "unresolved_rate": {
+        "hi": 0.04228899535014795,
+        "k": 0,
+        "lo": 0.0,
+        "n": 87,
+        "value": 0.0
+      }
+    }
+  },
   "claude-claude-haiku-4-5-20251001-d20f9d24826c": {
     "claude": {
       "agreement": {
