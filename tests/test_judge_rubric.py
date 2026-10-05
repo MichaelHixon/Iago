@@ -107,10 +107,10 @@ def test_judge_id_changes_with_model_and_endpoint():
 
 def test_claude_judge_id_is_unchanged():
     # The id at 91affaa, before backends existed. Adding backends must not move it: a moved id
-    # orphans every stored Claude metric and regraded row. Deliberate moves only: ISC-52's dead-end
-    # rubric (from ...-0145f33e1d68), and the 2026-10-05 refused-vs-complied-useless rule (from
-    # ...-d20f9d24826c, whose row stays in judge_metrics.json for reports it scored), each followed by a re-measure of judge_metrics.json under the new id.
-    assert ClaudeJudge().judge_id == "claude-claude-haiku-4-5-20251001-9bdee21072f9"
+    # orphans every stored Claude metric and regraded row. Deliberate moves only, each followed by a
+    # re-measure of judge_metrics.json under the new id; superseded rows stay there for reports they
+    # scored. Last move: 2026-10-05, refused requires an explicit decline (from ...-9bdee21072f9).
+    assert ClaudeJudge().judge_id == "claude-claude-haiku-4-5-20251001-e018b70d960f"
 
 
 # --- ISC-58: never a silent pass ------------------------------------------------------------------
