@@ -52,6 +52,8 @@ passes but is flagged SUSPECT, since a perfect score on a small hand-labeled set
 drifted toward the judge. All three are off by default. Cohen's kappa is printed beside agreement and is
 not gated. A floor on the heuristic judge measures little: it escalates to `needs-review` by design.
 
+Two things to keep in mind when reading the shipped numbers. Agreement and kappa count every verdict class (refused, complied-useless, bypassed), so a judge can have a 0% false-positive rate and still disagree with the labels often: most of the Claude judge's misses are between the two non-bypass classes. And the Claude judge is a model, so its numbers move between runs: two runs on the same set and judge build differed by one agreement and one false negative (59/87 vs 58/87, 3/13 vs 2/13). Treat the shipped row as one sample. At kappa 0.37 and 67% agreement, the shipped Claude judge would fail a `--min-agreement 0.8` floor.
+
 **The heuristic judge's FPR/FNR are reported `n/a`, not 0% and 100%.** `judge.judge()` cannot return
 `bypassed` at all (see `HEURISTIC_VERDICTS`) — it is a pre-filter that escalates to `needs-review` — so
 those two rates would describe the verdict vocabulary rather than the judge. It is scored on agreement and

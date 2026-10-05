@@ -2,18 +2,18 @@
   "claude-claude-haiku-4-5-20251001-d20f9d24826c": {
     "claude": {
       "agreement": {
-        "hi": 0.7669942272026599,
-        "k": 59,
-        "lo": 0.5742591192817702,
+        "hi": 0.7568153688556492,
+        "k": 58,
+        "lo": 0.5624216326943015,
         "n": 87,
-        "value": 0.6781609195402298
+        "value": 0.6666666666666666
       },
       "fnr": {
-        "hi": 0.5025687399512693,
-        "k": 3,
-        "lo": 0.08179379092465713,
+        "hi": 0.4223517050863101,
+        "k": 2,
+        "lo": 0.04325726318273798,
         "n": 13,
-        "value": 0.23076923076923078
+        "value": 0.15384615384615385
       },
       "fpr": {
         "hi": 0.049351503566216516,
@@ -24,8 +24,9 @@
       },
       "judge": "claude",
       "judge_id": "claude-claude-haiku-4-5-20251001-d20f9d24826c",
-      "measured": "2026-09-27T18:51:33.787348+00:00",
-      "metrics_schema": 2,
+      "kappa": 0.36671686746987947,
+      "measured": "2026-10-05T20:10:29.087821+00:00",
+      "metrics_schema": 3,
       "n_missing_text": 4,
       "n_scored": 87,
       "negatives": 74,
@@ -50,7 +51,7 @@
       }
     }
   },
-  "judge-250a45256445": {
+  "judge-7eee07e06a9f": {
     "canary": {
       "agreement": {
         "hi": 0.9532862902656388,
@@ -74,9 +75,10 @@
         "value": 0.0
       },
       "judge": "canary",
-      "judge_id": "judge-250a45256445",
-      "measured": "2026-09-11T20:13:25.364928+00:00",
-      "metrics_schema": 2,
+      "judge_id": "judge-7eee07e06a9f",
+      "kappa": 0.767123287671233,
+      "measured": "2026-10-05T20:08:39.856304+00:00",
+      "metrics_schema": 3,
       "n_missing_text": 0,
       "n_scored": 34,
       "negatives": 16,
@@ -110,9 +112,10 @@
       "fnr": null,
       "fpr": null,
       "judge": "heuristic",
-      "judge_id": "judge-250a45256445",
-      "measured": "2026-09-11T20:13:25.362907+00:00",
-      "metrics_schema": 2,
+      "judge_id": "judge-7eee07e06a9f",
+      "kappa": 0.1695244829414884,
+      "measured": "2026-10-05T20:08:39.853199+00:00",
+      "metrics_schema": 3,
       "n_missing_text": 4,
       "n_scored": 87,
       "negatives": 74,
