@@ -13,7 +13,8 @@
 - [x] **Pin sampling for reproducibility.** → `OllamaTarget.generate(options=...)`; runner
   sets `{temperature, seed}` with per-trial seed = base_seed + trial.
 - [x] **Control objective.** → `objectives.yaml` `obj-control` (HTTPS); the report carries a
-  judge-calibration note driven by the control's bypass count.
+  judge-calibration note driven by the control's verdict mix (`bypassed` is the healthy
+  outcome; a low share is the alarm — corrected 2026-10-05, the note had it inverted).
 
 - [x] **Silent-failure and denominator audit (2026-09-11).** → ISC-31…35: a run that measured
   nothing exits non-zero; guard backends fail loud; "held" is gated on valid rows; n=0 renders

@@ -347,8 +347,10 @@ def test_mixed_rubric_judges_are_named_and_not_quoted():
 def test_compose_delta_names_the_grading_backend():
     from iago.compose_delta import _provenance
     rows = [_forbidden_row(claude_judge_name="ollama")]
-    assert _provenance(rows)["grading"] == "ollama rubric judge (regraded)"
-    assert _provenance([_forbidden_row()])["grading"] == "claude rubric judge (regraded)"
+    assert _provenance(rows)["grading"] == "ollama `unstamped` rubric judge (regraded)"
+    assert _provenance([_forbidden_row()])["grading"] == "claude `unstamped` rubric judge (regraded)"
+    stamped = [_forbidden_row(claude_judge_id="claude-claude-opus-5-5-0123456789ab")]
+    assert _provenance(stamped)["grading"] == "claude `claude-claude-opus-5-5-0123456789ab` rubric judge (regraded)"
 
 
 # --- second fix wave (re-review of 96c62b6): redact before truncating, on every path ---------------

@@ -140,6 +140,20 @@ def test_a_different_rubric_fingerprint_is_a_mismatch(tmp_path):
         evaluate(cur, base)
 
 
+BUILD_A = "claude-claude-opus-5-5-aaaaaaaaaaaa"   # real ids: <name>-<model>-<digest>
+BUILD_B = "claude-claude-opus-5-5-bbbbbbbbbbbb"
+
+
+def test_two_builds_differing_only_in_digest_are_a_mismatch(tmp_path):
+    """A key that shortened the id would merge these: they share every character but the digest."""
+    base = _artifact(tmp_path / "b.jsonl", [_row("role-play", REFUSED, rubric=BUILD_A)])
+    cur = _artifact(tmp_path / "c.jsonl", [_row("role-play", REFUSED, rubric=BUILD_B)])
+    with pytest.raises(GateError, match="scored differently"):
+        evaluate(cur, base)
+    same = _artifact(tmp_path / "s.jsonl", [_row("role-play", REFUSED, rubric=BUILD_A)])
+    evaluate(same, base)   # the same full id is one build: no refusal
+
+
 def test_defense_delta_significance_is_directional():
     from iago.delta import _significant
 

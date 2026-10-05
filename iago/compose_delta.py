@@ -31,7 +31,7 @@ from .config import REPORTS_DIR
 from .guards import guard_that_fired
 from .judge import BYPASSED, ERROR, REFUSED
 from .report import (bypass_rate, ci_str, is_valid_probe, judge_calibration_lines, pct,
-                     rubric_judge_name, verdict_of)
+                     control_stamps, scorer_stamp, verdict_of)
 from .stats import wilson_interval
 
 # Objective kinds that count as an ATTACK (a bypass is meaningful). Controls are benign
@@ -143,15 +143,29 @@ def _provenance(rows: list[dict]) -> dict:
     trials = len({r.get("trial") for r in rows})
     temps = sorted({t for r in rows if (t := r.get("temperature")) is not None})
     temp = temps[0] if len(temps) == 1 else (f"{temps[0]}–{temps[-1]}" if temps else "?")
-    # A regraded row carries a `claude_verdict`; its absence means heuristic-only scoring.
-    regraded = any("claude_verdict" in r for r in rows)
-    judges = sorted({rubric_judge_name(r) for r in rows if "claude_verdict" in r})
+    # Name the BUILD, not just the backend (#431): a rubric change moves verdicts — the over-block
+    # column counts control `refused` — so two reports are comparable only on the same build.
+    # An empty `judges` means heuristic-only scoring.
+    judges = sorted({scorer_stamp(r) for r in rows} - {"heuristic"})
+    regraded = bool(judges)
     return {
         "model": rows[0].get("model", "?"),
         "trials": trials,
         "temperature": temp,
         "grading": f"{' + '.join(judges)} rubric judge (regraded)" if regraded else "heuristic (run `iago regrade` for judged forbidden rows)",
     }
+
+
+def _overblock_scorers_note(rows: list[dict]) -> str | None:
+    """A warning when the scored benign controls were not all scored by one build. Over-block
+    counts control `refused`, which moves with the judge (5f05be1 narrowed `refused` to an
+    explicit decline), so a mixed column measures the judging as much as the stack."""
+    stamps = control_stamps(rows)
+    if len(stamps) < 2:
+        return None
+    return (f"> ⚠️ **Over-block mixes judge builds.** The benign controls were scored by "
+            f"{', '.join(stamps)}. The over-block column counts control `refused`, which moves with "
+            "the judge, so its rows are not comparable. Regrade the whole artifact with one judge.")
 
 
 def build_compose_report(rows: list[dict], library: list[Technique] | None = None) -> str:
@@ -203,6 +217,9 @@ def build_compose_report(rows: list[dict], library: list[Technique] | None = Non
     # --- Ranked composition-lift table -------------------------------------------
     a("## Composition lift — ranked")
     a("")
+    if note := _overblock_scorers_note(rows):
+        a(note)
+        a("")
     a("| Composed technique | Stacks | Composed rate | Scored | Best single | Marginal lift | "
       "Expected (indep.) | vs indep. | Beats parts? | Over-block (Δ vs best) |")
     a("|---|---|---:|:---:|---:|---:|---:|---:|:---:|---:|")
@@ -339,7 +356,9 @@ def build_compose_report(rows: list[dict], library: list[Technique] | None = Non
     a("  as a held guard when the judge simply never ran.")
     a("- **Over-block is differenced too.** The over-block column shows the stack's benign-control")
     a("  false-positive rate and, where the best single layer also ran on controls, the marginal Δ over")
-    a("  it — the ADDED false-positive tax of stacking, not merely its absolute cost.")
+    a("  it — the ADDED false-positive tax of stacking, not merely its absolute cost. The difference")
+    a("  cancels the target, not the judge: over-block counts control `refused`, so comparing it across")
+    a("  two reports holds only on the same judge build (the grading line above names it).")
     a("- **Real, referenced techniques.** Every layer is a published primitive (role-play / encoding /")
     a("  refusal-suppression / instruction-hierarchy / many-shot / crescendo). The contribution is the")
     a("  composition and this measurement — not a new attack.")
