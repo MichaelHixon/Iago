@@ -103,16 +103,18 @@ def test_control_evidence_survives_an_all_errored_unsolvable_set():
 def test_judge_calibration_section_and_its_numbers_reach_both_renderers():
     """HTML had no judge-calibration section at all. The warning prose is unconditional, so it
     proves only that the section exists — assert the FRACTION, which is what says whether the
-    alarm actually fired."""
-    alarmed = _both([_row(objective_id="o1", verdict="refused"),
-                     _row(objective_id="oc", objective_kind="control", verdict="bypassed")])
-    clean = _both([_row(objective_id="o1", verdict="refused"),
-                   _row(objective_id="oc", objective_kind="control", verdict="refused")])
-    for doc, name in zip(alarmed, ("md", "html")):
-        assert "should not be trusted" in doc, name
-        assert "`bypassed` in 1/1 scored" in doc or "<code>bypassed</code> in 1/1 scored" in doc, name
-    for doc, name in zip(clean, ("md", "html")):
-        assert "`bypassed` in 0/1 scored" in doc or "<code>bypassed</code> in 0/1 scored" in doc, name
+    alarm actually fired. A `bypassed` control is the healthy outcome (#431); a refused one is the
+    over-refusal the alarm is about."""
+    answered = _both([_row(objective_id="o1", verdict="refused"),
+                      _row(objective_id="oc", objective_kind="control", verdict="bypassed")])
+    refused = _both([_row(objective_id="o1", verdict="refused"),
+                     _row(objective_id="oc", objective_kind="control", verdict="refused")])
+    for doc, name in zip(answered, ("md", "html")):
+        assert "is the healthy outcome" in doc, name
+        assert "`bypassed`) in 1/1 scored" in doc or "<code>bypassed</code>) in 1/1 scored" in doc, name
+    for doc, name in zip(refused, ("md", "html")):
+        assert "`bypassed`) in 0/1 scored" in doc or "<code>bypassed</code>) in 0/1 scored" in doc, name
+        assert "`refused` in 1/1" in doc or "<code>refused</code> in 1/1" in doc, name
 
 
 def test_decode_caveat_present_in_both_renderers_whether_or_not_decode_failed():
@@ -309,7 +311,7 @@ def test_decode_caveat_survives_a_mixed_decode_set():
 
 
 def test_calibration_alarm_excludes_errored_control_trials():
-    """An errored control trial in the denominator dilutes the miscalibration alarm — sitting
+    """An errored control trial in the denominator dilutes the calibration alarm — sitting
     directly under a sentence promising errors are excluded from every rate. 1 bypass out of 1
     trial that ran, not 1 of 3."""
     rows = [_row(objective_id="o1", verdict="refused"),
@@ -319,7 +321,7 @@ def test_calibration_alarm_excludes_errored_control_trials():
     for doc, name in zip(_both(rows), ("md", "html")):
         # scope the read to the calibration sentence: "1/3" also occurs in the methodology prose,
         # so a document-wide assertion would be vacuous either way
-        i = doc.index("benign control was confirmed")
+        i = doc.index("benign control was answered")
         sentence = doc[i:doc.index("harmless", i)]
         assert "1/1 scored trials" in sentence, (name, sentence)
         assert "1/3" not in sentence, (name, sentence)
@@ -378,13 +380,14 @@ def test_legacy_uncertainty_wording_does_not_contradict_the_control_count():
 
 
 def test_calibration_says_unmeasured_when_no_control_trial_was_scored():
-    """A 0/0 fraction under "an ideal judge should never confirm it as a bypass" invites the reader
-    to infer the check ran and passed. Same class as the 0 / 2 rate this issue opened on."""
+    """A 0/0 fraction under the calibration note invites the reader to infer the check ran and
+    passed. Same class as the 0 / 2 rate this issue opened on."""
     rows = [_row(objective_id="o1", verdict="refused"),
             _row(objective_id="oc", objective_kind="control", verdict="error")]
     for doc, name in zip(_both(rows), ("md", "html")):
         assert "control trial was scored" in doc.lower(), name
         assert "unmeasured" in doc, name
+        assert "0/0" not in doc, name   # the old renderer printed a 0/0 sentence under it
 
 
 def test_determinism_disclosure_reaches_the_html_reader():

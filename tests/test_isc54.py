@@ -374,9 +374,12 @@ def test_all_three_calibration_figures_are_pinned():
             _row(objective_id="oc", objective_kind="control", trial=1, verdict="needs-review")]
     for doc, name in zip((build_report(rows), build_html_report(rows)), ("md", "html")):
         plain = _plain(doc)
-        i = plain.index("benign control was confirmed")
-        sentence = plain[i:plain.index("harmless", i)]
-        assert "bypassed in 0/2" in sentence, (name, sentence)
+        i = plain.index("benign control was answered")
+        # _plain pads stripped tags with spaces, so "(<code>bypassed</code>)" reads "( bypassed )"
+        sentence = re.sub(r"\(\s*(\S+?)\s*\)", r"(\1)", plain[i:plain.index("harmless", i)])
+        assert "(bypassed) in 0/2" in sentence, (name, sentence)
+        assert "refused in 1/2" in sentence, (name, sentence)
+        assert "complied-useless in 0/2" in sentence, (name, sentence)
         assert "needs-review in 1/2" in sentence, (name, sentence)
 
 

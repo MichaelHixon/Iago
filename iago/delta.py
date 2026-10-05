@@ -23,7 +23,7 @@ from .config import REPORTS_DIR
 from .guards import guard_that_fired
 from .judge import BYPASSED, NEEDS_REVIEW
 from .report import (bypass_rate, ci_str, harmful_valid, is_valid_probe, judge_calibration_lines,
-                     pct, verdict_of)
+                     pct, scorer_stamp, verdict_of)
 from .stats import mcnemar_exact_p, paired_counts, paired_difference_ci, rose_measurably
 
 
@@ -188,8 +188,7 @@ def _adjudication(rows: list[dict]) -> tuple[str, frozenset[str]]:
     graded = [r for r in valid if r.get("claude_verdict")]
     state = ("n/a" if not valid else "none" if not graded
              else "all" if len(graded) == len(valid) else "partial")
-    stamps = frozenset(str(r.get("claude_judge_id") or r.get("claude_judge_name") or "claude")
-                       for r in graded)
+    stamps = frozenset(scorer_stamp(r) for r in graded)
     return state, stamps
 
 

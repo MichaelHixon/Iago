@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .artifacts import fingerprint_status, read_artifact, refuse_unknown_fingerprint, require_surface
-from .report import category_counts, ci_str, harmful_valid
+from .report import category_counts, ci_str, harmful_valid, scorer_stamp
 from .stats import rose_measurably, wilson_interval
 
 OVERALL = "(overall)"
@@ -93,8 +93,7 @@ def _load(path: Path | str) -> tuple[dict | None, list[dict], list[dict]]:
 def _scoring(manifest: dict | None, rows: list[dict]) -> tuple[str | None, frozenset[str]]:
     """Who scored the rows: the offline judge fingerprint plus every rubric judge fingerprint a
     regrade stamped (model + rubric version, not just the backend name)."""
-    regraders = frozenset(str(r.get("claude_judge_id") or r.get("claude_judge_name") or "claude")
-                          for r in rows if r.get("claude_verdict"))
+    regraders = frozenset(scorer_stamp(r) for r in rows if r.get("claude_verdict"))
     return (manifest or {}).get("judge_id"), regraders
 
 

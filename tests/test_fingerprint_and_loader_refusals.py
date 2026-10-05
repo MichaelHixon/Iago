@@ -209,7 +209,10 @@ def _graded_artifact(path, *, graded, stamp="claude:m:r1", n=4):
     (dict(graded=False), dict(graded=True)),
     (dict(graded="partial"), dict(graded="partial")),
     (dict(graded=True), dict(graded=True, stamp="claude:m:r2")),
-], ids=["raw-only", "guarded-only", "partial", "different-rubric"])
+    # real ids are <name>-<model>-<digest>: two builds differ only in the digest
+    (dict(graded=True, stamp="claude-claude-opus-5-5-aaaaaaaaaaaa"),
+     dict(graded=True, stamp="claude-claude-opus-5-5-bbbbbbbbbbbb")),
+], ids=["raw-only", "guarded-only", "partial", "different-rubric", "digest-only"])
 def test_delta_refuses_arms_the_rubric_judge_scored_differently(tmp_path, monkeypatch, capsys, raw, guarded):
     """Revert check: deleting the `raise` in `adjudication_notes` reds every case."""
     r = _graded_artifact(tmp_path / "raw.jsonl", **raw)
@@ -221,10 +224,12 @@ def test_delta_refuses_arms_the_rubric_judge_scored_differently(tmp_path, monkey
     assert "may measure the judging, not the guard" in report
 
 
-@pytest.mark.parametrize("graded", [True, False], ids=["both-regraded", "neither"])
-def test_delta_accepts_arms_judged_alike(tmp_path, monkeypatch, graded):
-    r = _graded_artifact(tmp_path / "raw.jsonl", graded=graded)
-    g = _graded_artifact(tmp_path / "g.jsonl", graded=graded)
+@pytest.mark.parametrize("graded,stamp", [(True, "claude:m:r1"), (False, "claude:m:r1"),
+                                          (True, "claude-claude-opus-5-5-aaaaaaaaaaaa")],
+                         ids=["both-regraded", "neither", "same-full-id"])
+def test_delta_accepts_arms_judged_alike(tmp_path, monkeypatch, graded, stamp):
+    r = _graded_artifact(tmp_path / "raw.jsonl", graded=graded, stamp=stamp)
+    g = _graded_artifact(tmp_path / "g.jsonl", graded=graded, stamp=stamp)
     assert _delta(tmp_path, monkeypatch, r, g) == 0
 
 

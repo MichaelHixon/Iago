@@ -35,9 +35,9 @@ Trials are fired in interleaved rounds (`batch_id`) and stamped with `run_seq` a
 
 </details>
 
-### Judge calibration (control objective)
+### Benign-control check
 
-_No control objective in this run — add one to calibrate the judge._
+_No control objective in this run — add one to check for over-refusal (model or judge)._
 
 ### Decode-gating (cipher / low-resource techniques)
 
