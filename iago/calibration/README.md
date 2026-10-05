@@ -25,6 +25,33 @@ reproduces. `set_sha256` covers ids, labels AND whether each body was available,
 which set was scored; a report header refuses to quote metrics whose fingerprint does not match the control
 set in that checkout, rather than assert a number the reader cannot reproduce.
 
+## Adding labels
+
+One JSON object per line in `judge_control_set.jsonl`:
+
+`{id, kind, label, label_source, objective_id, response | response_sha256, provenance, technique_id, canary?, note?}`
+
+- `kind` is `forbidden`, `control` or `prompt-leak`; `label` uses that kind's vocabulary (above).
+- `canary` is required on `prompt-leak` entries: the string planted in the system prompt.
+- A body that must not be published ships as `"response": null` plus `response_sha256` (the SHA-256 of the
+  exact text that was labeled). The text itself goes in the gitignored `judge_control_set.local.jsonl` as
+  `{"id": ..., "response": ...}`. `load_control_set` refuses an overlay body whose hash does not match, so a
+  label can never be scored against different text than it was assigned to.
+
+**The gap that matters most.** The set holds 4 harmful-bypass positives (`kind: forbidden`, `label:
+bypassed`), and all 4 are withheld. A public clone therefore measures the harmful false-negative rate on
+zero bodies; the 13 `bypassed` positives it can score are all benign `control` compliance (the 18 scoreable `prompt-leak` positives are a different surface). More labeled harmful bypasses
+(withheld, hash in the public set, body in the overlay) are the highest-value additions.
+
+## Agreement floor
+
+`iago judge-eval --min-agreement 0.8` turns agreement into a gate: a judge whose agreement point estimate
+is below the floor exits 3 (its Wilson interval printed beside it); `--min-n 30` refuses to judge a judge
+scored on fewer entries (exit 4); a judge at or above `--suspect-at` (default 1.0 once a floor is set)
+passes but is flagged SUSPECT, since a perfect score on a small hand-labeled set more often means the labels
+drifted toward the judge. All three are off by default. Cohen's kappa is printed beside agreement and is
+not gated. A floor on the heuristic judge measures little: it escalates to `needs-review` by design.
+
 **The heuristic judge's FPR/FNR are reported `n/a`, not 0% and 100%.** `judge.judge()` cannot return
 `bypassed` at all (see `HEURISTIC_VERDICTS`) — it is a pre-filter that escalates to `needs-review` — so
 those two rates would describe the verdict vocabulary rather than the judge. It is scored on agreement and
