@@ -43,6 +43,14 @@ def _positive_int(value: str) -> int:
     return n
 
 
+def _unit_float(value: str) -> float:
+    """argparse type for a proportion threshold: a floor of 80 (meant as 80%) would fail every judge."""
+    x = float(value)
+    if not 0.0 <= x <= 1.0:
+        raise argparse.ArgumentTypeError(f"must be between 0 and 1 (got {x})")
+    return x
+
+
 def _valid_count(rows: list[dict]) -> int:
     """Rows that actually PROBED the guardrail. A <<RUN-ERROR>> row never produced a usable
     reply — transport, guard, or judge failure; a
@@ -458,6 +466,7 @@ def _cmd_judge_eval(args: argparse.Namespace) -> int:
         print(f"  false-positive rate {_pct(m['fpr'])}")
         print(f"  false-negative rate {_pct(m['fnr'])}")
         print(f"  unresolved          {_pct(m['unresolved_rate'])}")
+        print("  Cohen's kappa       " + ("n/a" if m["kappa"] is None else f"{m['kappa']:.2f}"))
         if m.get("positive_class_reachable") is False:
             from .judge_eval import UNREACHABLE_NOTE
             print(f"  NOTE: FPR/FNR are n/a — {UNREACHABLE_NOTE}.")
@@ -470,7 +479,37 @@ def _cmd_judge_eval(args: argparse.Namespace) -> int:
                 print(f"  metrics → {dest}")
             except OverlayWriteRefused as exc:
                 print(f"  metrics NOT written: {exc}", file=sys.stderr)
+        rc = max(rc, _agreement_gate(name, m, args))
     return rc
+
+
+def _agreement_gate(name: str, m: dict, args: argparse.Namespace) -> int:
+    """The opt-in pass/fail floor on one judge's measured agreement. Every flag defaults off, so a
+    run without them returns 0 here. Too few labels is refused before the floor is consulted: a
+    point estimate on a handful of entries is noise either way. A score at or above `--suspect-at`
+    passes but is flagged, because on a small hand-labeled set a perfect judge is likelier to mean
+    labels drifted toward the judge than a judge that is never wrong."""
+    from .judge_eval import _pct
+
+    # getattr: callers that build the namespace by hand (tests, embedders) predate these flags.
+    floor, min_n, suspect_at = (getattr(args, k, None) for k in ("min_agreement", "min_n", "suspect_at"))
+    n, agreement = m["n_scored"], m["agreement"]["value"]
+    if min_n is not None and n < min_n:
+        print(f"ERROR: {name}: refusing to judge agreement on n={n} (< {min_n} labeled)", file=sys.stderr)
+        return 4
+    if agreement is None and (floor is not None or suspect_at is not None):
+        print(f"ERROR: {name}: no scored entries, so there is no agreement to gate", file=sys.stderr)
+        return 4
+    if floor is not None and agreement < floor:
+        print(f"FAIL: {name} agreement {agreement:.0%} below floor {floor:.0%} "
+              f"— {_pct(m['agreement'])}", file=sys.stderr)
+        return 3
+    if suspect_at is None and floor is not None:
+        suspect_at = 1.0
+    if suspect_at is not None and agreement >= suspect_at:
+        print(f"SUSPECT: {name} {agreement:.0%} on n={n} — overfit or sycophantic; "
+              "re-label a fresh slice", file=sys.stderr)
+    return 0
 
 
 def _cmd_power(args: argparse.Namespace) -> int:
@@ -806,6 +845,15 @@ def build_parser() -> argparse.ArgumentParser:
                          "different --set) over the shipped judge_metrics.json (default: refused so the "
                          "committed file stays public-reproducible)")
     je.add_argument("--show-disagreements", action="store_true")
+    je.add_argument("--min-agreement", type=_unit_float, default=None, metavar="FLOAT",
+                    help="pass/fail floor (0-1): a judge whose agreement point estimate is below it "
+                         "exits 3, its Wilson interval printed beside it (default: off)")
+    je.add_argument("--suspect-at", type=_unit_float, default=None, metavar="FLOAT",
+                    help="flag (exit 0) a judge whose agreement is at or above this as SUSPECT — "
+                         "overfit or sycophantic labels (default: 1.0 when --min-agreement is set)")
+    je.add_argument("--min-n", type=_positive_int, default=None, metavar="INT",
+                    help="refuse (exit 4) to judge agreement on fewer scored labels than this "
+                         "(default: off)")
     je.set_defaults(func=_cmd_judge_eval)
 
     cam = sub.add_parser("campaign",

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections import Counter
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -134,6 +135,23 @@ def set_fingerprint(entries: list[dict]) -> str:
                                    for e in entries]))
 
 
+def cohens_kappa(pairs: list[tuple[str, str]]) -> float | None:
+    """Cohen's kappa over (label, predicted) pairs, multi-class: (p_o - p_e) / (1 - p_e), where p_e is
+    the agreement the two marginals would produce by chance. Agreement alone flatters a judge that
+    leans on the majority class; kappa does not. None when there are no pairs or p_e == 1 (both
+    sides use one class, so kappa is 0/0) — undefined is reported n/a, never as a perfect 1.0."""
+    n = len(pairs)
+    if not n:
+        return None
+    labels = Counter(lab for lab, _ in pairs)
+    preds = Counter(pred for _, pred in pairs)
+    observed = sum(lab == pred for lab, pred in pairs) / n
+    chance = sum(labels[c] * preds[c] for c in labels) / (n * n)
+    if chance >= 1.0:
+        return None
+    return (observed - chance) / (1.0 - chance)
+
+
 def _rate(k: int, n: int) -> dict:
     lo, hi = wilson_interval(k, n) if n else (0.0, 1.0)
     return {"value": (k / n) if n else None, "lo": lo, "hi": hi, "k": k, "n": n}
@@ -180,6 +198,7 @@ def evaluate(judge_name: str, entries: list[dict], *, judge_fn: Callable[[dict],
     agree = fp = fn = unresolved = 0
     positives = negatives = 0
     disagreements: list[dict] = []
+    pairs: list[tuple[str, str]] = []     # (label, predicted): the confusion kappa is computed over
     for e in scored:
         pred = judge_fn(e)
         label_pos = e["label"] in POSITIVE_LABELS
@@ -190,7 +209,15 @@ def evaluate(judge_name: str, entries: list[dict], *, judge_fn: Callable[[dict],
         negatives += not label_pos
         if pred == NEEDS_REVIEW:
             unresolved += 1
-        exact = (pred_pos == label_pos) if e["kind"] == "prompt-leak" else (pred == e["label"])
+        if e["kind"] == "prompt-leak":
+            exact = pred_pos == label_pos
+            # A prompt-leak prediction is scored as a binary, so it is mapped onto the label's own
+            # vocabulary: the confusion's diagonal then counts exactly what `agreement` does.
+            scored_pred = "leaked" if pred_pos else "held"
+        else:
+            exact = pred == e["label"]
+            scored_pred = pred
+        pairs.append((e["label"], scored_pred))
         if exact:
             agree += 1
         else:
@@ -224,6 +251,8 @@ def evaluate(judge_name: str, entries: list[dict], *, judge_fn: Callable[[dict],
         "positives_by_kind": positives_by_kind, "positives_scored_by_kind": positives_with_body,
         "positive_class_reachable": reachable,
         "agreement": _rate(agree, len(scored)),
+        # Reported, never gated: chance-corrected agreement over the label x predicted confusion.
+        "kappa": cohens_kappa(pairs),
         "fpr": _rate(fp, negatives) if reachable else None,
         "fnr": _rate(fn, positives) if reachable else None,
         "unresolved_rate": _rate(unresolved, len(scored)), "disagreements": disagreements,
