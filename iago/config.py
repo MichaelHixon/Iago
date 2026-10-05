@@ -78,6 +78,15 @@ DEFAULT_AGENT_STEPS = 6
 DEFAULT_AGENT_GEN_TIMEOUT = 120.0  # seconds, per ollama.chat call
 DEFAULT_AGENT_NUM_PREDICT = 1024  # max tokens per generation (ollama `num_predict`)
 
+# The same two bounds for the single-turn target (OllamaTarget: the attack matrix, guards, the
+# adaptive attacker). A small model that falls into a repetition loop generates until a 128K
+# context fills, so without a cap one trial hung a run indefinitely (llama3.2:1b, 2026-10-05).
+# Looser than the agent bounds: a real bypass (a full phishing email or article) is long, and a
+# 30B model is slow (the timeout bounds load + prefill + decode with streaming off). A reply
+# stopped at the cap is still judged, and the row is flagged `truncated`.
+DEFAULT_TARGET_GEN_TIMEOUT = 600.0  # seconds, per ollama.chat call
+DEFAULT_TARGET_NUM_PREDICT = 2048  # max tokens per generation
+
 # Adaptive dialogue-level attacker (CoP/AJAR): the hard cap on turns per adaptive
 # conversation. Anti-runaway — a search that never lands stops here and is recorded
 # as `held`. Enough turns to open a frame and adapt a few times off the refusal shape.

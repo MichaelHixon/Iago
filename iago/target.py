@@ -11,7 +11,7 @@ import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 
-from .config import DEFAULT_MODEL
+from .config import DEFAULT_MODEL, DEFAULT_TARGET_GEN_TIMEOUT, DEFAULT_TARGET_NUM_PREDICT
 
 
 class Target(ABC):
@@ -70,21 +70,55 @@ def sampling_gap(target: object, *, temperature: float, seed: int) -> list[str]:
     return dropped
 
 
+class TruncatedReply(str):
+    """A reply the target stopped at ITS OWN token cap. It is judged as written (a capped reply
+    is still long enough to show compliance), and the runner flags the row `truncated`, so a
+    reader can see which verdicts rest on cut-off text. A cap the caller asked for (the
+    determinism probe's 160 tokens) is not a truncation and is never flagged."""
+
+
+def _field(response: object, name: str):
+    """Read `name` from an ollama ChatResponse object or a plain dict."""
+    value = getattr(response, name, None)
+    if value is None and isinstance(response, dict):
+        value = response.get(name)
+    return value
+
+
+def generation_bounds(target: object) -> dict | None:
+    """The per-call bounds of `target` (through guard wrappers, via `.inner`), or None for a
+    backend without them, so a manifest records which cap and timeout a run was fired under."""
+    while target is not None:
+        if hasattr(target, "num_predict"):
+            return {"target_num_predict": target.num_predict, "target_gen_timeout": target.timeout}
+        target = getattr(target, "inner", None)
+    return None
+
+
 class OllamaTarget(Target):
-    """A local model served by Ollama."""
+    """A local model served by Ollama.
+
+    Every call is bounded (the agent seam's ISC-30 pattern): `timeout` is the ollama client's
+    read timeout (it raises, and the runner records the trial as an error), and `num_predict`
+    caps tokens unless the caller's options set their own. A reply stopped at that default cap
+    comes back as a TruncatedReply. `timeout <= 0` disables the wall-clock bound.
+    """
 
     is_local = True
 
-    def __init__(self, model: str = DEFAULT_MODEL) -> None:
+    def __init__(
+        self,
+        model: str = DEFAULT_MODEL,
+        *,
+        timeout: float = DEFAULT_TARGET_GEN_TIMEOUT,
+        num_predict: int = DEFAULT_TARGET_NUM_PREDICT,
+    ) -> None:
         self.model = model
         self.name = f"ollama:{model}"
+        self.timeout = None if timeout is None or timeout <= 0 else timeout
+        self.num_predict = num_predict
 
-    def generate(
-        self,
-        prompt: str,
-        system: str | None = None,
-        options: dict | None = None,
-    ) -> str:
+    def _chat(self, messages: list[dict], options: dict | None, what: str) -> str:
         try:
             import ollama
         except ImportError as exc:  # pragma: no cover - environment guard
@@ -92,40 +126,43 @@ class OllamaTarget(Target):
                 "The 'ollama' package is not installed. Run: uv add ollama"
             ) from exc
 
-        messages: list[dict[str, str]] = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
-
+        caller_cap = "num_predict" in (options or {})
+        opts = dict(options or {})
+        opts.setdefault("num_predict", self.num_predict)  # caller override wins
         try:
-            response = ollama.chat(
-                model=self.model,
-                messages=messages,
-                options=options or {},
-            )
+            client = ollama.Client() if self.timeout is None else ollama.Client(timeout=self.timeout)
+            response = client.chat(model=self.model, messages=messages, options=opts)
         except Exception as exc:
-            raise RuntimeError(
-                f"Ollama request failed (is the daemon running and '{self.model}' pulled?): {exc}"
-            ) from exc
+            raise RuntimeError(f"{what} (gen timeout={self.timeout}s): {exc}") from exc
 
         # ollama returns a ChatResponse OBJECT (attribute access), older/dict paths
         # use item access. Support both, then fail loudly only if truly empty.
         content = _extract_content(response)
         if not content:
             raise RuntimeError(f"Ollama returned no content: {response!r}")
+        if _field(response, "done_reason") == "length" and not caller_cap:
+            print(f"  WARNING: {self.name} stopped at its {self.num_predict}-token cap; the reply "
+                  "is judged as cut off and the row is flagged truncated.", file=sys.stderr)
+            return TruncatedReply(content)
         return content
+
+    def generate(
+        self,
+        prompt: str,
+        system: str | None = None,
+        options: dict | None = None,
+    ) -> str:
+        messages: list[dict[str, str]] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        return self._chat(
+            messages, options,
+            f"Ollama request failed (is the daemon running and '{self.model}' pulled?)",
+        )
 
     def chat(self, messages: list[dict], options: dict | None = None) -> str:
-        import ollama
-
-        try:
-            response = ollama.chat(model=self.model, messages=messages, options=options or {})
-        except Exception as exc:
-            raise RuntimeError(f"Ollama chat failed: {exc}") from exc
-        content = _extract_content(response)
-        if not content:
-            raise RuntimeError(f"Ollama returned no content: {response!r}")
-        return content
+        return self._chat(messages, options, "Ollama chat failed")
 
 
 def _extract_content(response: object) -> str | None:
