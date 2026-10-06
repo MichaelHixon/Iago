@@ -89,7 +89,7 @@ def generation_bounds(target: object) -> dict | None:
     """The per-call bounds of `target` (through guard wrappers, via `.inner`), or None for a
     backend without them, so a manifest records which cap and timeout a run was fired under."""
     while target is not None:
-        if hasattr(target, "num_predict"):
+        if isinstance(target, OllamaTarget):  # the one backend with configured cap/timeout attributes
             return {"target_num_predict": target.num_predict, "target_gen_timeout": target.timeout}
         target = getattr(target, "inner", None)
     return None
