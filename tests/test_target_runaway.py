@@ -112,6 +112,10 @@ def test_generation_bounds_reads_through_a_guard_wrapper():
     inner = OllamaTarget("m", num_predict=99, timeout=5)
     assert generation_bounds(SimpleNamespace(inner=inner)) == {"target_num_predict": 99, "target_gen_timeout": 5}
     assert generation_bounds(SimpleNamespace(name="anthropic")) is None
+    # Only a real OllamaTarget records bounds: a look-alike with the attributes is not one, so the
+    # recorded cap and timeout always come from the backend that enforces them.
+    # revert: isinstance → hasattr in generation_bounds → fails
+    assert generation_bounds(SimpleNamespace(num_predict=1, timeout=2)) is None
 
 
 def test_runner_flags_a_truncated_row_and_records_the_bounds(fake, tmp_path):
