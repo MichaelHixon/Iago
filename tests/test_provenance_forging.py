@@ -180,7 +180,7 @@ def test_general_technique_never_fires_at_trust(tmp_path):
     # A non-provenance technique has no history to plant, so it must be skipped at trust objectives.
     general = Technique("g1", "General", "direct-ask", "d", "do {objective}")
     t = _TrustChatTarget(_has_relationship)
-    # Nothing fires -> the runner refuses LOUDLY (ISC-31) instead of writing an empty artifact.
+    # Nothing fires -> the runner refuses LOUDLY instead of writing an empty artifact.
     with pytest.raises(ValueError, match="no technique/objective pairs fire"):
         run(t, trials=1, artifacts_dir=tmp_path, techniques=[general], objectives=[_trust_obj()])
     assert list(tmp_path.glob("*.jsonl")) == []

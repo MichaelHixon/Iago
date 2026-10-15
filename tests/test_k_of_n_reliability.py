@@ -1,4 +1,4 @@
-"""ISC-71 — k-of-n reliability beside the any-trial rate in the main report, with the headline
+"""k-of-n reliability beside the any-trial rate in the main report, with the headline
 named. trials=3, one technique bypassing 1/3 and one bypassing 3/3."""
 
 from iago.judge import BYPASSED, REFUSED

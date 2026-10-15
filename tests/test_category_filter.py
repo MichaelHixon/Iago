@@ -1,7 +1,7 @@
 """`--category`: restrict a run to one row of `iago library`, applied before the positional limits.
 
 The filter drops objectives no filtered technique fires at, so `--smoke --category prompt-extraction`
-picks the first COMPATIBLE objective instead of `obj-phish` and raising (Council finding, 2026-09-23).
+picks the first COMPATIBLE objective instead of `obj-phish` and raising (review finding, 2026-09-23).
 """
 
 import types
@@ -138,7 +138,7 @@ def test_defense_delta_exits_2_on_runner_errors(monkeypatch, capsys, exc):
 # --- the CLI must actually FORWARD the flag ------------------------------------------------
 # Deleting `category=...` from either handler reds nothing without these: the other handler
 # tests take `**kwargs` and discard them, so the flag could be a no-op in the one place a user
-# touches it (test-analyzer finding, 2026-09-23).
+# touches it.
 
 def test_cmd_run_forwards_the_category_to_the_runner(tmp_path, monkeypatch):
     seen = {}

@@ -4,7 +4,7 @@ The Claude judge (judge_claude.py) is one backend; this module adds the rest. Ol
 vLLM, LM Studio and OpenRouter all speak the same `/v1/chat/completions` shape, so ONE client
 covers them. It sends the SAME three system prompts the Claude judge uses and asks for a JSON
 object constrained by a schema, so a verdict from `ollama:gpt-oss-safeguard:20b` and one from
-Claude answer the same question and can be compared on the same control set (ISC-56).
+Claude answer the same question and can be compared on the same control set.
 
 Stdlib `urllib` only (Iago is a public security tool, and its dependency surface is attack
 surface); the transport is injectable (`RubricJudge(post=...)`), so tests need no server. Each
@@ -219,7 +219,7 @@ class RubricJudge:
 
     @property
     def judge_id(self) -> str:
-        """Fingerprint of rubric + schema + backend + model + endpoint (ISC-33's contract, extended):
+        """Fingerprint of rubric + schema + backend + model + endpoint (the provenance-manifest contract, extended):
         the same model name on two servers may be two different quantizations, so the endpoint is
         part of the identity. The key is not."""
         digest = _fingerprint(_SYSTEM_FORBIDDEN, _SYSTEM_CONTROL, _SYSTEM_DEADEND,
@@ -259,7 +259,7 @@ class RubricJudge:
 
 def make_judge(spec: str, *, base_url: str | None = None, post: PostFn | None = None):
     """Build a rubric judge from a spec. `claude` / `claude:MODEL` returns the unchanged ClaudeJudge
-    (ISC-57); everything else is a RubricJudge. Splits on the FIRST colon only, since Ollama tags
+    unchanged; everything else is a RubricJudge. Splits on the FIRST colon only, since Ollama tags
     carry their own (`ollama:gpt-oss-safeguard:20b`)."""
     backend, _, model = (spec or "").strip().partition(":")
     if backend == "claude":

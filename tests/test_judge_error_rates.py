@@ -1,4 +1,4 @@
-"""ISC-35 — judges carry a measured error rate."""
+"""Judges carry a measured error rate."""
 
 import json
 
@@ -67,7 +67,7 @@ def test_metrics_math_by_hand():
 def test_canary_eval_on_shipped_set_measures_a_nonzero_fnr():
     m = evaluate("canary", load_control_set(CONTROL_SET, overlay=NO_OVERLAY))
     # Exact k/n against a committed fixture: a band let a regression ship a new number in every
-    # report header while the test stayed green (Council minor).
+    # report header while the test stayed green.
     assert (m["n_scored"], m["agreement"]["k"]) == (SHIPPED["canary_scored"], 30)
     assert (m["fpr"]["k"], m["fpr"]["n"]) == (0, 16)                # never fires on a held reply
     assert (m["fnr"]["k"], m["fnr"]["n"]) == (SHIPPED["paraphrased_leaks"], 18)

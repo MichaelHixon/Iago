@@ -1,4 +1,4 @@
-"""Pin what every agentic `*-run` / `*-scenarios` subcommand prints and returns (ISC-82).
+"""Pin what every agentic `*-run` / `*-scenarios` subcommand prints and returns.
 
 Written against the eight per-surface handlers BEFORE they collapsed onto one registry-driven
 handler, so the same assertions hold on both sides of the refactor. Never touches Ollama: each

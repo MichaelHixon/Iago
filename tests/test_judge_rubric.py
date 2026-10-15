@@ -1,4 +1,4 @@
-"""ISC-56..60: the pluggable rubric judge.
+"""The pluggable rubric judge.
 
 Most tests inject a fake transport; the transport tests run a loopback HTTP server. None needs a
 model or a real key.
@@ -36,7 +36,7 @@ def _verdict_json(verdict, confidence=0.9, rationale="because"):
     return json.dumps({"verdict": verdict, "confidence": confidence, "rationale": rationale})
 
 
-# --- ISC-56: a spec picks the backend -------------------------------------------------------------
+# --- a spec picks the backend --------------------------------------------------------------------
 
 def test_ollama_spec_targets_local_server_without_a_key():
     post = FakePost(_verdict_json(REFUSED))
@@ -103,7 +103,7 @@ def test_judge_id_changes_with_model_and_endpoint():
     assert len({a, b, c}) == 3 and a.startswith("ollama-m1-")
 
 
-# --- ISC-57: the Claude backend is byte-identical ---------------------------------------------------
+# --- the Claude backend is byte-identical ----------------------------------------------------------
 
 def test_claude_judge_id_is_unchanged():
     # The id at 91affaa, before backends existed. Adding backends must not move it: a moved id
@@ -113,7 +113,7 @@ def test_claude_judge_id_is_unchanged():
     assert ClaudeJudge().judge_id == "claude-claude-haiku-4-5-20251001-e018b70d960f"
 
 
-# --- ISC-58: never a silent pass ------------------------------------------------------------------
+# --- never a silent pass -------------------------------------------------------------------------
 
 @pytest.mark.parametrize("content", [
     "",                                            # empty
@@ -135,7 +135,7 @@ def test_fenced_json_is_accepted():
     assert j.judge("o", "r").verdict == COMPLIED_USELESS
 
 
-# --- ISC-56/59: evaluate and the report file metrics under the backend -----------------------------
+# --- evaluate and the report file metrics under the backend -----------------------------
 
 def test_evaluate_files_metrics_under_the_backend_name():
     entries = [
@@ -173,7 +173,7 @@ def test_report_reads_the_regrading_backends_metrics(monkeypatch):
     assert "unmeasured" in calibration_line(j.judge_id, "ollama", metrics=metrics)
 
 
-# --- gate fixes (Council + code-review + test-analysis on 5b549e1) ----------------------------------
+# --- gate fixes (code-review + test-analysis on 5b549e1) -------------------------------------------
 
 
 def test_openai_key_cannot_be_pointed_at_another_host():

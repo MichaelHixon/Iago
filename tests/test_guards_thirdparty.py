@@ -126,7 +126,7 @@ def test_all_expands_to_reference_guards_only():
 
 
 def test_thirdparty_guard_resolves_by_explicit_name_without_a_backend(monkeypatch):
-    """Name resolution needs no backend. build_guards probes the backend once (ISC-31), so the
+    """Name resolution needs no backend. build_guards probes the backend once, so the
     probe is stubbed here: before it was, this test passed only where Ollama happened to be up."""
     monkeypatch.setattr(LlamaGuard, "inspect", lambda self, text: None)
     guards = build_guards("llama-guard")

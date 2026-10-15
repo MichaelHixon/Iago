@@ -9,7 +9,7 @@ The gate refuses to judge rather than pass when a pass would not mean anything: 
 any trial not adjudicated by the rubric judge (the heuristic never assigns BYPASSED, so an
 unregraded run would always pass); a baseline category the current run no longer measures; two
 artifacts scored differently, offline judge or rubric fingerprint, where the delta would measure
-the judge rather than the model (ISC-33); or two artifacts that fired different technique
+the judge rather than the model; or two artifacts that fired different technique
 libraries (`technique_library_sha256`), where the delta would measure the attack text. A legacy
 manifest without the judge_id or the library hash is reported as unknown — never counted as a
 match (`artifacts.fingerprint_status`, the policy `compare` and `delta` share).

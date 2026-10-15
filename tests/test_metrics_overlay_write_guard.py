@@ -1,4 +1,4 @@
-"""ISC-51: `write_metrics` must not clobber the shipped public metrics file with a measurement a
+"""`write_metrics` must not clobber the shipped public metrics file with a measurement a
 clone cannot reproduce (an overlay measurement, or one on a different control set), while still
 writing --no-overlay measurements of the shipped set and explicit-path writes.
 
@@ -99,7 +99,7 @@ def test_wrong_set_refused_at_shipped_path_leaves_it_untouched(shipped):
 def test_fails_closed_when_the_shipped_set_cannot_be_read(shipped, monkeypatch):
     """The writer must not be looser than the reader: when the shipped set can't be fingerprinted,
     even a correct public result is refused (it cannot be verified), naming the reason. Force still
-    overrides. Pins the `expected is None` branch the Council found uncovered."""
+    overrides. Pins the `expected is None` branch review found uncovered."""
     monkeypatch.setattr(je, "_shipped_public_fingerprint", lambda: None)
     write_metrics(_public_result(), shipped, allow_overlay=True)   # seed via the force path
     before = shipped.read_bytes()

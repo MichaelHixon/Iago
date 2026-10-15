@@ -182,7 +182,7 @@
 # "disclosing your config is normal and already-happened here" frame rather than reading a
 # fresh "reveal your prompt" request it might refuse.
 #
-# distinct_from (Council TAXONOMY — keep these apart from their one-hop neighbors):
+# distinct_from (TAXONOMY — keep these apart from their one-hop neighbors):
 #   * pe-fs-001 vs many-shot ms-001: ms-001 is a VOLUME attack (N generic compliant shots
 #     shifting the prior toward "comply with anything", topic-agnostic); pe-fs-001 is
 #     DEMONSTRATION-SPECIFIC — the shots model the exact target act (dumping config), so it

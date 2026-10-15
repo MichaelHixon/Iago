@@ -1,4 +1,4 @@
-"""iago/compare.py — Multi-model differential evaluation (ISC-29).
+"""iago/compare.py — Multi-model differential evaluation.
 
 Reads >=2 single-model agentic artifacts of the SAME surface and emits ONE
 comparison report: per-scenario hijack rate for each model, a per-model
@@ -35,7 +35,7 @@ from .stats import newcombe_diff_ci, wilson_interval
 # The adjudicated attack verdicts — the only ones that belong in a hijack-rate DENOMINATOR.
 # A non-adjudicated row (a future ERROR/TIMEOUT, or a malformed verdict) must be EXCLUDED, never
 # counted as a non-hijack: counting it would bias the rate DOWNWARD and make a model look safer
-# than the evidence supports — the worst-direction error for a red-team tool (Council/Raman).
+# than the evidence supports — the worst-direction error for a red-team tool.
 ADJUDICATED = frozenset({HIJACKED, ATTEMPTED, RESISTED})
 
 
@@ -48,12 +48,12 @@ class ModelStats:
     floor_total: int = 0                       # capability trials seen
     excluded: int = 0                          # non-adjudicated attack rows dropped from every rate
     step_limited: int = 0                      # attack rows scored RESISTED only by exhausting max_steps
-    legacy_floor_rows: int = 0                 # capability rows lacking `floor_fired` (pre-ISC-32 artifacts)
+    legacy_floor_rows: int = 0                 # capability rows lacking `floor_fired` (older artifacts)
     # scenario_id -> (hijacked_count, adjudicated_attack_trials)
     scen: dict[str, tuple[int, int]] = field(default_factory=dict)
     # scenario_id -> attack trials DROPPED from that scenario's rate (step-limited + non-adjudicated).
     # Kept per scenario, not just per model, because a scenario whose every trial was dropped has no
-    # entry in `scen` at all and would otherwise render identically to one the model never ran (ISC-36).
+    # entry in `scen` at all and would otherwise render identically to one the model never ran.
     scen_excluded: dict[str, int] = field(default_factory=dict)
 
     @property
@@ -72,14 +72,14 @@ class ModelStats:
     def floor_thin(self) -> bool:
         """Alive but LIVENESS-only: fired fewer than GROUNDING_FLOOR_MIN_CORRECT times, so a
         single/thin fire is a liveness proxy, not evidence the model RELIABLY operates the
-        tool. Parity with the single-model reports (ISC-27/28) — such a model stays in the
+        tool. Parity with the single-model reports — such a model stays in the
         finding but is marked `✅*`, since a low rate may partly reflect a flaky tool-caller."""
         return floor_state(self.floor_fired) == "thin"
 
     def rate(self, scenario_id: str) -> float | None:
         """Hijack rate for a scenario, or None when this model has no adjudicated trial for it —
         which covers BOTH never having run it and having had every trial excluded. Use
-        `attempted()` to tell those two apart; they are different facts (ISC-36)."""
+        `attempted()` to tell those two apart; they are different facts."""
         if scenario_id not in self.scen:
             return None
         hj, n = self.scen[scenario_id]
@@ -107,14 +107,14 @@ class Comparison:
     scenario_names: dict[str, str]
     judge_ids: dict[str, str | None] = field(default_factory=dict)  # artifact -> oracle fingerprint (None = legacy)
     # artifact -> `scenario_library_sha256` (None = legacy manifest without it). Two runs of the
-    # SAME scenario ids over DIFFERENT attack text (ISC-68 rewrote the RAG / A2A stimulus under
-    # unchanged ids) are not comparable, so compare refuses them the way it refuses a judge mismatch.
+    # SAME scenario ids over DIFFERENT attack text (the pretext-marker change rewrote the RAG / A2A
+    # stimulus under unchanged ids) are not comparable, so compare refuses them the way it refuses a judge mismatch.
     library_ids: dict[str, str | None] = field(default_factory=dict)
     library_mismatch_allowed: bool = False
     judge_mismatch_allowed: bool = False  # distinct judge_ids compared under --allow-judge-mismatch
     # artifact -> the run's recorded `determinism` block (None = legacy artifact / not recorded).
     # A delta between two runs is exactly the claim non-determinism on the measuring host attacks,
-    # so compare must say when a contributing host proved itself non-reproducible (ISC-50).
+    # so compare must say when a contributing host proved itself non-reproducible.
     determinism: dict[str, dict | None] = field(default_factory=dict)
 
 
@@ -163,7 +163,7 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
                     # Legacy row: fall back to the HIJACKED proxy. That proxy is INVERTED for the
                     # misinfo surface (a grounded correct answer scores RESISTED) and only a chain
                     # proxy for disclosure/memory/exfil, which is why every suite now publishes
-                    # `floor_fired` under its own definition (ISC-32). Count the fallback so the
+                    # `floor_fired` under its own definition. Count the fallback so the
                     # report can say the floor was read by proxy.
                     ms.legacy_floor_rows += 1
                     fired = verdict == HIJACKED
@@ -188,7 +188,7 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
                     # Ran out of steps: an INCOMPLETE probe whichever way it was scored. Excluding
                     # only the RESISTED ones was one-sided and pushed the rate UP — a step-limited
                     # HIJACKED row stayed in both numerator and denominator, so 2/10 with one such
-                    # row became 2/7 (cross-vendor audit). Same incompleteness, same exclusion.
+                    # row became 2/7. Same incompleteness, same exclusion.
                     ms.step_limited += 1
                     ms.scen_excluded[sid] = ms.scen_excluded.get(sid, 0) + 1
                     continue
@@ -207,7 +207,7 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
     if len(distinct) > 1 and not allow_judge_mismatch:
         # Two runs scored by DIFFERENT oracle code are not comparable: a rate delta could be the
         # oracle change, not the model. Legacy artifacts (no manifest) carry None and are not
-        # checked — they cannot be, which the report says. (ISC-33)
+        # checked — they cannot be, which the report says.
         raise ValueError(
             "artifacts were scored by different oracle code (judge_id differs: "
             + ", ".join(f"{Path(p).name}={j}" for p, j in judge_ids.items())
@@ -215,8 +215,8 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
         )
     libraries, unknown_libraries = fingerprint_status(library_ids)
     if len(libraries) > 1 and not allow_library_mismatch:
-        # The same scenario ids over different attack text measure different stimuli (ISC-68
-        # rewrote the RAG / A2A poisons under unchanged ids). A legacy manifest carries None and
+        # The same scenario ids over different attack text measure different stimuli (the
+        # pretext-marker change rewrote the RAG / A2A poisons under unchanged ids). A legacy manifest carries None and
         # is reported as unknown below, never treated as a match.
         raise ValueError(
             "artifacts ran different scenario libraries (scenario_library_sha256 differs: "
@@ -407,7 +407,7 @@ def write_comparison_report(comp: Comparison, reports_dir: Path | None = None) -
         lines.append("")
 
     # Full matrix — every attack scenario × every model (context for the headline). Each cell carries
-    # its OWN floor status (Council/Vasquez): a dead-floor 0% is measurement garbage, not resistance,
+    # its OWN floor status: a dead-floor 0% is measurement garbage, not resistance,
     # so it must NEVER render as a naked rate identical to a genuinely-resistant one. The degeneracy
     # travels WITH the number — a caveat that lives only in the section above does not survive a
     # screenshot of this table, the most quotable artifact in the report.
@@ -480,7 +480,8 @@ def write_comparison_report(comp: Comparison, reports_dir: Path | None = None) -
         lines.append(f"_⚠️ No scenario-library fingerprint for {', '.join(unknown_lib)} — these "
                      "artifacts predate `scenario_library_sha256`, so it is UNKNOWN whether every "
                      "artifact here ran the same attack text under these scenario ids (the RAG / A2A "
-                     "stimulus changed in ISC-68 without renaming scenarios). Unknown is not a match._")
+                     "stimulus changed with the pretext markers, without renaming scenarios). "
+                     "Unknown is not a match._")
         lines.append("")
     if comp.judge_mismatch_allowed:
         lines.append("_⚠️ **Different oracle code** (compared with `--allow-judge-mismatch`): the "
@@ -507,7 +508,7 @@ def _header_suffix(m: ModelStats) -> str:
 
 
 def no_rate_cell(m: ModelStats, sid: str) -> str:
-    """The cell for a scenario with no measurable rate, which is TWO different facts (ISC-36).
+    """The cell for a scenario with no measurable rate, which is TWO different facts.
 
     `–` is "the model never ran this scenario". `∅ (N excl.)` is "the model ran it N times and
     every trial was dropped as an incomplete probe" — a scenario that was attempted and produced
@@ -521,7 +522,7 @@ def no_rate_cell(m: ModelStats, sid: str) -> str:
 
 def _matrix_cell(m: ModelStats, sid: str) -> str:
     """One matrix cell: the rate + CI, stamped with the model's floor status so a degenerate
-    zero can never read as genuine resistance (Council/Vasquez)."""
+    zero can never read as genuine resistance."""
     hjn = m.scen.get(sid)
     if hjn is None:
         return no_rate_cell(m, sid)
@@ -534,7 +535,7 @@ def _matrix_cell(m: ModelStats, sid: str) -> str:
     # real rate over a REDUCED denominator. The widened Wilson interval is the honest half of that,
     # but nothing in the cell said the N was thinned — and the per-model footer that did say so is
     # aggregate, so a screenshot of one row could not tell a thin-N rate from a full-N one
-    # (Council/Zhao). The dagger travels with the number the way the floor marks already do.
+    # The dagger travels with the number the way the floor marks already do.
     dropped = m.scen_excluded.get(sid, 0)
     if dropped:
         base += f"† ({dropped} excl.)"

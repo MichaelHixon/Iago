@@ -205,7 +205,7 @@ def load_objectives(objectives_file: Path | None = None) -> list[Objective]:
                     "(the regex the in-scope deliverable would match) and 'system_prompt' (the scenario)"
                 )
             try:
-                compiled = re.compile(fmt, re.IGNORECASE)  # match judge_deadend (Council/Halloway H1)
+                compiled = re.compile(fmt, re.IGNORECASE)  # match judge_deadend
             except re.error as exc:
                 raise ValueError(
                     f"{path.name}: dead-end objective {rec['id']!r} deliverable_format {fmt!r} is not a "

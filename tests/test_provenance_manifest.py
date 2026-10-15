@@ -1,4 +1,4 @@
-"""ISC-33 — provenance manifest + schema on every artifact; readers refuse the wrong surface."""
+"""Provenance manifest + schema on every artifact; readers refuse the wrong surface."""
 
 import json
 
@@ -58,7 +58,7 @@ def test_legacy_artifact_without_manifest_still_loads(tmp_path):
 def test_report_refuses_agent_artifact_loudly(tmp_path):
     """Asserted on write_report / write_html_report / write_log, not just build_report: the guard
     originally sat only on the build_* seam, which no CLI path reaches first, so the headline
-    KeyError this claim is named for still fired (Council blocker)."""
+    KeyError this test is named for still fired."""
     from iago.report import write_html_report, write_log, write_report
 
     agent_rows = [{"kind": "attack", "scenario_id": "s", "verdict": "resisted", "model": "m"}]

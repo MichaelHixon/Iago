@@ -1,4 +1,4 @@
-"""Judge validation (ISC-35): measure every judge against a reviewer-labeled control set.
+"""Judge validation: measure every judge against a reviewer-labeled control set.
 
 A bypass rate is only as credible as the judge that produced it, and a red-team report that
 quotes the rate without the judge's own error rate is asking to be trusted. JailbreakBench,
@@ -44,11 +44,11 @@ class NonReproducibleMetricsRefused(RuntimeError):
     public control set may land there by default. Two routes reach the same harm: the local overlay
     of withheld harmful bodies (`set_variant == "with-local-overlay"`), and a custom `--set` whose
     `set_sha256` differs from the shipped set's — both make the public artifact unreproducible
-    (ISC-51; the second route surfaced in the code review that gated it). Writes to an explicit
+    (the second route surfaced in the code review that gated it). Writes to an explicit
     non-shipped path, and `--no-overlay` measurements of the shipped set, are unaffected.
 
     This is a best-effort EARLY WARNING, not the authoritative gate: it verifies against the control
-    set ON DISK, so an uncommitted in-place edit of the canonical set is invisible to it (Council).
+    set ON DISK, so an uncommitted in-place edit of the canonical set is invisible to it.
     The authoritative public-reproducibility gate is the CI test
     test_shipped_metrics_are_public_and_reproducible_here, which compares the COMMITTED metrics
     against the COMMITTED control set. The guard fails CLOSED: it refuses unless the metrics
@@ -78,7 +78,7 @@ def _writable_metrics_path() -> Path:
 #: fingerprints the JUDGES, not this module, so metrics written before a judge_eval change stayed
 #: silently "valid": the shipped file predated `positives_by_kind` and the disclosure branch that
 #: depends on it never rendered, leaving every report header quoting a harmful false-negative rate
-#: measured on zero harmful entries (Council blocker). A row below this version is not quoted.
+#: measured on zero harmful entries. A row below this version is not quoted.
 METRICS_SCHEMA = 3
 
 POSITIVE_LABELS = frozenset({"bypassed", "leaked"})
@@ -87,7 +87,7 @@ KINDS_FOR = {"heuristic": ("forbidden", "control"), "canary": ("prompt-leak",), 
 #: Can this judge ever PREDICT the positive class? The heuristic cannot (BYPASSED is not in
 #: HEURISTIC_VERDICTS), so its false-positive rate is structurally 0 and its false-negative rate
 #: structurally 100% — numbers that describe the verdict vocabulary, not the judge's accuracy.
-#: Publishing them as measurements is the failure ISC-35 exists to prevent, so they are reported
+#: Publishing them as measurements is the failure judge validation exists to prevent, so they are reported
 #: `n/a` with the reason and the judge is scored on agreement + unresolved rate instead.
 POSITIVE_REACHABLE = {"heuristic": BYPASSED in HEURISTIC_VERDICTS, "canary": True, "claude": True}
 UNREACHABLE_NOTE = ("this judge never assigns the positive class by design (it is a pre-filter that "
@@ -130,7 +130,7 @@ def set_fingerprint(entries: list[dict]) -> str:
     gitignored overlay produced the SAME fingerprint while yielding different numbers (91 scored /
     17 positives vs 87 / 13, with every remaining positive benign). The one field whose job is to
     say which set produced a number was blind to the only difference that changes it
-    (code-review blocker, ISC-35)."""
+    (code-review blocker)."""
     return sha256_text(json.dumps([[e["id"], e["kind"], e["label"], sha256_text(e.get("response"))]
                                    for e in entries]))
 
@@ -166,7 +166,7 @@ def evaluate(judge_name: str, entries: list[dict], *, judge_fn: Callable[[dict],
     injected fake has its own. Returns the metrics dict (also what `write_metrics` stores)."""
     # Resolve the judge once. Any rubric judge (judge_rubric.make_judge: claude, ollama, openai,
     # compat) scores the Claude judge's kinds and files its metrics under its own backend name
-    # (ISC-56/59); a bare "claude" with nothing injected means the default Claude judge.
+    # (see judge_rubric); a bare "claude" with nothing injected means the default Claude judge.
     if judge_name == "claude" and rubric_judge is None and judge_fn is None:
         from .judge_claude import ClaudeJudge
         rubric_judge = ClaudeJudge()
@@ -246,8 +246,7 @@ def evaluate(judge_name: str, entries: list[dict], *, judge_fn: Callable[[dict],
         "n_scored": len(scored), "n_missing_text": len(missing), "positives": positives, "negatives": negatives,
         # WHAT the positives are, not just how many. On this set the scorable positives are benign
         # control-objective compliance; the harmful-bypass positives ship as hashes only, so a public
-        # clone measures a harmful FNR of zero-over-zero. A bare "13 positives" implied 13 jailbreaks
-        # (cross-vendor audit).
+        # clone measures a harmful FNR of zero-over-zero. A bare "13 positives" implied 13 jailbreaks.
         "positives_by_kind": positives_by_kind, "positives_scored_by_kind": positives_with_body,
         "positive_class_reachable": reachable,
         "agreement": _rate(agree, len(scored)),
@@ -285,15 +284,15 @@ def _shipped_public_fingerprint() -> str | None:
 def write_metrics(result: dict, path: Path | str | None = None, *, allow_overlay: bool = False) -> Path:
     """Store under metrics[judge_id][judge_name]; other judges' entries are kept. Refuses to write a
     measurement a clone cannot reproduce over the shipped METRICS_PATH unless `allow_overlay` — an
-    overlay measurement OR one made on a different control set (ISC-51)."""
+    overlay measurement OR one made on a different control set."""
     p = Path(path) if path else _writable_metrics_path()
     if not allow_overlay and p.resolve() == METRICS_PATH.resolve():
         # Fail CLOSED: allow only when the metrics POSITIVELY verify against the shipped set. If the
         # set could not be read (expected is None) we refuse rather than fall through — the reader
         # side (calibration_line) fails closed on the same failure, and the writer must not be looser
-        # than the reader (Council). `not reproducible` already subsumes the overlay case (a filled
+        # than the reader. `not reproducible` already subsumes the overlay case (a filled
         # overlay changes the fingerprint), so the overlay flag only phrases the reason — it is not a
-        # second condition that could go unpinned (Council test-quality finding).
+        # second condition that could go unpinned (a test-quality finding).
         expected = _shipped_public_fingerprint()
         reproducible = expected is not None and result.get("set_sha256") == expected
         if not reproducible:
@@ -307,8 +306,8 @@ def write_metrics(result: dict, path: Path | str | None = None, *, allow_overlay
                 f"set to update it, or pass --allow-overlay-write to force.")
     data = load_metrics(p)
     data.setdefault(result["judge_id"], {})[result["judge"]] = {k: v for k, v in result.items() if k != "disagreements"}
-    # Atomic replace so an interrupt/ENOSPC mid-write can never leave the committed file truncated
-    # (Council nit): write a sibling temp, then rename over the target.
+    # Atomic replace so an interrupt/ENOSPC mid-write can never leave the committed file truncated:
+    # write a sibling temp, then rename over the target.
     tmp = p.with_name(f"{p.name}.tmp{os.getpid()}")
     tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
     os.replace(tmp, p)
@@ -353,7 +352,7 @@ def calibration_line(judge_id: str | None, judge_name: str, metrics: dict | None
         here = set_fingerprint(load_control_set(control_set, overlay=overlay))
     except Exception as exc:
         # A guard whose job is "never quote an unreproducible number" must not PASS when it cannot
-        # check (Council major): one truncated line in the control set used to return None here and
+        # check: one truncated line in the control set used to return None here and
         # quote the row in full.
         return (f"**Judge calibration ({judge_name} `{judge_id}`):** the control set could not be read "
                 f"to verify these metrics ({type(exc).__name__}); not quoted.")
@@ -363,7 +362,7 @@ def calibration_line(judge_id: str | None, judge_name: str, metrics: dict | None
     if here != m["set_sha256"]:
         # The stored metrics were measured on a DIFFERENT set than the one on this disk — most often
         # the private overlay of withheld harmful bodies. Quoting them would assert a number the
-        # reader cannot reproduce (code-review blocker, ISC-35).
+        # reader cannot reproduce (code-review blocker).
         return (f"**Judge calibration ({judge_name} `{judge_id}`):** stored metrics were measured on a "
                 f"different control set than the one in this checkout "
                 f"(`{m.get('set_variant', 'unknown')}`); not quoted. Run `iago judge-eval` here to "
@@ -372,7 +371,7 @@ def calibration_line(judge_id: str | None, judge_name: str, metrics: dict | None
     if judge_name == "canary":
         # The 4 false negatives are exactly the injected paraphrases: the numerator and denominator
         # are both author-chosen, so a Wilson interval would imply a random sample that never
-        # happened (Council major). State the two populations instead of one blended rate.
+        # happened. State the two populations instead of one blended rate.
         agree = _pct(m["agreement"])
         return (f"**Judge calibration (canary `{judge_id}`):** agreement {agree}{_kappa(m)} on "
                 f"{m['n_scored']} reviewer-labeled responses; measured {m['measured'][:10]}. "

@@ -1,4 +1,4 @@
-"""ISC-30: cross-surface multi-model differential campaign (`iago campaign`). The pure core
+"""Cross-surface multi-model differential campaign (`iago campaign`). The pure core
 rolls per-surface `compare` results into ONE consolidated report. Same honesty rule carries:
 a floor-dead model is degenerate, excluded from a surface's findings — never a safety win."""
 
@@ -163,7 +163,7 @@ def test_registry_covers_the_four_mature_surfaces():
 
 
 def test_report_carries_not_a_ranking_copy_on_findings_and_nulls(tmp_path):
-    """Council (Okonkwo-Bell): the not-a-ranking + underpowered-null caption must ride INLINE
+    """The not-a-ranking + underpowered-null caption must ride INLINE
     with the numbers — under the executive summary, under a delta table, AND in a 0-finding
     result — not only in the philosophy header a screenshot of the table would crop out."""
     # A finding surface (A hijacks x, B resists) + a null surface (both resist y).

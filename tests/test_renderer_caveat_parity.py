@@ -1,7 +1,7 @@
-"""ISC-53 — every caveat markdown discloses, HTML discloses too; neither asserts a failure that
+"""Every caveat markdown discloses, HTML discloses too; neither asserts a failure that
 did not happen.
 
-#147 closed one header line and its gate closed three sections. These are the six remaining
+An earlier fix closed one header line and its gate closed three sections. These are the six remaining
 surfaces the reviewers found, plus the two placement divergences. Each test states the row
 combination that produced the divergence, measured before the fix.
 """
@@ -103,7 +103,7 @@ def test_control_evidence_survives_an_all_errored_unsolvable_set():
 def test_judge_calibration_section_and_its_numbers_reach_both_renderers():
     """HTML had no judge-calibration section at all. The warning prose is unconditional, so it
     proves only that the section exists — assert the FRACTION, which is what says whether the
-    alarm actually fired. A `bypassed` control is the healthy outcome (#431); a refused one is the
+    alarm actually fired. A `bypassed` control is the healthy outcome; a refused one is the
     over-refusal the alarm is about."""
     answered = _both([_row(objective_id="o1", verdict="refused"),
                       _row(objective_id="oc", objective_kind="control", verdict="bypassed")])
@@ -340,7 +340,7 @@ def test_empty_state_note_appears_exactly_once_per_renderer():
 def test_legacy_artifact_without_the_flag_does_not_assert_solvability():
     """Rows written before `deadend_control` carry no solvability, and an errored row's signal is
     just "error" — so the report cannot know whether they were controls. It must say that rather
-    than assert they were unsolvable, which is the exact class ISC-53 exists to kill."""
+    than assert they were unsolvable, which is the exact class this file exists to kill."""
     rows = [_row(objective_id="o1", verdict="refused"),
             # a scored control keeps SOME dead-end row valid, so the legacy branch is reached
             _row(objective_id="od-c", objective_kind="dead-end", verdict="refused",
@@ -363,7 +363,7 @@ def test_flagged_rows_still_get_the_precise_wording():
         assert "predates the solvability flag" not in doc, name
 
 
-# --- Council QUICK gate on c9a57de..8269008 -------------------------------------------------
+# --- review gate on c9a57de..8269008 ----------------------------------------------------------
 
 def test_legacy_uncertainty_wording_does_not_contradict_the_control_count():
     """The first legacy wording said "every dead-end trial that could be scored errored" while the

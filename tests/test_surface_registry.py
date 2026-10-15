@@ -1,4 +1,4 @@
-"""ISC-82: one agentic surface registry, one run handler, one floor-keeping smoke slicer.
+"""One agentic surface registry, one run handler, one floor-keeping smoke slicer.
 
 `--smoke` on every `*-run` subcommand used to take a bare `scens[:1]` (misinfo alone kept a
 capability scenario). Every shipped library opens with an attack, so that slice dropped the

@@ -1,4 +1,4 @@
-"""ISC-75/76/80: `delta` checks the arms' fingerprints, gate/compare/delta share one fingerprint
+"""`delta` checks the arms' fingerprints, gate/compare/delta share one fingerprint
 policy, and the YAML loaders refuse an empty, null or wrong-shape file by name."""
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from iago.judge import BYPASSED, REFUSED
 from iago.objectives import load_objectives
 
 
-# --- ISC-76: the shared policy ----------------------------------------------------------------
+# --- the shared policy -----------------------------------------------------------------------
 def test_fingerprint_status_treats_a_missing_value_as_unknown_never_as_a_match():
     assert fingerprint_status({"a": "x", "b": "x"}) == ({"x"}, [])
     assert fingerprint_status({"a": "x", "b": "y"}) == ({"x", "y"}, [])
@@ -47,7 +47,7 @@ def _gate_artifact(path, judge_id, rubric="claude:m:r"):
 
 @pytest.mark.parametrize("cur_id,base_id", [("j1", None), (None, "j1"), (None, None)])
 def test_gate_notes_an_unknown_judge_id_instead_of_refusing_or_passing_it(tmp_path, cur_id, base_id):
-    """Before ISC-76 the gate refused a legacy (None) side against a stamped one and silently
+    """Before the shared policy the gate refused a legacy (None) side against a stamped one and silently
     matched two legacy sides; `compare` noted both. Now all three follow one policy.
     Revert check: restoring the tuple comparison `mine != theirs` reds the first two cases."""
     notes: list[str] = []
@@ -59,7 +59,7 @@ def test_gate_notes_an_unknown_judge_id_instead_of_refusing_or_passing_it(tmp_pa
     assert f"no judge_id in the {sides} manifest" in unknown[0], unknown[0]
 
 
-# --- ISC-75: delta refuses mismatched arms ----------------------------------------------------
+# --- delta refuses mismatched arms -----------------------------------------------------------
 def _delta_artifact(path, **manifest):
     rows = [
         {"technique_id": "t1", "technique_name": "n", "category": "role-play", "owasp": "LLM01",
@@ -109,7 +109,7 @@ def test_delta_names_an_unknown_fingerprint_and_is_silent_on_a_match(tmp_path, m
         assert "UNKNOWN" in report
 
 
-# --- ISC-80: loud YAML loaders ----------------------------------------------------------------
+# --- loud YAML loaders -----------------------------------------------------------------------
 LOADERS = {
     "objectives": load_objectives, "agent": load_scenarios, "privilege": load_privilege_scenarios,
     "memory": load_memory_scenarios, "misinfo": load_misinfo_scenarios,

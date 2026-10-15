@@ -1,4 +1,4 @@
-"""Byte-identity goldens for the report renderers (ISC-81).
+"""Byte-identity goldens for the report renderers.
 
 `build_report` / `build_html_report` each recomputed the same aggregates, and
 `write_privilege_report` / `write_toolabuse_report` were two near-identical bodies. Before either is
@@ -211,7 +211,7 @@ def _agent_undelivered(surface):
 
 
 def _agent_legacy(surface):
-    """Rows that predate `poison_ingested`: Delivered is n/a, never 0 (ISC-84). One unhijacked
+    """Rows that predate `poison_ingested`: Delivered is n/a, never 0. One unhijacked
     scenario (delivery unknown), one hijacked (a confirmed positive), one fully delivered."""
     _, _, live = _AGENT[surface][2]
     a = lambda *x, **k: _arow(surface, *x, **k)  # noqa: E731
@@ -226,7 +226,7 @@ def _agent_legacy(surface):
 
 
 def _agent_suite_golden(surface):
-    """The rows the ISC-73 suite goldens pin — a real runner's output shape."""
+    """The rows the suite goldens pin — a real runner's output shape."""
     lines = (GOLDEN_DIR / f"{surface}.jsonl").read_text().splitlines()
     return [json.loads(x) for x in lines[1:]]
 

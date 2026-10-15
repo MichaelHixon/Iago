@@ -1,4 +1,4 @@
-"""Artifact provenance + schema (ISC-33).
+"""Artifact provenance + schema.
 
 Every run artifact is a JSONL file whose FIRST line is a manifest record and whose remaining
 lines are rows. The manifest is the reproducibility record: what ran (iago version, git commit,
@@ -40,7 +40,7 @@ _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0", ""})
 
 def redact_host(value: str | None) -> str | None:
     """Sanitize OLLAMA_HOST for publication. Artifacts are shared, so the manifest must never carry
-    a URL-embedded credential or an internal hostname (cross-vendor audit): userinfo is always
+    a URL-embedded credential or an internal hostname: userinfo is always
     dropped, a loopback host is kept verbatim because it is the documented target, and anything
     else is recorded as non-local without naming it."""
     if not value:
@@ -199,8 +199,8 @@ def fingerprint_fields(obj) -> dict:
 
 def scenario_fingerprint(scenarios) -> str | None:
     """sha256 over the scenario objects a surface actually ran, so two agent runs whose manifests
-    otherwise match cannot be compared as equals while one used a locally edited scenario YAML
-    (cross-vendor audit). Dataclasses are serialized field-wise; anything unserializable falls back
+    otherwise match cannot be compared as equals while one used a locally edited scenario YAML.
+    Dataclasses are serialized field-wise; anything unserializable falls back
     to repr, which still changes when the content does."""
     from dataclasses import is_dataclass
 
@@ -226,7 +226,7 @@ def accelerator_info() -> dict:
 
     Bypass rates move with the kernel the backend picked (Metal vs CUDA vs CPU, and the chip's
     numeric paths), so for a model served on this host a manifest that names the chip is what
-    lets two runs be compared on equal footing (ISC-69). Two sources only, both file/libc reads:
+    lets two runs be compared on equal footing. Two sources only, both file/libc reads:
     the NVIDIA driver's `/proc` text on Linux, and `sysctlbyname("machdep.cpu.brand_string")`
     through ctypes on an arm64 Mac — never a child process (`nvidia-smi`, `system_profiler`) and
     never a socket, because provenance is collected on the agent surfaces that carry a
@@ -330,7 +330,7 @@ def write_manifest(fh: IO[str], manifest: dict) -> None:
 
 
 def trace_status(trace) -> str:
-    """The per-row completion status of an agent trace (ISC-69): "ok", "step_limit" (the loop
+    """The per-row completion status of an agent trace: "ok", "step_limit" (the loop
     exhausted `max_steps` — an incomplete probe, which `compare` already excludes) or
     "empty_final" (the loop ended on a turn with no tool call and no text). The old boolean flags
     stay on the row; this names the state in one field so a row can be filtered without
@@ -343,7 +343,7 @@ def trace_status(trace) -> str:
 
 
 def trace_provenance(trace, task: str | None, system_prompt: str | None) -> dict:
-    """Row-level provenance for an agent trial (ISC-69): completion status plus hashes of the
+    """Row-level provenance for an agent trial: completion status plus hashes of the
     task, the final reply and the system prompt the target was actually sent."""
     return {"status": trace_status(trace),
             "prompt_sha256": sha256_text(task),
@@ -433,7 +433,7 @@ def surface_of(row: dict) -> str:
     if "outcome" in row and "turns_used" in row:
         return "adaptive"
     if "kind" in row and "scenario_id" in row:
-        return "agent"  # a pre-ISC-33 agentic row of unknown surface
+        return "agent"  # a pre-schema agentic row of unknown surface
     return "unknown"
 
 
@@ -452,7 +452,7 @@ def require_surface(rows: list[dict], expected: str, *, reader: str) -> None:
         bad = {s for s in seen if s != expected}
     if bad:
         # The remedy is chosen by what the reader FOUND, not by what it wanted: keying it on
-        # `expected == "chatbot"` handed chatbot advice to every other surface (cross-vendor audit).
+        # `expected == "chatbot"` handed chatbot advice to every other surface.
         if "chatbot" in bad:
             remedy = "chatbot `run` artifacts are reported by `iago report`, not by this command"
         else:

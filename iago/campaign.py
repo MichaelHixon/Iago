@@ -1,10 +1,10 @@
-"""iago/campaign.py — Cross-surface multi-model differential campaign (ISC-30).
+"""iago/campaign.py — Cross-surface multi-model differential campaign.
 
-`iago compare` (ISC-29) answers "how do these models differ on ONE surface?". A
+`iago compare` answers "how do these models differ on ONE surface?". A
 campaign answers the whole-picture question — *what did we find across every surface?* — in a
 SINGLE artifact spanning every surface: *model A hijacks SSRF where B holds; model C
 fabricates CVEs where D declines*. It reuses `compare` per surface and rolls the
-per-surface differentials into one consolidated report. This is the ISC-29 vision's
+per-surface differentials into one consolidated report. This is the `compare` vision's
 capstone: the pile of per-surface reports collapses into one quotable finding.
 
 Two layers, mirroring `compare`'s discipline:
@@ -126,7 +126,7 @@ def _stats_by_model(comp: Comparison) -> dict[str, ModelStats]:
     return {m.model: m for m in comp.models}
 
 
-# Council (Okonkwo-Bell): a printed delta table is STRUCTURALLY a ranking, and no header
+# A printed delta table is STRUCTURALLY a ranking, and no header
 # disclaimer survives a screenshot of the table itself. This caption rides INLINE under every
 # delta table and every 0-finding result, so the not-a-ranking + underpowered-null truth travels
 # WITH the numbers a reader screenshots — absence of a differential is absence of evidence, not
@@ -259,14 +259,14 @@ def write_campaign_report(campaign: Campaign, reports_dir: Path | None = None) -
             cells = []
             for m in alive_models:
                 r = m.rate(d.scenario_id)
-                # Same two-facts split as the per-surface matrix (ISC-36): a dash is "never ran it",
+                # Same two-facts split as the per-surface matrix: a dash is "never ran it",
                 # `∅ (N excl.)` is "ran it, every trial dropped as an incomplete probe".
                 cells.append(no_rate_cell(m, d.scenario_id) if r is None else f"{r:.0%}")
             lines.append(f"| {d.scenario_id} | {d.spread:.0%} | " + " | ".join(cells) + " |")
         lines.append("")
         # This table can emit `∅`, so this table has to explain it — the surrounding legend at the
         # top of the report covers the floor-glyph grid only, and a marker whose only explanation
-        # lives in a different section does not survive a screenshot of this one (Council/Iriarte).
+        # lives in a different section does not survive a screenshot of this one.
         if any("∅" in c for row in divs
                for c in (no_rate_cell(m, row.scenario_id) for m in alive_models)):
             lines.append("_`∅ (N excl.)` = the model RAN that scenario and all N trials were dropped "
@@ -300,7 +300,7 @@ class SurfaceSpec:
     """One agentic surface: its run entry points (imported lazily, so only the surfaces actually
     run are paid for) plus the CLI text for its ``<command>`` / ``<scenarios_command>`` pair.
 
-    This is the ONE registry of agentic surfaces (ISC-82): `iago campaign` and every
+    This is the ONE registry of agentic surfaces: `iago campaign` and every
     ``*-run`` / ``*-scenarios`` subcommand read it, so the per-surface wiring lives here once."""
 
     key: str
@@ -488,7 +488,7 @@ SURFACES: dict[str, SurfaceSpec] = {s.key: s for s in (
         scenarios_title="Inter-agent scenarios", scenario_line=_line),
 )}
 
-# The campaign's view of SURFACES: the four mature per-arm/channel surfaces (ISC-20..28) a
+# The campaign's view of SURFACES: the four mature per-arm/channel surfaces a
 # campaign was built and validated on, in campaign order. Every surface now carries a capability
 # floor, but widening this set changes what `iago campaign` runs by default — a separate decision.
 CAMPAIGN_SURFACES: dict[str, SurfaceSpec] = {

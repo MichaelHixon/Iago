@@ -1,4 +1,4 @@
-"""Writer-side coverage for the ISC-32 capability floor and probe-quality signals.
+"""Writer-side coverage for the capability floor and probe-quality signals.
 
 A mutation run found that reverting `agent_misinfo`'s `floor_fired` to the pre-fix inverted proxy
 (`verdict == HIJACKED`) left the whole suite green: the only test read a hand-built row, so it

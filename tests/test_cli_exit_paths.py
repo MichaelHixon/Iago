@@ -1,6 +1,6 @@
 """CLI exit-code coverage for the paths a mutation run found unguarded.
 
-Deleting the nothing-measured check from `_cmd_run` — the command ISC-31 is named for — left the
+Deleting the nothing-measured check from `_cmd_run` — the command the exits-0-having-measured-nothing rule targets — left the
 suite green, as did removing both `require_surface` calls from the delta report and the new
 regrade / adaptive / judge-eval branches. These drive the handlers directly.
 """
@@ -41,7 +41,7 @@ def _run_args(**kw):
 
 
 def test_cmd_run_exits_nonzero_when_every_trial_errored(tmp_path, monkeypatch, capsys):
-    """The command ISC-31 is named for: deleting its gate previously left the suite green."""
+    """The command the nothing-measured rule targets: deleting its gate previously left the suite green."""
     techs = [Technique("t1", "Direct", "direct-ask", "d", "Do: {objective}")]
     objs = [Objective("o1", "forbidden thing", "forbidden")]
 

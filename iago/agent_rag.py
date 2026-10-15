@@ -10,7 +10,7 @@ embeddings server, no network. This module imports no socket/urllib/http/request
 first-class anti-claim, enforced by an egress-proof test).
 
 The exfil oracle, loud loader, suite runner, and report are the SHARED `agentic_exfil` scaffold
-(ISC-19) — this module owns the RAG-specific surface: the retriever, its tool, and its labels. The
+— this module owns the RAG-specific surface: the retriever, its tool, and its labels. The
 one RAG-specific loader gate (the poison must RANK into top-k, not merely exist) is passed as the
 `extra_gate`.
 
