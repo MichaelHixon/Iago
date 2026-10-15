@@ -4,7 +4,7 @@ Model output Iago ships, and how each piece was made. Everything else Iago produ
 
 ## prompt-extraction-report.md / .html and replay/prompt-extraction.jsonl
 
-One live run of the prompt-extraction surface (OWASP LLM07) against local `ollama:llama3.1:latest` on 2026-10-15: 12 techniques × 3 planted system prompts × 3 trials, 108 trials in all. The report files are copied unedited from `reports/`. The fixture holds that run's replies, which is what `--target replay` plays back.
+One live run of the prompt-extraction surface (OWASP LLM07) against local `ollama:llama3.1:latest` on 2026-10-15: 12 techniques × 3 planted system prompts × 3 trials, 108 trials in all. The report files are that run's report, unedited; when the renderer's wording changes they are re-rendered from the run's own artifact with `iago report` (same trials and verdicts; only the text and the Generated time move). The fixture holds that run's replies, which is what `--target replay` plays back.
 
 Made with:
 
