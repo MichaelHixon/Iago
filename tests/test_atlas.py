@@ -4,6 +4,7 @@ framework table is exactly what the library carries."""
 from __future__ import annotations
 
 import json
+import re
 import textwrap
 from pathlib import Path
 
@@ -45,7 +46,26 @@ def test_validate_atlas_rejects_an_unlisted_id_naming_where(bad):
 
 
 def test_the_atlas_list_holds_only_atlas_technique_ids():
-    assert VALID_ATLAS and all(k.startswith("AML.T") for k in VALID_ATLAS)
+    assert VALID_ATLAS
+    for k, name in VALID_ATLAS.items():
+        assert re.fullmatch(r"AML\.T\d{4}(\.\d{3})?", k) and name.strip(), k
+
+
+def _all_atlas_tags() -> list[str]:
+    tags = [t.atlas for t in load_library() if t.atlas]
+    for spec in SURFACES.values():
+        tags += [s.atlas for s in spec.scenarios() if s.atlas]
+    return tags
+
+
+def test_every_shipped_atlas_label_matches_its_id():
+    """The README prints VALID_ATLAS's name, so a YAML label that disagrees with its id would
+    silently say something different from the table."""
+    tags = _all_atlas_tags()
+    assert tags
+    for tag in tags:
+        if ":" in tag:
+            assert tag.split(":", 1)[1].strip() == VALID_ATLAS[tag_id(tag)], tag
 
 
 def test_technique_loader_rejects_bad_atlas(tmp_path: Path):
@@ -71,17 +91,21 @@ def test_every_scenario_loader_rejects_bad_atlas(key, tmp_path):
     import yaml
     src = SCENARIO_FILES[key]
     recs = load_records(src)
-    next(r for r in recs if r.get("atlas"))["atlas"] = "AML.T0000: nope"
+    tagged = next(r for r in recs if r.get("atlas"))
+    tagged["atlas"] = "AML.T0000: nope"
     bad = tmp_path / src.name
     bad.write_text(yaml.safe_dump(recs, sort_keys=False))
-    with pytest.raises(ValueError, match="invalid atlas tag"):
+    # The error names the record, so a malformed tag is findable.
+    with pytest.raises(ValueError, match=rf"{re.escape(tagged['id'])}: invalid atlas tag"):
         SURFACES[key].entry().load_scenarios(bad)
 
 
-def test_provenance_forging_carries_asi09_and_an_atlas_tag():
+def test_provenance_forging_carries_an_atlas_tag_and_no_asi_tag():
+    """Its ASI tag was dropped on purpose: `asi` is part of the library fingerprint, so adding one
+    would make every earlier full-library run read as a different library."""
     techs = [t for t in load_library() if t.category == "provenance-forging"]
     assert techs
-    assert all(t.asi.startswith("ASI09") and t.atlas.startswith("AML.T0080.001") for t in techs)
+    assert all(t.atlas.startswith("AML.T0080.001") and t.asi is None for t in techs)
 
 
 def test_atlas_stays_out_of_the_technique_fingerprint():
@@ -94,11 +118,13 @@ def test_atlas_stays_out_of_the_technique_fingerprint():
     assert library_fingerprint([replace(lib[0], template=lib[0].template + " ")] + lib[1:]) != before
 
 
-def test_atlas_stays_out_of_the_scenario_fingerprint():
+@pytest.mark.parametrize("key", sorted(SURFACES))
+def test_atlas_stays_out_of_the_scenario_fingerprint(key):
     from dataclasses import replace
-    scens = SURFACES["agent"].scenarios()
+    scens = SURFACES[key].scenarios()
+    assert any(s.atlas for s in scens), key
     assert scenario_fingerprint(scens) == scenario_fingerprint([replace(s, atlas=None) for s in scens])
-    assert scenario_fingerprint(scens) != scenario_fingerprint([replace(scens[0], task=scens[0].task + " ")]
+    assert scenario_fingerprint(scens) != scenario_fingerprint([replace(scens[0], name=scens[0].name + " ")]
                                                                + scens[1:])
 
 

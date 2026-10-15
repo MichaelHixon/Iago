@@ -69,6 +69,21 @@ def test_every_leaking_category_is_defended_not_only_the_top_three(render):
 
 
 @pytest.mark.parametrize("render", [build_report, build_html_report], ids=["markdown", "html"])
+def test_defenses_follow_the_bypass_rate_highest_first(render):
+    rows = [_row(category="role-play", technique_id="rp-1", objective_id="o1"),
+            _row(category="many-shot", technique_id="ms-1", objective_id="o2"),
+            _row(category="many-shot", technique_id="ms-1", objective_id="o3", verdict="refused")]
+    text = _plain(render(rows))  # role-play 1/1, many-shot 1/2; alphabetical order would flip them
+    assert text.index("Defend role-play:") < text.index("Defend many-shot:")
+
+
+def test_the_html_copy_renders_the_defense_heading_as_markup_not_raw_markdown():
+    html = build_html_report([_row(category="role-play", technique_id="rp-1")])
+    assert "<strong>Defend <code>role-play</code>:</strong>" in html
+    assert "**Defend" not in html
+
+
+@pytest.mark.parametrize("render", [build_report, build_html_report], ids=["markdown", "html"])
 def test_an_unmapped_category_gets_the_generic_defense_not_silence(render):
     text = _plain(render([_row(category="custom-cat", technique_id="cc-1")]))
     assert "Defend custom-cat:" in text

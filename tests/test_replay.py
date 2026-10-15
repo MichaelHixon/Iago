@@ -37,6 +37,15 @@ class CountingTarget(Target):
         return self._next()
 
 
+def test_a_fresh_replay_run_writes_the_fixture_library_hash(tmp_path):
+    """The runner records the label-free library fingerprint: the shipped fixture predates the
+    ATLAS tags, and a fresh run of the same attack text must still record its hash."""
+    header = json.loads(DEFAULT_REPLAY_FIXTURE.read_text().splitlines()[0])
+    art = run(ReplayTarget(), trials=3, category=header["category"], artifacts_dir=tmp_path)
+    m, _ = read_artifact(art)
+    assert m["technique_library_sha256"] == header["technique_library_sha256"]
+
+
 def _record(tmp_path, trials=2):
     rec = RecordingTarget(CountingTarget())
     art = run(rec, trials=trials, techniques=TECHS, objectives=OBJS, artifacts_dir=tmp_path / "live")
