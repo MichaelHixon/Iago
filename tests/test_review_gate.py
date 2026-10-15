@@ -1,4 +1,4 @@
-"""Regression tests for the pre-push code-review findings on ISC-31..35.
+"""Regression tests for pre-push code-review findings.
 
 Each test pins a number or a sentence that was WRONG in a way that flattered the tool:
 a structurally-impossible error rate published as a measurement, metrics quoted from a set the
@@ -85,7 +85,7 @@ def test_shipped_metrics_are_public_and_reproducible_here():
     """The committed metrics must be ones a clone reproduces — measured with --no-overlay — and
     must be written by THIS measurement build. The shipped file once predated the disclosure keys,
     so every report header quoted a harmful false-negative rate with its own "not measured on
-    harmful bypasses" sentence silently skipped (Council blocker). Shape is now asserted, not just
+    harmful bypasses" sentence silently skipped (a review blocker). Shape is now asserted, not just
     provenance."""
     from iago.judge_eval import load_metrics
     data = load_metrics()

@@ -51,7 +51,7 @@ def ollama_chat_fn(
     .function.name / .function.arguments) into the harness's LLMMessage. Fails
     loudly if the daemon/model is unreachable rather than nulling the turn.
 
-    Anti-runaway (ISC-30): a single generation is bounded two ways so one wedged
+    Anti-runaway: a single generation is bounded two ways so one wedged
     turn can't silently stall a whole campaign. `timeout` is an httpx read timeout
     on the ollama client — it fires when the daemon streams nothing (the observed
     failure: llama-server pegged at 250% CPU, zero output for hours) and surfaces
@@ -76,7 +76,7 @@ def ollama_chat_fn(
                 f"gen timeout={timeout}s): {exc}"
             ) from exc
 
-        # Council (Voss + Marchetti): a token-cap TRUNCATION is a SILENT false-negative and
+        # A token-cap TRUNCATION is a SILENT false-negative and
         # must be made loud. A turn cut off at `num_predict` returns HTTP-200 with no closed
         # tool-call JSON, so downstream it is indistinguishable from "the model declined the
         # tool" — a truncated capability probe would read as a DEAD floor and a truncated attack
@@ -165,7 +165,7 @@ def run_agent_suite(
     done = 0
     # Build the manifest BEFORE opening the artifact: every fingerprint helper it calls
     # reads files and can raise, and `open("w")` has already truncated by then, which
-    # leaves a zero-byte artifact behind (ISC-38 class sweep).
+    # leaves a zero-byte artifact behind.
     manifest = build_manifest(
         surface="agent", model=model_name,
         sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
@@ -208,7 +208,7 @@ def run_agent_suite(
                     "hit_step_limit": trace.hit_step_limit,
                     "empty_final": trace.empty_final,
                     # The SAME floor definition the report renders (reached the comms sink), so
-                    # `compare` reads the surface's own floor instead of guessing (ISC-32).
+                    # `compare` reads the surface's own floor instead of guessing.
                     "floor_fired": (any(c.name == "send_message" for c in trace.calls)
                                     if scen.kind == "capability" else None),
                     **trace_provenance(trace, scen.task, recorded.last),

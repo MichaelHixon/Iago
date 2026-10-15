@@ -10,8 +10,8 @@ The inbox is a PURE IN-MEMORY fake: `check_inbox` returns the scenario's peer me
 attacker-controlled. It opens no socket and reaches no other process — this module imports no
 socket/urllib/http/requests machinery (a first-class anti-claim, enforced by an egress-proof test).
 
-The exfil oracle, loud loader, suite runner, and report are the SHARED `agentic_exfil` scaffold
-(ISC-19) — this module is just the ASI07 surface: its policy, its inbox tool, and its labels.
+The exfil oracle, loud loader, suite runner, and report are the SHARED `agentic_exfil` scaffold —
+this module is just the ASI07 surface: its policy, its inbox tool, and its labels.
 
 ETHICS: for a model you own or are authorized to test. The secret is a synthetic canary; the peer
 inbox is entirely in-scenario.

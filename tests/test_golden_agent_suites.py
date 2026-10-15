@@ -1,4 +1,4 @@
-"""Byte-identity golden artifacts for five agentic suite runners (ISC-73).
+"""Byte-identity golden artifacts for five agentic suite runners.
 
 `run_privilege_suite`, `run_toolabuse_suite`, `run_memory_suite`, `run_misinfo_suite` and
 `run_disclosure_suite` each grew a private copy of the trials loop. Before they are collapsed onto

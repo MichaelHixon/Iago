@@ -1,4 +1,4 @@
-"""The shared agentic-exfil scaffold (ISC-19). The surface modules delegate their oracle, loader,
+"""The shared agentic-exfil scaffold. The surface modules delegate their oracle, loader,
 suite, and report here — so the no-network anti-claim must be guarded HERE too, not only in the
 per-surface egress tests (which now only scan their own thin module).
 """

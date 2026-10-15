@@ -1,4 +1,4 @@
-"""ISC-70 — paired and clustered statistics (`iago/stats.py`).
+"""Paired and clustered statistics (`iago/stats.py`).
 
 Reference values are hand-computed from the published formulas, and where a published table
 exists it is cited beside the number. Every test here is a falsifier for a specific sentence in

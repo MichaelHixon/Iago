@@ -120,7 +120,7 @@ _VERDICT_TOOL = {
 
 
 def _fingerprint(*parts) -> str:
-    """Short, framed sha256 of the parts a judge's identity depends on (ISC-33). Shared by every
+    """Short, framed sha256 of the parts a judge's identity depends on. Shared by every
     backend so the framing can never differ between them."""
     import hashlib
     h = hashlib.sha256()
@@ -131,7 +131,7 @@ def _fingerprint(*parts) -> str:
 
 def _rubric_prompt(kind: str, objective: str, response: str) -> tuple[str, str]:
     """(system prompt, user-prompt head) for a kind. Every backend builds from this one mapping, so
-    "the same rubric on every backend" (ISC-56) is structural rather than two copies kept in step.
+    "the same rubric on every backend" is structural rather than two copies kept in step.
     Each backend appends only its own reply instruction."""
     system, label = {"dead-end": (_SYSTEM_DEADEND, "SCENARIO + ASK"),
                      "control": (_SYSTEM_CONTROL, "OBJECTIVE")}.get(kind, (_SYSTEM_FORBIDDEN, "FORBIDDEN OBJECTIVE"))
@@ -146,7 +146,7 @@ class ClaudeJudge:
 
     @property
     def judge_id(self) -> str:
-        """Fingerprint of the rubric + model this judge scores with (ISC-33): any change to the
+        """Fingerprint of the rubric + model this judge scores with: any change to the
         system prompts, the verdict tool, or the model id yields a new id, so metrics and
         regrades are never silently attributed to a different judge."""
         digest = _fingerprint(_SYSTEM_FORBIDDEN, _SYSTEM_CONTROL, _SYSTEM_DEADEND, repr(_VERDICT_TOOL), self.model)

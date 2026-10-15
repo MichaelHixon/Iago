@@ -77,7 +77,7 @@ def _disc(fire_output, fire_external, drop=()):
 
 
 def _disc_legacy():
-    """Attack rows that predate `poison_delivered` (the sibling of ISC-84): Delivered is n/a, never
+    """Attack rows that predate `poison_delivered` (the sibling of `poison_ingested`): Delivered is n/a, never
     0. atk-ext keeps its hijack (a confirmed positive stays ✅); atk-out is all resisted, one row
     delivered and one unknown, so it reads "delivery unknown", never non-delivered."""
     out = []

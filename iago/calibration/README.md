@@ -1,7 +1,7 @@
 # Judge calibration set
 
 `judge_control_set.jsonl` — 125 model responses with reviewer labels, the ground truth `iago judge-eval`
-scores every judge against (ISC-35). Entries are real replies drawn from local llama3.x runs across the
+scores every judge against. Entries are real replies drawn from local llama3.x runs across the
 harmful-content, benign-control, and system-prompt-extraction objectives (stratified over the heuristic
 judge's own verdicts so its failure modes are represented), plus four synthetic **paraphrased leaks** that
 omit the canary — the canary judge's documented false-negative, included so its FNR is measured rather than

@@ -83,7 +83,7 @@ class LlamaGuard(Guard):
             return GuardResult(False)
         # Anything else (markdown-wrapped '**unsafe**', prose from a chat model served under the
         # guard's name) used to PASS the prompt — a delta report showing 0 blocks was then
-        # indistinguishable from a working guard (ISC-32). Unrecognized output is a broken backend.
+        # indistinguishable from a working guard. Unrecognized output is a broken backend.
         raise GuardBackendUnavailable(
             f"llama-guard returned an unrecognized verdict {lines[0][:60]!r} — expected 'safe' or "
             f"'unsafe\\n<codes>'; check that {self.model!r} is actually Llama Guard")
@@ -149,7 +149,7 @@ def _as_label_list(out: object) -> list[dict]:
     """Normalize a transformers text-classification result to a flat list of {label, score}.
     The pipeline may return a single dict (top_k=1), a list of dicts (top_k=None, one input),
     or a list-of-lists (batched). Any other shape is a broken backend and raises — it used to
-    normalize to empty, which `inspect` then PASSED (ISC-32)."""
+    normalize to empty, which `inspect` then PASSED."""
     if isinstance(out, dict):
         return [out]
     if isinstance(out, list):
@@ -172,7 +172,7 @@ class HFPromptInjectionGuard(Guard):
     name = "hf-prompt-injection"
     stage = "input"
 
-    # Every accepted label CARRIES ITS SOURCE (ISC-39). The previous sets were invented from
+    # Every accepted label CARRIES ITS SOURCE. The previous sets were invented from
     # plausibility, which is the wrong footing for a guard whose whole job is to raise rather than
     # pass when it does not recognize a model: a guessed label that happens to be a classifier's
     # POSITIVE class would read as benign and silently let an injection through. Each entry below
@@ -263,7 +263,7 @@ class HFPromptInjectionGuard(Guard):
             self._classify_fn = self._default_classifier()
         results = _as_label_list(self._classify_fn(text))
         labels = {str(r.get("label", "")).lower() for r in results}
-        # Recognition gate. The OR form here was a SILENT FAIL-OPEN (Council/Raghunathan): the
+        # Recognition gate. The OR form here was a SILENT FAIL-OPEN: the
         # default backend runs `top_k=None`, so every call returns the classifier's FULL label
         # vocabulary — and a model sharing just ONE label with ours (a `safe`/`unsafe` moderation
         # binary is the common Hub shape) passed the gate on `safe`, then matched nothing in
@@ -325,7 +325,7 @@ def build_thirdparty_guard(name: str, *, probe: bool = True) -> Guard:
     `probe=True` fires one benign classification at BUILD time so a missing backend fails
     before the first trial. Without it the failure surfaced lazily inside the runner's
     per-trial error capture, every row became <<RUN-ERROR>>, and the report read "held"
-    (ISC-31). The probe text is inert; an input guard classifying it is a no-op."""
+    (the exit-0-measured-nothing class). The probe text is inert; an input guard classifying it is a no-op."""
     try:
         guard = THIRDPARTY_GUARD_BUILDERS[name]()
     except KeyError:

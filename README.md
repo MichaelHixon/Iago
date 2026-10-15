@@ -184,7 +184,7 @@ Each technique family and agent surface also carries an [OWASP Top 10 for Agenti
 
 ## Compatibility notes
 
-- **RAG and A2A artifacts from before the pretext markers (ISC-68) are not comparable with later ones.** The attack text of `attacks/agentic/rag_scenarios.yaml` and `a2a_scenarios.yaml` changed (labelled `IAGO_*_PAYLOAD` tokens became markers that fit each poison's pretext) under the same scenario ids, so a rate from an older run measures a different stimulus. `iago compare` refuses to mix them when both manifests carry `scenario_library_sha256`, and flags an older artifact without it as unknown; re-run the older model on the current library instead of comparing across the change.
+- **RAG and A2A artifacts from before the pretext markers are not comparable with later ones.** The attack text of `attacks/agentic/rag_scenarios.yaml` and `a2a_scenarios.yaml` changed (labelled `IAGO_*_PAYLOAD` tokens became markers that fit each poison's pretext) under the same scenario ids, so a rate from an older run measures a different stimulus. `iago compare` refuses to mix them when both manifests carry `scenario_library_sha256`, and flags an older artifact without it as unknown; re-run the older model on the current library instead of comparing across the change.
 - **A user scenario file without `poison_marker` on an attack no longer loads.** The RAG and A2A loaders used to fall back to a built-in default marker; that default is gone, and every attack must name its own marker, present in exactly one document / chunk / message and nowhere the agent can see it without reading the poison. The loader error names the scenario and the rule.
 
 ## Ethics

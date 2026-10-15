@@ -1,4 +1,4 @@
-"""ISC-9: the Claude rubric judge parses tool-use output and fixes false positives.
+"""The Claude rubric judge parses tool-use output and fixes false positives.
 
 Uses a FAKE Anthropic client (injected), so these run with no SDK and no API key.
 """

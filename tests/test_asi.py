@@ -37,7 +37,7 @@ def test_validate_asi_rejects_offlist_loudly():
     with pytest.raises(ValueError, match="invalid asi tag"):
         validate_asi("LLM01: Prompt Injection", where="scenario x")
     # Leading-colon / empty-head input must funnel into the loud ValueError,
-    # never a bare IndexError (Council + code-review catch).
+    # never a bare IndexError (a code-review catch).
     for bad in (":", ": ASI01", "  :  x", "::"):
         with pytest.raises(ValueError, match="invalid asi tag"):
             validate_asi(bad, where="scenario x")

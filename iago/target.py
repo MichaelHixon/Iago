@@ -118,7 +118,7 @@ def single_turn_messages(prompt: str, system: str | None = None) -> list[dict[st
 class OllamaTarget(Target):
     """A local model served by Ollama.
 
-    Every call is bounded (the agent seam's ISC-30 pattern): `timeout` is the ollama client's
+    Every call is bounded (the agent seam's anti-runaway pattern): `timeout` is the ollama client's
     read timeout (it raises, and the runner records the trial as an error), and `num_predict`
     caps tokens unless the caller's options set their own. A reply stopped at that default cap
     comes back as a TruncatedReply. `timeout <= 0` disables the wall-clock bound.

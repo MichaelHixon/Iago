@@ -143,7 +143,7 @@ def _provenance(rows: list[dict]) -> dict:
     trials = len({r.get("trial") for r in rows})
     temps = sorted({t for r in rows if (t := r.get("temperature")) is not None})
     temp = temps[0] if len(temps) == 1 else (f"{temps[0]}–{temps[-1]}" if temps else "?")
-    # Name the BUILD, not just the backend (#431): a rubric change moves verdicts — the over-block
+    # Name the BUILD, not just the backend: a rubric change moves verdicts — the over-block
     # column counts control `refused` — so two reports are comparable only on the same build.
     # An empty `judges` means heuristic-only scoring.
     judges = sorted({scorer_stamp(r) for r in rows} - {"heuristic"})
@@ -233,13 +233,13 @@ def build_compose_report(rows: list[dict], library: list[Technique] | None = Non
         p_exp, n_used = _noisy_or(rows, parts)
         # BASELINE GATE: if any constituent never fired alone here, the baseline is incomplete
         # and the lift is undefined — refuse the ✅ and flag it loudly rather than read an
-        # empty/partial baseline as a real one (Council/Reynolds CRITICAL).
+        # empty/partial baseline as a real one.
         complete = not missing
         lift = (comp["rate"] - base["rate"]) * 100.0
         beats = _beats(comp, base) and complete
         vs_indep = ((comp["rate"] - p_exp) * 100.0) if (p_exp is not None and comp["total"]) else None
         # Over-block differenced against the best single layer: the ADDED false-positive tax of
-        # stacking, not just the stack's absolute over-block (Council/Reynolds #5 — mirror the lift).
+        # stacking, not just the stack's absolute over-block (mirroring the lift).
         base_over = _overblock_block(rows, best_id) if best_id else {"blocked": 0, "total": 0, "rate": 0.0}
         marg_over = ((over["rate"] - base_over["rate"]) * 100.0) if (over["total"] and base_over["total"]) else None
         grading = _grading_for(rows, tech.id)

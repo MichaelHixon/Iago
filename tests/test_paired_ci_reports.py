@@ -1,4 +1,4 @@
-"""ISC-70 — the paired-difference CI reaches the `delta` and `compare` reports, the category
+"""The paired-difference CI reaches the `delta` and `compare` reports, the category
 table carries a technique-clustered interval beside the plain Wilson one, and `iago power`
 answers the sample-size question. Synthetic rows; no model."""
 

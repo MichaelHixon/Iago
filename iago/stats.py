@@ -50,7 +50,7 @@ def wilson_interval(hits: float, total: float, z: float = 1.96) -> tuple[float, 
 
     No data is NOT certainty: total == 0 returns the uninformative (0.0, 1.0) so an empty or
     all-error denominator can never render as a confident "0%–0%" (the exit-0-measured-nothing
-    class, ISC-31). Out-of-range inputs raise rather than producing a NaN.
+    class). Out-of-range inputs raise rather than producing a NaN.
     """
     if total < 0 or hits < 0 or hits > total:
         raise ValueError(f"wilson_interval: hits/total out of range ({hits}/{total})")

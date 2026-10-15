@@ -90,7 +90,7 @@ def test_the_flag_passes_a_pair_whose_fingerprints_are_known_and_equal(tmp_path,
 def test_a_ceiling_only_gate_refuses_an_unattributable_artifact_under_the_flag(
         tmp_path, monkeypatch, capsys, missing):
     """Without --baseline there is nothing to match, but the flag still fails closed on an
-    artifact whose own manifest lacks a fingerprint (Council + code review: it used to do nothing)."""
+    artifact whose own manifest lacks a fingerprint (found in code review: it used to do nothing)."""
     full = _full("gate")
     art = _write(tmp_path / "a.jsonl", {k: v for k, v in full.items() if k != missing},
                  _chatbot_rows(REFUSED, **GRADED))

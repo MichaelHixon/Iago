@@ -95,13 +95,13 @@ class TrialResult:
     deadend_signal: str | None = None
     # dead-end: whether the OBJECTIVE was a solvable control, recorded from the objective rather
     # than inferred from `deadend_signal` — an errored row never reaches judge_deadend, so its
-    # signal is "error" and carries no solvability (ISC-53). None for other kinds.
+    # signal is "error" and carries no solvability. None for other kinds.
     deadend_control: bool | None = None
     # True when the target stopped a JUDGED reply at its own token cap (a TruncatedReply): the
     # final reply, or any trust-escalation arm (anon, placebo), since judge_trust reads all three.
     # None otherwise, including a cap the caller asked for. A capped priming turn is not judged.
     truncated: bool | None = None
-    # Schema + provenance (ISC-33): every row names its schema and surface so a reader can refuse
+    # Schema + provenance: every row names its schema and surface so a reader can refuse
     # the wrong artifact; `status` separates a probe that reached the model from one that did not
     # (garak's attempt status); the hashes let an auditor pin a quoted prompt/response to a row.
     schema_version: int = SCHEMA_VERSION
@@ -110,7 +110,7 @@ class TrialResult:
     prompt_sha256: str | None = None
     response_sha256: str | None = None
     judge_id: str | None = None          # fingerprint of the offline scoring code (judge+canary+decode)
-    # ISC-69: the chatbot surface plants a different system prompt per objective (prompt-leak,
+    # The chatbot surface plants a different system prompt per objective (prompt-leak,
     # dead-end, trust-escalation) or none at all, so the hash lives on the row, not the manifest
     # (whose `system_prompt_scope` is "per-objective"). None = no system message on this trial.
     system_prompt_sha256: str | None = None
@@ -152,7 +152,7 @@ def _execute_arm(target, tech: Technique, turns: list[str], opts: dict,
         return prompt, target.generate(prompt, system=system, options=opts)
     except GuardBackendUnavailable:
         # A missing/garbage guard backend is not a per-trial transport blip: every trial would
-        # error and the run would read as "held". Fail the whole run loud instead (ISC-31).
+        # error and the run would read as "held". Fail the whole run loud instead.
         raise
     except Exception as exc:  # keep the run alive; record the failure
         return "\n---\n".join(turns), run_error(exc)
@@ -203,8 +203,8 @@ def _fires(tech: Technique, obj: Objective) -> bool:
 # near-degenerate generation agrees with itself whether or not the host is bit-reproducible, so the
 # old probe could not fail. These exercise the same regime the matrix does on CONTENT, though not on
 # length: the matrix runs to the target's own token cap and these stop at 160, so a longer matrix reply samples
-# more decode positions than the probe does. (ISC-49, superseding ISC-34's two-generation cost
-# bound; the honesty fixes are ISC-50.)
+# more decode positions than the probe does. (This supersedes an earlier two-generation cost
+# bound.)
 #
 # TWO probes rather than one is not a power argument — detection power tracks total tokens, not
 # probe count. It is a hedge against PROMPT-DEPENDENT determinism, which this host demonstrated on
@@ -218,7 +218,7 @@ _DETERMINISM_PROBES = (
 # Fired once and DISCARDED before the probes. Without it, call 1 of probe 1 is the
 # first-generation-after-load and call 2 is warm, so probe 1's pair straddles the cold-load
 # boundary by construction and a mismatch there cannot be told apart from prompt-cache warming.
-# ISC-49 read exactly that confound as prompt-dependent nondeterminism (ISC-50 corrects it).
+# An earlier version read exactly that confound as prompt-dependent nondeterminism.
 _DETERMINISM_WARMUP = "Say the word: ready."
 
 
@@ -318,7 +318,7 @@ def run(
     `determinism_check` fires each open-ended probe TWICE (same temperature + base seed) before
     the matrix and records per-probe matches, the aggregate, and the generations spent in the
     manifest — docs/reproducibility.md claims same-host reproducibility, and this measures it per run instead
-    of assuming it (ISC-34, strengthened by ISC-49). Skipping it records `null`, not a pass.
+    of assuming it. Skipping it records `null`, not a pass.
 
     `technique_limit` / `objective_limit` cap the matrix for a fast smoke run
     without hammering the model for the whole library. `shots` overrides the
@@ -367,7 +367,7 @@ def run(
     compatible = sum(1 for tech in lib for obj in objs if _fires(tech, obj))
     if compatible == 0:
         # Nothing would fire: writing an empty artifact and a "No artifacts" report at exit 0 is
-        # the exit-0-measured-nothing failure (ISC-31). Say so before touching the disk.
+        # the exit-0-measured-nothing failure. Say so before touching the disk.
         raise ValueError(
             "no technique/objective pairs fire: every loaded technique is scoped to an objective "
             "kind absent from the loaded objectives (check --category / --limit-* / applies_to scoping)"
@@ -534,5 +534,5 @@ def run(
 
 def load_artifacts(path: Path) -> list[dict]:
     """Read a JSONL artifact file back into rows (for the report generator). The manifest line
-    (ISC-33) is split off by `artifacts.load_rows`, never handed to a report as a trial."""
+    is split off by `artifacts.load_rows`, never handed to a report as a trial."""
     return load_rows(path)

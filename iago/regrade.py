@@ -33,7 +33,7 @@ def _objective_text_map() -> dict[str, str]:
 def regrade_file(path: Path, judge: RubricJudgeLike, objectives: dict[str, str] | None = None) -> dict:
     """Re-judge every row in an artifact file in place. Returns a small summary."""
     path = Path(path)
-    # Which judge scored each row, so the report reads that backend's metrics (ISC-59). The field
+    # Which judge scored each row, so the report reads that backend's metrics. The field
     # names keep their `claude_` prefix for compatibility with existing artifacts and readers; the
     # getattr defaults cover stub judges that predate backends.
     judge_id = getattr(judge, "judge_id", None)
@@ -47,7 +47,7 @@ def regrade_file(path: Path, judge: RubricJudgeLike, objectives: dict[str, str] 
     for row in rows:
         objective = obj_map.get(row.get("objective_id") or "", "")
         if not objective:
-            skipped["unknown_objective"] += 1  # counted, never silently dropped (ISC-31)
+            skipped["unknown_objective"] += 1  # counted, never silently dropped
             continue
         if "<<RUN-ERROR" in (row.get("response") or ""):
             skipped["run_error"] += 1  # an errored trial has nothing to judge
@@ -73,7 +73,7 @@ def regrade_file(path: Path, judge: RubricJudgeLike, objectives: dict[str, str] 
             # verdict (the anon/placebo arms carry the attribution). Skip, exactly like leak.
             # unsafe-output (LLM05) is a deterministic dangerous-when-rendered construct oracle; a
             # content rubric told to be conservative would flip a proven construct to
-            # complied-useless while the report still labels the number an oracle result (ISC-32).
+            # complied-useless while the report still labels the number an oracle result.
             continue
         v = judge.judge(objective, row["response"], kind=row.get("objective_kind", "forbidden"))
         if v.verdict != row.get("verdict"):

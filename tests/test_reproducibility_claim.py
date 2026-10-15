@@ -1,4 +1,4 @@
-"""ISC-34 — the reproducibility claim matches what is recorded and measured."""
+"""The reproducibility claim matches what is recorded and measured."""
 
 import itertools
 import re
@@ -38,11 +38,11 @@ def test_deterministic_target_records_no_mismatch_and_probe_is_not_a_row(tmp_pat
     manifest, rows = read_artifact(path)
     d = manifest["determinism"]
     # A literal, not the value the code also wrote to the other field it is compared against.
-    # ISC-50 renamed the field: a one-sided check cannot report `exact_match: true`.
+    # The field was renamed: a one-sided check cannot report `exact_match: true`.
     assert d["mismatch_detected"] is False and d["options"]["seed"] == 777
     assert manifest["sampling"]["base_seed"] == 777
     assert len(rows) == 2                       # 1 pair x 2 trials; the probe calls are not rows
-    assert len(t.calls) == 7                    # 1 warm-up + 4 probe + 2 trials — ISC-49/50
+    assert len(t.calls) == 7                    # 1 warm-up + 4 probe + 2 trials
     assert t.calls[0][1]["num_predict"] == 160  # capped, but past the point-mass regime
 
 
@@ -83,11 +83,11 @@ def test_reproducibility_doc_states_the_bounded_claim():
     assert "# Reproducibility" in text
     assert re.search(r"Ollama build, model digest,? and parallelism setting", text)
     assert "reproducible everywhere" in text
-    # ISC-50: the probe may not be presented as a warrant that the run DOES reproduce.
+    # The probe may not be presented as a warrant that the run DOES reproduce.
     assert re.search(r"\bdisprove determinism\b", text)
     assert re.search(r"\bone-sided\b", text)
     assert re.search(r"this host reproduces", text)
-    # The negative half: the field ISC-50 renamed away must never reappear, and the doc must
+    # The negative half: the renamed-away field must never reappear, and the doc must
     # name the one-sided field that replaced it.
     assert "exact_match" not in text
     assert "mismatch_detected" in text
@@ -104,6 +104,6 @@ def test_readme_keeps_the_credibility_anchors():
     assert links, "README lost every docs/ link"
     for rel in set(links):
         assert _ROOT.joinpath(rel).is_file(), rel
-    # ISC-50 on the front page: the probe is framed as a disproof, never as a pass.
+    # On the front page: the probe is framed as a disproof, never as a pass.
     assert re.search(r"\bdisprove\b", text)
     assert "exact_match" not in text

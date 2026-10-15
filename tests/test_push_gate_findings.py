@@ -1,4 +1,4 @@
-"""Push-gate findings on the ISC-68..73 diff: every test here went RED against the code it fixes.
+"""Push-gate findings: every test here went RED against the code it fixes.
 
 Coverage, by finding: `compare` refuses duplicate (model, scenario, trial) keys and differing
 scenario libraries, and never supports a difference against a floor-dead model; `gate` refuses

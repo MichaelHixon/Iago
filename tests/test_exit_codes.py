@@ -1,4 +1,4 @@
-"""ISC-31 — no command exits 0 having measured nothing.
+"""No command exits 0 having measured nothing.
 
 The class: a run whose every trial errored (dead guard backend, daemon down), an empty
 artifact, or a matrix in which no technique/objective pair fires used to write a report that

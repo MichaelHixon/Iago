@@ -552,7 +552,7 @@ def run_adaptive_suite(
     done = 0
     # Build the manifest BEFORE opening the artifact: every fingerprint helper it calls
     # reads files and can raise, and `open("w")` has already truncated by then, which
-    # leaves a zero-byte artifact behind (ISC-38 class sweep).
+    # leaves a zero-byte artifact behind.
     manifest = build_manifest(
         surface="adaptive", model=model_name,
         sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
@@ -562,7 +562,7 @@ def run_adaptive_suite(
                                                        seed=base_seed),
                   "generation_bounds": generation_bounds(target)},
         judge_id=module_fingerprint("adaptive", "judge", "canary"),
-        # The target conversation is user turns only; no system message is ever sent (ISC-69).
+        # The target conversation is user turns only; no system message is ever sent.
         system_prompt_scope="none")
     heuristic_judge_id = offline_judge_id()
     with out_path.open("w") as fh:

@@ -1,4 +1,4 @@
-"""ISC-40 — the per-surface reports' DISCLOSURES are pinned, not just their numbers.
+"""The per-surface reports' DISCLOSURES are pinned, not just their numbers.
 
 Before this, only `probe_quality_note` was asserted, so every other honesty sentence in every
 surface report could be edited or deleted and the suite stayed green. That is exactly the defect

@@ -1,6 +1,6 @@
-"""ISC-54 — every number the two renderers share is pinned to be EQUAL, by one invariant.
+"""Every number the two renderers share is pinned to be EQUAL, by one invariant.
 
-ISC-53 closed *which* disclosures each renderer makes. This closes *what numbers* they print.
+The disclosure-parity tests close *which* disclosures each renderer makes. This closes *what numbers* they print.
 Measured before it existed: `+1` on the HTML executive summary's harmful-content numerator, and on
 its LLM07 denominator, each left all 936 tests green — while the same mutation in markdown failed.
 
@@ -281,10 +281,10 @@ def test_every_figure_in_a_report_is_internally_consistent(renderer):
         assert 0.0 <= float(conf) <= 1.0, f"confidence {conf} outside [0, 1]"
 
 
-# --- ISC-55: each section's own headline, and the surfaces one renderer lacks -----------------
+# --- each section's own headline, and the surfaces one renderer lacks ------------------------
 
 # Headings markdown emits that HTML does not, each with the reason it is absent. This is the
-# allowlist ISC-54's anti-criterion called for and did not have: `_SHARED_LABELS` is an inclusion
+# allowlist the number-parity invariant called for and did not have: `_SHARED_LABELS` is an inclusion
 # list, so a one-copy surface was invisible to it rather than named.
 _MARKDOWN_ONLY_HEADINGS = {
     # (Judge calibration and Decode-gating are markdown H3s, not sections — HTML renders the same
@@ -383,7 +383,7 @@ def test_all_three_calibration_figures_are_pinned():
         assert "needs-review in 1/2" in sentence, (name, sentence)
 
 
-# --- ISC-55: the transcripts, which had no cross-renderer test at all -------------------------
+# --- the transcripts, which had no cross-renderer test at all --------------------------------
 
 def _log_meta(doc: str, is_html: bool) -> list[dict]:
     """The per-trial metadata line from either transcript, as {field: value} per trial."""
@@ -448,7 +448,7 @@ def test_both_transcripts_report_the_same_trial_count():
     assert md_n == html_n == str(len(rows)), (md_n, html_n)
 
 
-# --- ISC-55: the four breakdown tables, the entire drill-down of the shared copy ---------------
+# --- the four breakdown tables, the entire drill-down of the shared copy ----------------------
 
 # Tables one renderer emits and the other does not, each with its reason. Same contract as
 # _MARKDOWN_ONLY_HEADINGS: named, not silently skipped.
@@ -555,7 +555,7 @@ def test_every_shared_breakdown_table_agrees_cell_for_cell():
         assert md_t[key] == html_t[key], (key, md_t[key], html_t[key])
 
 
-# --- ISC-55: the recommendation list, which one renderer could silently shorten ----------------
+# --- the recommendation list, which one renderer could silently shorten -----------------------
 
 def _recommendations(doc: str, is_html: bool) -> list[str]:
     """The leading phrase of each hardening recommendation, in order.
@@ -589,7 +589,7 @@ def test_the_same_recommendations_reach_both_renderers():
 
 @pytest.mark.parametrize("render", [build_report, build_html_report], ids=["markdown", "html"])
 def test_the_hardening_advice_names_the_leakiest_categories_in_rate_order(render):
-    """ISC-79: the md/html equality test above cannot see a sort both copies share, so pin the
+    """The md/html equality test above cannot see a sort both copies share, so pin the
     order itself: highest harmful-content bypass rate first, ties by name, top three, zero-rate
     categories never named. Revert check: flipping the shared `_aggregate` sort key, or dropping
     its tie-break, reds both parameters."""

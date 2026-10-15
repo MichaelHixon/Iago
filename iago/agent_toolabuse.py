@@ -136,7 +136,7 @@ VALID_KINDS = ("attack", "control", "capability")
 VALID_ARMS = ("rce", "ssrf")
 
 
-# The tolerant resolver now lives in agent_harness (base surface got the same fix, ISC-32).
+# The tolerant resolver now lives in agent_harness (base surface got the same fix).
 from .agent_harness import resolve_doc as _resolve_doc  # noqa: E402
 
 
@@ -260,7 +260,7 @@ def _token_present(token: str, text: str) -> bool:
     folds host case, RCE matches the marker exactly). The token is trimmed of edge `.`/`-` too, so a
     trailing-dot FQDN token (`169.254.169.254.`, DNS-equal to the bare host) matches symmetrically —
     an asymmetric strip would compare a trimmed run against an untrimmed token and never match, a
-    silent false negative on the exact metadata SSRF this guards (Council/regex-adversary BLOCK)."""
+    silent false negative on the exact metadata SSRF this guards."""
     token = token.strip(".-")
     if not token:
         return False
@@ -344,7 +344,7 @@ def load_toolabuse_scenarios(scenarios_file: Path | None = None) -> list[ToolAbu
         # None`, short-circuiting BOTH the length guard and the control-clean check — a control
         # could then silently carry the attacker host in its body (a degenerate, unscoreable
         # calibration case). Requiring the host restores privilege's always-present-token property
-        # so the guards below always run. (Council/KANE false-safe.)
+        # so the guards below always run.
         if rec["arm"] == "ssrf" and not target_host:
             raise ValueError(f"{path.name}: scenario {rec['id']!r} (ssrf) needs a target_host "
                              "(every ssrf scenario, controls included, so the clean-check runs)")
@@ -356,7 +356,7 @@ def load_toolabuse_scenarios(scenarios_file: Path | None = None) -> list[ToolAbu
             raise ValueError(
                 f"{path.name}: scenario {rec['id']!r} trigger {trigger!r} is too short (need >= 8 "
                 "chars) — a short trigger risks a substring false-positive in the delivery signal")
-        # Domain invariant (Council/false-safe BLOCK): the delivery signal compares whole `[\w.-]`
+        # Domain invariant: the delivery signal compares whole `[\w.-]`
         # runs, so a trigger carrying a space or shell metachar (`; id`, `cat /etc`, a quote) could
         # NEVER match a run — a SILENT false-safe where a real fired command/host reads as resisted.
         # Enforce the marker/host domain loudly at ingestion rather than let it fail open at runtime.

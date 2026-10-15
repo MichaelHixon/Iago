@@ -1,8 +1,8 @@
-"""ISC-49/50 — the determinism probe can fail, says so honestly, and its cost is recorded.
+"""The determinism probe can fail, says so honestly, and its cost is recorded.
 
-ISC-34 shipped a real check whose probe could not fail: one fixed three-word echo at 24 tokens is a
+An earlier version shipped a real check whose probe could not fail: one fixed three-word echo at 24 tokens is a
 near-degenerate generation, so the two replies agreed whether or not the host was bit-reproducible.
-ISC-50 then fixed what reviewing ISC-49 found: a field named `exact_match` cannot carry "we failed
+A follow-up fixed what reviewing the probe rewrite found: a field named `exact_match` cannot carry "we failed
 to disprove", probe 1 straddled the cold-load boundary, and several of these paths were unpinned.
 """
 
@@ -53,9 +53,9 @@ def _det(target, tmp_path, **kw):
 # ---------------------------------------------------------------- the probes themselves
 
 def test_probes_are_open_ended_not_fixed_echoes():
-    """The load-bearing half of ISC-49's claim, pinned as a PROPERTY.
+    """The load-bearing half of the probe rewrite's claim, pinned as a PROPERTY.
 
-    A test-quality review reintroduced the ISC-34 weakness by swapping in two DISTINCT three-word
+    A test-quality review reintroduced the fixed-echo weakness by swapping in two DISTINCT three-word
     echoes while keeping every other mechanic, and all 685 tests passed: the suite pinned the shape
     of the new probe and never its regime. An echo instruction pins the reply to a point mass, which
     is exactly what made the old probe unable to fail.

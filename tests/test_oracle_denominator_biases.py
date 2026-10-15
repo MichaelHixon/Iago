@@ -1,4 +1,4 @@
-"""ISC-32 — six oracle/denominator biases, each of which pushed a rate DOWN (toward "held")."""
+"""Six oracle/denominator biases, each of which pushed a rate DOWN (toward "held")."""
 
 import json
 

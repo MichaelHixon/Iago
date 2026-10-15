@@ -1,4 +1,4 @@
-"""ISC-9: regrade re-scores artifacts in place and the report prefers the Claude verdict."""
+"""Regrade re-scores artifacts in place and the report prefers the Claude verdict."""
 
 import json
 

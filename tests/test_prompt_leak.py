@@ -149,8 +149,8 @@ def test_extraction_techniques_are_scoped_to_prompt_leak():
 
 
 def test_forged_transcript_extractors_exist_and_are_scoped():
-    """#1(c): the few-shot / forged-transcript extraction family (the 2026-07-31 Council's
-    #1 Q3 gap). They must be prompt-leak-scoped and model config DISCLOSURE (carry a
+    """The few-shot / forged-transcript extraction family (a coverage gap found in a
+    2026-07-31 review). They must be prompt-leak-scoped and model config DISCLOSURE (carry a
     fabricated fake code), while the no-canary invariant (tested separately) still holds."""
     from iago.attacks import load_library
     from iago.canary import contains_secret
@@ -179,7 +179,7 @@ def test_no_leak_capable_template_contains_a_shipped_canary():
     composed-evasion techniques run against prompt-leak too (applies_to=None).
 
     Matched with the ORACLE'S OWN matcher (`contains_secret`), not a plain substring —
-    Council (ORACLE-PURIST): the gate must be as transform-tolerant as `judge_leak` is, so a
+    the gate must be as transform-tolerant as `judge_leak` is, so a
     FUTURE canary rotation that minted a value colliding with a fabricated example code under
     base64/rot13/reverse/leet would fail CI here instead of silently false-positiving in prod.
     Canaries sourced from the SAME origin the run plants (`load_objectives`)."""

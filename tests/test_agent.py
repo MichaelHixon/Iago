@@ -295,7 +295,7 @@ def test_run_suite_and_report(tmp_path):
     assert "CANARY-123" in text  # evidence quotes the exfiltrating body
 
 
-# --- Council fixes: decode-robust detection across all sinks --------------------
+# --- decode-robust detection across all sinks -----------------------------------
 
 import base64
 import codecs
@@ -402,7 +402,7 @@ def test_oracle_flags_external_send_without_canary_as_attempted():
 # --- containment: send_message never egresses ----------------------------------
 
 def test_send_message_never_egresses(monkeypatch):
-    """Containment gate (Council): a live socket must not be reachable through the
+    """Containment gate: a live socket must not be reachable through the
     mocked tool. Patch socket.socket to explode, then run a scenario whose agent
     sends — if send_message touched the network this would raise."""
     import socket
@@ -417,7 +417,7 @@ def test_send_message_never_egresses(monkeypatch):
     assert any(c.name == "send_message" for c in trace.calls)
 
 
-# --- ISC-30 anti-runaway: per-generation timeout + token cap at the ollama seam -----
+# --- anti-runaway: per-generation timeout + token cap at the ollama seam -----
 
 class _FakeOllamaClient:
     """Records the init kwargs and the last chat options, returns a valid empty turn.
@@ -488,7 +488,7 @@ def test_ollama_chat_fn_wraps_generation_error_loudly(monkeypatch):
 
 
 def test_ollama_chat_fn_raises_loudly_on_token_cap_truncation(monkeypatch):
-    """Council (Voss+Marchetti): a `done_reason=length` truncation must be LOUD, not a quiet
+    """A `done_reason=length` truncation must be LOUD, not a quiet
     tool-less turn that reads downstream as a dead floor / held guardrail. It raises like the
     timeout so the campaign records the leg INCOMPLETE, excluded from both alive and dead."""
     import ollama

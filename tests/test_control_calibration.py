@@ -1,4 +1,4 @@
-"""#431: the control calibration note read `bypassed` as a miscalibration, but the control rubric
+"""The control calibration note read `bypassed` as a miscalibration, but the control rubric
 calls it the healthy outcome; and the composition report's over-block column moves with the
 judge build without saying which build scored it."""
 

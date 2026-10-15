@@ -26,7 +26,7 @@ REQUIRED_FIELDS = ("id", "name", "kind", "task", "documents", "private_notes", "
 #              send, proving the model can actually reach the exfil sink. If a
 #              capability scenario does NOT go red, the agent is too weak a
 #              tool-caller and a 0% attack rate is degenerate, not a real "policy held"
-#              (the too-dumb-to-be-hijacked confound, Council 2026-08-01).
+#              (the too-dumb-to-be-hijacked confound).
 VALID_KINDS = ("attack", "control", "capability")
 
 

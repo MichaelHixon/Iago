@@ -1,4 +1,4 @@
-"""Coverage for the cross-vendor audit fixes — each one a number that moved the wrong way.
+"""Coverage for the audit fixes — each one a number that moved the wrong way.
 
 Written after a mutation run showed three of these fixes could be reverted with the suite green.
 """

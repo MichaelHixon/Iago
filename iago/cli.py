@@ -38,7 +38,7 @@ from .judge_rubric import BASE_URL_HELP, SPEC_HELP, is_rubric_spec, make_judge
 
 def _positive_int(value: str) -> int:
     """argparse type for every trial/step/turn count: a run of 0 trials measures nothing, writes a
-    manifest-only artifact, and used to exit 0 with a report (cross-vendor audit, critical)."""
+    manifest-only artifact, and used to exit 0 with a report."""
     n = int(value)
     if n < 1:
         raise argparse.ArgumentTypeError(f"must be >= 1 (got {n})")
@@ -56,8 +56,8 @@ def _unit_float(value: str) -> float:
 def _valid_count(rows: list[dict]) -> int:
     """Rows that actually PROBED the guardrail. A <<RUN-ERROR>> row never produced a usable
     reply — transport, guard, or judge failure; a
-    decode-failed cipher row reached it but never exercised the guardrail (decode.py), and since
-    ISC-32 the report excludes those from every harmful denominator — so counting them here would
+    decode-failed cipher row reached it but never exercised the guardrail (decode.py), and
+    the report excludes those from every harmful denominator — so counting them here would
     let an all-decode-failed run exit 0 with an empty report (code-review major)."""
     from .report import is_valid_probe
     return sum(1 for r in rows if is_valid_probe(r))
@@ -67,7 +67,7 @@ def _nothing_measured(rows: list[dict], what: str = "trials") -> int | None:
     """Non-zero exit code (with the reason on stderr) when an artifact holds zero VALID rows;
     None when there is something to report. A report may still be written for the record, but
     the process must not exit 0: a run that measured nothing is not a run in which "the
-    guardrails held" (ISC-31 — the exit-0-measured-nothing class)."""
+    guardrails held" (the exit-0-measured-nothing class)."""
     if not rows:
         print(f"ERROR: artifact holds 0 {what} — nothing was measured.", file=sys.stderr)
         return 2
@@ -147,7 +147,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     except GuardBackendUnavailable as exc:
         # A guard backend that died MID-MATRIX takes the whole run down (by design: a silently
         # passing guard would fabricate a "held" verdict). Name the partial artifact so the trials
-        # already written are not lost (cross-vendor audit).
+        # already written are not lost.
         print(f"ERROR: guard backend failed mid-run: {exc}", file=sys.stderr)
         partial = sorted(ARTIFACTS_DIR.glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
         if partial:
@@ -195,7 +195,7 @@ def _cmd_report(args: argparse.Namespace) -> int:
             out = (write_html_report(rows, manifest=run_manifest) if args.html
                    else write_report(rows, manifest=run_manifest))
             print(f"Report: {out}  ({len(rows)} trials; {_valid_count(rows)} valid)")
-    except ValueError as exc:  # wrong-surface artifact (ISC-33)
+    except ValueError as exc:  # wrong-surface artifact
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     rc = _nothing_measured(rows)
@@ -218,7 +218,7 @@ def _cmd_delta(args: argparse.Namespace) -> int:
             allow_judge_mismatch=getattr(args, "allow_judge_mismatch", False),
             allow_library_mismatch=getattr(args, "allow_library_mismatch", False),
             strict_fingerprints=getattr(args, "strict_fingerprints", False))
-    except ValueError as exc:  # wrong-surface artifact (ISC-33), or the arms' fingerprints differ
+    except ValueError as exc:  # wrong-surface artifact, or the arms' fingerprints differ
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     print(f"Delta report: {out}")
@@ -249,7 +249,7 @@ def _cmd_gate(args: argparse.Namespace) -> int:
 
 
 def _cmd_compare(args: argparse.Namespace) -> int:
-    """Multi-model differential evaluation (ISC-29): >=2 same-surface artifacts -> one
+    """Multi-model differential evaluation: >=2 same-surface artifacts -> one
     comparison report. The delta between models is the finding."""
     from pathlib import Path
     from .compare import build_comparison, write_comparison_report
@@ -269,7 +269,7 @@ def _cmd_compare(args: argparse.Namespace) -> int:
     if not comp.scenario_ids:
         # Rows without `kind` (chatbot `run` artifacts), empty files, or a surface whose verdict
         # vocabulary compare does not adjudicate all yield an EMPTY matrix — which used to render
-        # as a "no divergence" report at exit 0 (ISC-31).
+        # as a "no divergence" report at exit 0.
         print("ERROR: no adjudicated attack scenarios across the given artifacts — compare needs "
               ">=2 same-surface AGENT artifacts (rows carrying `kind`); nothing to compare.",
               file=sys.stderr)
@@ -286,7 +286,7 @@ def _cmd_compare(args: argparse.Namespace) -> int:
 
 
 def _cmd_campaign(args: argparse.Namespace) -> int:
-    """Cross-surface multi-model differential campaign (ISC-30): fire every requested surface x
+    """Cross-surface multi-model differential campaign: fire every requested surface x
     model (LOCAL/Ollama) and roll every per-surface differential into ONE consolidated report —
     the whole-picture cross-surface artifact."""
     from .campaign import build_campaign, run_campaign, write_campaign_report, CAMPAIGN_SURFACES
@@ -326,7 +326,7 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
     print(f"Campaign report: {out}")
     if errors:
         # The report is still written (a failed leg is recorded, never hidden), but a partial
-        # campaign must not exit 0 — a pipeline reading the code would call it complete (ISC-31).
+        # campaign must not exit 0 — a pipeline reading the code would call it complete.
         print(f"WARNING: {len(errors)} campaign leg(s) failed — report is PARTIAL (exit 1).",
               file=sys.stderr)
         return 1
@@ -464,15 +464,15 @@ def _cmd_regrade(args: argparse.Namespace) -> int:
 
 
 def _cmd_judge_eval(args: argparse.Namespace) -> int:
-    """Measure the judges against the labeled control set (ISC-35)."""
+    """Measure the judges against the labeled control set."""
 
     from .judge_eval import NO_OVERLAY_SENTINEL, OverlayWriteRefused, evaluate, load_control_set, write_metrics
 
     entries = load_control_set(args.set, overlay=NO_OVERLAY_SENTINEL if args.no_overlay else None)
     names = [n.strip() for n in args.judge.split(",") if n.strip()]
     if not names:
-        # `--judge ""` (an unset CI variable) used to run no judge and exit 0 — the ISC-31 class
-        # inside the very command that measures it (Council major).
+        # `--judge ""` (an unset CI variable) used to run no judge and exit 0 — a run that measured
+        # nothing, passing, inside the very command that measures it.
         print(f"ERROR: --judge named no judge ({args.judge!r}); nothing was measured.", file=sys.stderr)
         return 2
     rc = 0
@@ -547,7 +547,7 @@ def _agreement_gate(name: str, m: dict, args: argparse.Namespace) -> int:
 def _cmd_power(args: argparse.Namespace) -> int:
     """How many paired trials (raw/guarded twins from `defense-delta`, the one paired design
     Iago runs) are needed to detect a given difference in bypass rate with McNemar's test
-    (ISC-70). Two models' runs are independent samples, not pairs; this number does not size a
+    Two models' runs are independent samples, not pairs; this number does not size a
     `compare`."""
     from .stats import paired_sample_size
 
@@ -603,7 +603,7 @@ def _cmd_lexical_leak(args: argparse.Namespace) -> int:
     if analyzed == 0:
         # Zero prompt-leak rows is not a clean result, it is no result. The advisory band must not
         # gate a pipeline on suspects FOUND; that never justified reassurance about rows that do not
-        # exist (Council major).
+        # exist.
         print("\nERROR: no prompt-leak rows in the given artifact(s) — nothing was analyzed.",
               file=sys.stderr)
         return 2

@@ -1,4 +1,4 @@
-"""ISC-36..40 — the deferred minors from the 2026-09-11 push gate.
+"""Deferred minors from the 2026-09-11 push gate.
 
 Every test here pins a DISCLOSURE: a sentence or marker whose job is to stop a reader drawing a
 conclusion the data does not support. That is the class the gate kept finding — not wrong numbers,
@@ -32,7 +32,7 @@ def _write(tmp_path: Path, name: str, rows: list[dict]) -> Path:
     return p
 
 
-# ---------------------------------------------------------------- ISC-36
+# ---------------------------------------------------------------- all-excluded vs never-attempted
 
 def test_all_excluded_scenario_is_distinguishable_from_never_attempted(tmp_path):
     """The headline defect: both rendered as `–`, so an unmeasured scenario read as an untried one."""
@@ -91,7 +91,7 @@ def test_all_excluded_cell_never_synthesizes_a_rate(tmp_path):
     assert "%" not in cell, "an all-excluded cell must carry a trial count, never a rate"
 
 
-# ---------------------------------------------------------------- ISC-37
+# ---------------------------------------------------------------- empty_final note
 
 def test_empty_final_note_states_why_those_rows_stay_in_the_denominator():
     note = "\n".join(probe_quality_note([
@@ -111,7 +111,7 @@ def test_step_limited_and_empty_final_carry_different_dispositions():
     assert limited != empty
 
 
-# ---------------------------------------------------------------- ISC-38
+# ---------------------------------------------------------------- manifest before the artifact opens
 
 def test_judge_modules_are_explicit_and_a_bad_one_fails_before_the_artifact_exists(tmp_path):
     from iago.agentic_exfil import run_exfil_suite
@@ -139,7 +139,7 @@ def test_judge_modules_cover_the_same_modules_the_prefix_used_to_build(surface, 
     necessarily moved — agentic_exfil.py is one of the fingerprinted files and it was edited.)
 
     Captured at RUNTIME rather than read out of the source text: a source-text pin fails on any
-    reformat with a message about fingerprints, which is a misleading reason to fail (Council)."""
+    reformat with a message about fingerprints, which is a misleading reason to fail."""
     import iago.agent_a2a as a2a
     import iago.agent_rag as rag
 
@@ -157,7 +157,7 @@ def test_judge_modules_cover_the_same_modules_the_prefix_used_to_build(surface, 
         "agent_oracle", "agentic_exfil", f"agent_{surface}", "agent_harness")
 
 
-# ---------------------------------------------------------------- ISC-39
+# ---------------------------------------------------------------- guard labels name an artifact
 
 def test_every_accepted_guard_label_names_a_concrete_artifact():
     """Each source must name something a reader can go and check — a `repo/model` id, or the
@@ -271,10 +271,10 @@ def test_an_override_may_not_put_a_label_on_both_sides():
         HFPromptInjectionGuard(positive_labels=["x", "y"], negative_labels=["y"])
 
 
-# ---------------------------------------------------------------- Council round 2
+# ---------------------------------------------------------------- Review round 2
 
 def test_a_partial_vocabulary_overlap_raises_instead_of_never_blocking():
-    """The blocking fail-open Council found: with `top_k=None` the classifier returns its WHOLE
+    """The blocking fail-open found in review: with `top_k=None` the classifier returns its WHOLE
     vocabulary, so a `safe`/`unsafe` moderation binary used to pass the recognition gate on `safe`
     and then match nothing in _POSITIVE — returning unblocked for every input forever. Zero blocks
     read as 'the guard held' when the truth is the guard could never say yes."""
@@ -318,7 +318,7 @@ def _artifact_writer_modules():
         tree = ast.parse(f.read_text())
         if any(isinstance(n, ast.With) and _opens_an_artifact(n) for n in ast.walk(tree)):
             out.append(f.stem)
-    # Named, not counted: ISC-73 folded five agentic writers into agentic_exfil, so a count floor
+    # Named, not counted: a consolidation folded five agentic writers into agentic_exfil, so a count floor
     # shrinks with every consolidation while a missing known writer still proves a broken walk.
     known = {"adaptive", "agent_run", "agentic_exfil", "runner"}
     assert known <= set(out), f"discovery found only {out} — the walk is broken, not the package"
@@ -339,11 +339,11 @@ def _opens_an_artifact(node):
 
 @pytest.mark.parametrize("module_name", _artifact_writer_modules())
 def test_no_suite_writer_fingerprints_inside_an_open_artifact(module_name):
-    """CLASS SWEEP for ISC-38. The reported instance was one of seven sites with the same shape:
+    """CLASS SWEEP for the truncate-then-raise defect. The reported instance was one of seven sites with the same shape:
     `out_path.open("w")` truncates the artifact, then a fingerprint helper reads files and can
     raise, leaving a zero-byte file behind. Every manifest is now built before the open.
 
-    Checked over the AST, not the source text: a substring scan matched the ISC-38 docstring's own
+    Checked over the AST, not the source text: a substring scan matched the original fix's docstring's own
     quotation of `out_path.open("w")` and failed on prose, which is precisely the brittleness this
     file was told to stop shipping."""
     import ast
@@ -367,7 +367,7 @@ def test_no_suite_writer_fingerprints_inside_an_open_artifact(module_name):
 
 
 def test_a_partially_excluded_rate_is_marked_in_its_own_cell(tmp_path):
-    """Council/Zhao: a rate over a REDUCED denominator rendered identically to a full-N one, with
+    """A rate over a REDUCED denominator rendered identically to a full-N one, with
     the thinning disclosed only in an aggregate per-model footer a screenshot of one row loses."""
     from iago.compare import write_comparison_report
     a = _write(tmp_path, "a.jsonl", _rows("modelA", attacks=[
@@ -388,7 +388,7 @@ def test_a_partially_excluded_rate_is_marked_in_its_own_cell(tmp_path):
 # ---------------------------------------------------------------- Round 3: behavior, not wording
 
 def test_empty_final_resisted_rows_actually_stay_in_the_denominator(tmp_path):
-    """ISC-37 pinned the SENTENCE and nothing pinned the FACT (test review). If an `empty_final`
+    """The empty_final note test pinned the SENTENCE and nothing pinned the FACT (test review). If an `empty_final`
     exclusion were ever added beside `hit_step_limit`, the note would keep printing "STAY in every
     denominator" over a denominator that no longer does — this commit's own defect class, with the
     polarity flipped. So assert the arithmetic, not the prose."""

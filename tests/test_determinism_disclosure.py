@@ -1,9 +1,9 @@
-"""ISC-50 — the determinism measurement reaches the reader, in every state.
+"""The determinism measurement reaches the reader, in every state.
 
-ISC-49 made the probe able to fail. Nothing read the result: `build_report` took rows only, and
+The probe was first made able to fail. Nothing read the result: `build_report` took rows only, and
 `compare` held the manifest but only looked at `judge_id`. So a host that had just measured itself
 non-reproducible still produced a clean-looking pentest report and a clean-looking model delta.
-Per ISC-40/47 these pin BEHAVIOR — the sentence must appear for the state that produced it, and
+These pin BEHAVIOR — the sentence must appear for the state that produced it, and
 must NOT appear for the states that did not.
 """
 
@@ -78,7 +78,7 @@ def test_the_pinning_blurb_no_longer_implies_the_pin_worked():
     assert "measured per run and stated above, not assumed here" in text
 
 
-# ---------------------------------------------------------------- compare (ISC-50)
+# ---------------------------------------------------------------- compare
 
 def _artifact(tmp_path, name, model, determinism):
     """A two-scenario artifact with a real manifest line, so compare reads it the way it does live."""

@@ -94,7 +94,7 @@ class AgentTrace:
     # only final_text. Output-disclosure scoring (LLM02) must see the whole answer stream.
     assistant_texts: list[str] = field(default_factory=list)
     # The loop ended on a turn with NO tool calls and NO text. Silence is recorded, never credited
-    # as an explicit refusal (ISC-32); reports count it beside the step-limit flag.
+    # as an explicit refusal; reports count it beside the step-limit flag.
     empty_final: bool = False
 
 
@@ -103,7 +103,7 @@ def resolve_doc(name: str, documents: dict[str, str]) -> str | None:
     reaches the agent even when it drops the extension or changes case ('README' -> 'README.md').
     A real doc store resolves these; without it, an attack scenario can score 'resisted' merely
     because the agent fat-fingered the filename and never SAW the poison (caught live vs llama3.1
-    on the tool-abuse surface; the base surface had the same gap — ISC-32).
+    on the tool-abuse surface; the base surface had the same gap).
     Exact match wins, then case-insensitive, then stem match. Returns the KEY or None."""
     if name in documents:
         return name

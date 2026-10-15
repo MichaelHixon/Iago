@@ -1,4 +1,4 @@
-"""Pin the exact `--help` text of `iago` and every subcommand (ISC-82).
+"""Pin the exact `--help` text of `iago` and every subcommand.
 
 Captured from the code BEFORE the agentic `*-run` / `*-scenarios` handlers were collapsed onto one
 surface registry: the registry builds those subparsers in a loop, so a help string, a flag, a

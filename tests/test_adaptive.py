@@ -359,7 +359,7 @@ def test_suite_run_error_records_exception_class(tmp_path):
 
 
 def test_suite_manifest_records_that_the_target_gets_no_system_prompt(tmp_path):
-    """ISC-69: adaptive sends the target user turns only, so the manifest says "none" — not
+    """Adaptive sends the target user turns only, so the manifest says "none" — not
     "unrecorded", which would read as a provenance gap."""
     target = ScriptedTarget([HARD_REFUSAL_REPLY])
     seen = []
