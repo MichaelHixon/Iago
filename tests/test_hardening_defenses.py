@@ -30,7 +30,7 @@ def _plain(doc: str) -> str:
 
 def _first_words(defense: str) -> str:
     """A distinctive prefix of the defense, normalized the way _plain normalizes the report."""
-    return _plain(defense[0].upper() + defense[1:])[:50]
+    return _plain(defense)[:50]
 
 
 def test_every_library_category_has_its_own_defense():

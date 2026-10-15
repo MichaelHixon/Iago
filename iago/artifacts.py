@@ -197,6 +197,11 @@ def fingerprint_fields(obj) -> dict:
     return d
 
 
+def library_fingerprint(techniques) -> str:
+    """sha256 over the technique library a run fired (`technique_library_sha256`), label fields excluded."""
+    return sha256_text(json.dumps([fingerprint_fields(t) for t in techniques], sort_keys=True, default=str))
+
+
 def scenario_fingerprint(scenarios) -> str | None:
     """sha256 over the scenario objects a surface actually ran, so two agent runs whose manifests
     otherwise match cannot be compared as equals while one used a locally edited scenario YAML.

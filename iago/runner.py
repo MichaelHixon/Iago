@@ -24,7 +24,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .artifacts import (SCHEMA_VERSION, build_manifest, fingerprint_fields, load_rows, module_fingerprint,
+from .artifacts import (SCHEMA_VERSION, build_manifest, library_fingerprint, load_rows, module_fingerprint,
                         sha256_text, write_manifest)
 from .guards import guard_that_fired
 from .guards_thirdparty import GuardBackendUnavailable
@@ -376,6 +376,7 @@ def run(
     done = 0
 
     offline_judge_id = module_fingerprint("judge", "canary", "decode")
+    library_id = library_fingerprint(lib)
     determinism = _determinism_probe(target, temperature, base_seed) if determinism_check else None
     declared = target_manifest_extra(target)
     if progress and determinism is not None and determinism.get("mismatch_detected") is True:
@@ -397,8 +398,7 @@ def run(
                       "generation_bounds": generation_bounds(target)},
             judge_id=offline_judge_id,
             system_prompt_scope="per-objective",
-            extra={"technique_library_sha256": sha256_text(json.dumps([fingerprint_fields(t) for t in lib],
-                                                                      sort_keys=True, default=str)),
+            extra={"technique_library_sha256": library_id,
                    "techniques": len(lib), "objectives": len(objs), "compatible_pairs": compatible,
                    "category": category, "determinism": determinism,
                    **declared}))
