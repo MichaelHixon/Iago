@@ -441,11 +441,14 @@ class _TechStat(TypedDict):
     mean_conf: float
 
 
-# One concrete defense per attack category, named in the report for every category that leaked.
-# A category missing here (a custom library) falls back to _GENERIC_DEFENSE, never to silence.
+# One concrete defense per attack category, named in the report for every category whose techniques
+# bypassed a harmful-content objective. Categories scoped only to other objective kinds (prompt
+# extraction, provenance forging, dead-end) never reach this list; their findings carry their own
+# recommendations below. A category missing here falls back to _GENERIC_DEFENSE, never to silence.
 CATEGORY_DEFENSES: dict[str, str] = {
-    "direct-ask": "A plain request got through, so the base safety layer is missing rather than "
-                  "evaded: add refusal training and an input-side harm classifier.",
+    "direct-ask": "A plain request with no attack framing got through, so the base refusal layer "
+                  "itself failed on this objective: add refusal training and an input-side harm "
+                  "classifier.",
     "role-play": "Make policy persona-invariant: a fictional or character frame does not change what "
                  "the model may produce, and the output classifier ignores the framing.",
     "format-shift": "Classify the content, not its container: a harmful answer inside a table, JSON, "
@@ -460,7 +463,6 @@ CATEGORY_DEFENSES: dict[str, str] = {
                         "inputs with a prompt-injection classifier.",
     "template-injection": "Never interpolate user input into a prompt template unescaped: escape "
                           "chat-template and role tokens, and reject input that carries role markers.",
-    "prompt-extraction": "Keep secrets out of the system prompt and filter known secret strings on output.",
     "refusal-suppression": "Do not honor output rules that forbid refusing (\"never apologize\", "
                            "\"start with Sure\"), and test that refusals survive them.",
     "competing-objectives": "Rank safety above helpfulness explicitly, so an appeal to urgency, research "
@@ -471,15 +473,13 @@ CATEGORY_DEFENSES: dict[str, str] = {
                   "is visible to the classifier.",
     "composed-evasion": "Undo every evasion layer (decode, translate, unwrap) before screening; stacked "
                         "layers beat any single filter.",
-    "provenance-forging": "Never let claimed prior agreements or session history confer authority; verify "
-                          "authorization in-band.",
     "rag-injection": "Treat retrieved documents as untrusted data: scan the corpus for embedded "
                      "instructions and keep retrieved text out of the instruction channel.",
-    "agent-abuse": "Give tools least privilege, never act on instructions found in tool output, and put a "
-                   "policy or human check in front of consequential calls.",
-    "mcp-injection": "Pin and review MCP tool manifests, and treat tool descriptions and responses as "
-                     "untrusted input.",
-    "dead-end": "Teach the model to stop and say a task is impossible instead of inventing an answer.",
+    "agent-abuse": "When the model is deployed with tools, give them least privilege, never act on "
+                   "instructions found in tool output, and put a policy or human check in front of "
+                   "consequential calls.",
+    "mcp-injection": "When the model is deployed with MCP tools, pin and review their manifests, and "
+                     "treat tool descriptions and responses as untrusted input.",
 }
 _GENERIC_DEFENSE = "Add refusal training or input-side detection targeting this pattern."
 

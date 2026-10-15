@@ -7,13 +7,13 @@ Methodology:
   * pinned sampling — temperature fixed, per-trial seed = base_seed + trial, so
     trials differ from each other but the whole run reproduces.
   * separation of concerns — the runner ONLY executes and writes structured JSONL
-    artifacts (one row per trial). The report generator (planned) reads those
-    artifacts and never re-hits the model.
+    artifacts (one row per trial). The report generator reads those artifacts
+    and never re-hits the model.
   * authorization guard — refuses a non-local target unless `authorized=True`,
     making the "only target what you own" ethic executable, not just documented.
 
 Each artifact row is judged inline (heuristic judge) so the JSONL is self-contained;
-a future Claude-API judge (planned) can re-score the same artifacts without re-running.
+`iago regrade` re-scores the same artifacts with a rubric judge without re-running.
 """
 
 from __future__ import annotations
