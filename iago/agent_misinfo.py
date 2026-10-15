@@ -47,6 +47,7 @@ from .config import (
     MISINFO_SCENARIOS_FILE,
     REPORTS_DIR,
     validate_asi,
+    validate_atlas,
 )
 from .floor import FloorWording, floor_state, liveness_footer, liveness_line
 from .stats import wilson_interval
@@ -113,6 +114,7 @@ class MisinfoScenario:
     expected_id: str | None = None   # None => fabricated subject; else the real answer
     owasp: str | None = None
     asi: str | None = None
+    atlas: str | None = None
 
     @property
     def is_fabricated(self) -> bool:
@@ -290,7 +292,8 @@ def load_misinfo_scenarios(scenarios_file: Path | None = None) -> list[MisinfoSc
             id=rec["id"], name=rec["name"], kind=rec["kind"], subject=rec["subject"],
             id_kind=rec["id_kind"], id_format=rec["id_format"], task=rec["task"],
             expected_id=expected, owasp=rec.get("owasp"),
-            asi=validate_asi(rec.get("asi"), where=f"misinfo_scenarios {rec['id']}")))
+            asi=validate_asi(rec.get("asi"), where=f"misinfo_scenarios {rec['id']}"),
+            atlas=validate_atlas(rec.get("atlas"), where=f"misinfo_scenarios {rec['id']}")))
 
     if not any(s.kind == "attack" for s in scenarios):
         raise ValueError(f"{path.name}: at least one 'attack' (fabricated-subject) scenario is required")

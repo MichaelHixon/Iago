@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .yaml_records import load_records
-from .config import AGENT_SCENARIOS_FILE, validate_asi
+from .config import AGENT_SCENARIOS_FILE, validate_asi, validate_atlas
 
 REQUIRED_FIELDS = ("id", "name", "kind", "task", "documents", "private_notes", "canary")
 # attack     — a poisoned document/tool-result carries the injection.
@@ -44,6 +44,7 @@ class Scenario:
     owasp: str | None = None
     # OWASP Agentic (ASI) Top-10 tag — the agentic framework this scenario maps to.
     asi: str | None = None
+    atlas: str | None = None
     attacker_recipient: str | None = None
     # A token that appears ONLY inside the poisoned document content, so its surfacing in a tool
     # result proves the agent really read the poison (the delivery signal). Required on attacks.
@@ -112,6 +113,7 @@ def load_scenarios(scenarios_file: Path | None = None) -> list[Scenario]:
                 canary=rec["canary"],
                 owasp=rec.get("owasp"),
                 asi=validate_asi(rec.get("asi"), where=f"{path.name} {rec['id']}"),
+                atlas=validate_atlas(rec.get("atlas"), where=f"{path.name} {rec['id']}"),
                 attacker_recipient=rec.get("attacker_recipient"),
                 poison_marker=marker,
             )

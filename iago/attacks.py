@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .yaml_records import load_records, load_mapping
-from .config import ATTACKS_DIR, CATEGORIES, validate_asi
+from .config import ATTACKS_DIR, CATEGORIES, validate_asi, validate_atlas
 from .objectives import VALID_KINDS as OBJECTIVE_KINDS
 
 REQUIRED_FIELDS = ("id", "name", "category", "description", "template")
@@ -24,7 +24,7 @@ PLACEHOLDER = "{objective}"
 # fabricated compliant Q&A pairs generated at render time, so the SHOT COUNT is a
 # run parameter (16 / 64 / 128+) rather than baked into the YAML. Anil et al. show
 # many-shot efficacy scales with shot count, so exercising that scaling needs the
-# count to be drivable from the runner (IMPROVEMENTS Tier-1 round-2).
+# count to be drivable from the runner.
 SHOTS_PLACEHOLDER = "{shots}"
 
 _LEET = str.maketrans({"a": "4", "e": "3", "i": "1", "o": "0", "s": "5", "t": "7"})
@@ -68,13 +68,13 @@ TRANSFORM_KINDS: frozenset[str] = frozenset(
 
 
 def _transform(objective: str, kind: str | None) -> str:
-    """Actually encode the payload before injection (IMPROVEMENTS P2).
+    """Actually encode the payload before injection.
 
     Without this, an 'encoding' technique ships the objective in plain text and
     only tests instruction-following, not evasion — a real attacker sends the
     already-transformed payload past the surface filters. The cipher transforms
     (rot13 / caesar / morse) additionally make the model *reason through* the
-    decoding, a path some safety layers don't cover (IMPROVEMENTS Tier 1).
+    decoding, a path some safety layers don't cover.
     """
     if not kind or kind == "none":
         return objective
@@ -430,10 +430,14 @@ class Technique:
     # which is the umbrella for jailbreaks. Override per technique in YAML when a
     # sharper mapping applies (e.g. LLM07 System-Prompt Leakage).
     owasp: str = "LLM01: Prompt Injection"
-    # OWASP Agentic (ASI) Top-10 tag — the agentic analogue of `owasp`. Set only on
-    # agentic techniques (agent-abuse / mcp-injection / rag-injection); None for the
-    # single-turn jailbreak library, which is model-level, not agent-level.
+    # OWASP Agentic (ASI) Top-10 tag — the agentic analogue of `owasp`. Set on the agentic
+    # techniques (agent-abuse / mcp-injection / rag-injection) and on provenance-forging
+    # (ASI09, Human-Agent Trust Exploitation); None for the single-turn jailbreak library,
+    # which is model-level, not agent-level.
     asi: str | None = None
+    # MITRE ATLAS technique tag (config.VALID_ATLAS). A label only: kept out of the library
+    # fingerprint (artifacts.LABEL_ONLY_FIELDS).
+    atlas: str | None = None
     # Multi-turn: priming user turns sent BEFORE the final `template` turn. The attack
     # builds across the conversation (crescendo / context-priming) so no single prompt
     # trips detection. None = single-shot. Priming turns may omit {objective}.
@@ -640,6 +644,7 @@ def load_library(attacks_dir: Path | None = None) -> list[Technique]:
                     transform=rec.get("transform"),
                     owasp=rec.get("owasp", "LLM01: Prompt Injection"),
                     asi=validate_asi(rec.get("asi"), where=f"{path.name} {rec['id']}"),
+                    atlas=validate_atlas(rec.get("atlas"), where=f"{path.name} {rec['id']}"),
                     turns=tuple(rec["turns"]) if rec.get("turns") else None,
                     shots=rec.get("shots"),
                     applies_to=tuple(applies_to) if applies_to else None,

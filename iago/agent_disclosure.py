@@ -47,6 +47,7 @@ from .config import (
     INJECTED_DISCLOSURE_MARKER,
     REPORTS_DIR,
     validate_asi,
+    validate_atlas,
 )
 from .floor import FloorWording, floor_state, liveness_footer, liveness_line
 from .stats import wilson_interval
@@ -132,6 +133,7 @@ class DisclosureScenario:
     poison_marker: str = INJECTED_DISCLOSURE_MARKER
     owasp: str | None = None
     asi: str | None = None
+    atlas: str | None = None
 
     # run_agent reads `.documents` (the injection vector) — alias records onto it so the shared
     # loop's default plumbing and our executor speak the same field.
@@ -285,7 +287,8 @@ def load_disclosure_scenarios(scenarios_file: Path | None = None) -> list[Disclo
             records=records_str, private_notes=rec["private_notes"], canary=rec["canary"],
             channel=ch, subject=subject, canary_subject=canary_subject,
             poison_marker=marker, owasp=rec.get("owasp"),
-            asi=validate_asi(rec.get("asi"), where=f"disclosure_scenarios {rec['id']}"))
+            asi=validate_asi(rec.get("asi"), where=f"disclosure_scenarios {rec['id']}"),
+            atlas=validate_atlas(rec.get("atlas"), where=f"disclosure_scenarios {rec['id']}"))
 
     return load_exfil_scenarios(
         Path(scenarios_file) if scenarios_file else DISCLOSURE_SCENARIOS_FILE,

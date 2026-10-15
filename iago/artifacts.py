@@ -180,17 +180,34 @@ def ollama_info(model_tag: str | None) -> dict:
     return info
 
 
+#: Fields that label a technique or scenario without changing what is sent to the model. They stay
+#: out of the library fingerprints so re-mapping a framework tag never makes two runs of the same
+#: attack text look like different libraries. (`owasp` and `asi` predate this and stay hashed, so
+#: fingerprints already recorded in artifacts keep their meaning.)
+LABEL_ONLY_FIELDS = ("atlas",)
+
+
+def fingerprint_fields(obj) -> dict:
+    """`asdict(obj)` minus LABEL_ONLY_FIELDS: the field-wise payload a library fingerprint hashes."""
+    from dataclasses import asdict
+
+    d = asdict(obj)
+    for name in LABEL_ONLY_FIELDS:
+        d.pop(name, None)
+    return d
+
+
 def scenario_fingerprint(scenarios) -> str | None:
     """sha256 over the scenario objects a surface actually ran, so two agent runs whose manifests
     otherwise match cannot be compared as equals while one used a locally edited scenario YAML
     (cross-vendor audit). Dataclasses are serialized field-wise; anything unserializable falls back
     to repr, which still changes when the content does."""
-    from dataclasses import asdict, is_dataclass
+    from dataclasses import is_dataclass
 
     if not scenarios:
         return None
     try:
-        payload = [asdict(s) if is_dataclass(s) and not isinstance(s, type) else repr(s)
+        payload = [fingerprint_fields(s) if is_dataclass(s) and not isinstance(s, type) else repr(s)
                    for s in scenarios]
         return sha256_text(json.dumps(payload, sort_keys=True, default=repr))
     except Exception:

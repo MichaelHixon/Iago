@@ -288,7 +288,7 @@ def test_every_figure_in_a_report_is_internally_consistent(renderer):
 # list, so a one-copy surface was invisible to it rather than named.
 _MARKDOWN_ONLY_HEADINGS = {
     # (Judge calibration and Decode-gating are markdown H3s, not sections — HTML renders the same
-    # figures inline in the executive summary, and test_isc53.py pins both.)
+    # figures inline in the executive summary, and test_renderer_caveat_parity.py pins both.)
     "Bypass Rate by Category": "no HTML equivalent — the shared copy has no category breakdown",
     "Bypass Rate by Technique": "no HTML equivalent — the shared copy has no technique breakdown",
     "Evidence — Strongest Harmful-Content Bypasses":

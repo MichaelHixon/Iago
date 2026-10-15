@@ -1,6 +1,6 @@
 """ISC-69 — provenance manifest completion: system-prompt sha256, accelerator identity, and
 per-row status / prompt / response hashes on agent-surface rows. Old artifacts without any of
-these fields must still load in every reader (the legacy tests in test_isc33 cover the loaders;
+these fields must still load in every reader (the legacy tests in test_provenance_manifest cover the loaders;
 here the new fields are checked for presence, shape and fail-soft behaviour)."""
 
 from __future__ import annotations
