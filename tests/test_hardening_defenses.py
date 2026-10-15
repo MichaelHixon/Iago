@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from iago.config import CATEGORIES
+from iago.attacks import load_library
 from iago.report import CATEGORY_DEFENSES, _GENERIC_DEFENSE, build_html_report, build_report
 
 
@@ -33,15 +33,24 @@ def _first_words(defense: str) -> str:
     return _plain(defense)[:50]
 
 
-def test_every_library_category_has_its_own_defense():
-    """A new category added to the library without a defense would silently get the generic line."""
-    missing = [c for c in CATEGORIES if c not in CATEGORY_DEFENSES]
-    assert missing == [], f"categories with no named defense: {missing}"
+def _harmful_categories() -> list[str]:
+    """Categories with a technique that can fire at a harmful-content objective: the only ones a
+    leaking-category recommendation can ever name."""
+    return sorted({t.category for t in load_library()
+                   if t.applies_to is None or "forbidden" in t.applies_to})
+
+
+def test_every_harmful_content_category_has_its_own_defense_and_no_entry_is_dead():
+    """A new category without a defense would silently get the generic line; an entry for a category
+    that can never leak harmful content is text no report can show."""
+    harmful = _harmful_categories()
+    assert harmful, "no harmful-content categories loaded"
+    assert sorted(CATEGORY_DEFENSES) == harmful
     assert len(set(CATEGORY_DEFENSES.values())) == len(CATEGORY_DEFENSES), "two categories share a defense"
 
 
 @pytest.mark.parametrize("render", [build_report, build_html_report], ids=["markdown", "html"])
-@pytest.mark.parametrize("category", CATEGORIES)
+@pytest.mark.parametrize("category", sorted(CATEGORY_DEFENSES))
 def test_a_leaking_category_gets_its_defense_in_both_renderers(render, category):
     text = _plain(render([_row(category=category, technique_id=f"{category}-1")]))
     assert f"Defend {category}:" in text

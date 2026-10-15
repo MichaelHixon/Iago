@@ -534,7 +534,7 @@ def _matrix_cell(m: ModelStats, sid: str) -> str:
     # PARTIAL exclusion: some trials were dropped but at least one survived, so the cell shows a
     # real rate over a REDUCED denominator. The widened Wilson interval is the honest half of that,
     # but nothing in the cell said the N was thinned — and the per-model footer that did say so is
-    # aggregate, so a screenshot of one row could not tell a thin-N rate from a full-N one
+    # aggregate, so a screenshot of one row could not tell a thin-N rate from a full-N one.
     # The dagger travels with the number the way the floor marks already do.
     dropped = m.scen_excluded.get(sid, 0)
     if dropped:
