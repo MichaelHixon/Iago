@@ -1,6 +1,6 @@
 """Runner: fire every technique x objective at the target, N trials each.
 
-Methodology (IMPROVEMENTS P1):
+Methodology:
   * multi-trial — each (technique, objective) fired `trials` times; the report
     turns these into a bypass RATE, because guardrail bypass is probabilistic and
     a single shot is noise.
@@ -24,7 +24,8 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .artifacts import (SCHEMA_VERSION, build_manifest, load_rows, module_fingerprint, sha256_text, write_manifest)
+from .artifacts import (SCHEMA_VERSION, build_manifest, fingerprint_fields, load_rows, module_fingerprint,
+                        sha256_text, write_manifest)
 from .guards import guard_that_fired
 from .guards_thirdparty import GuardBackendUnavailable
 from .judge import ERROR as _ERROR_VERDICT
@@ -396,7 +397,7 @@ def run(
                       "generation_bounds": generation_bounds(target)},
             judge_id=offline_judge_id,
             system_prompt_scope="per-objective",
-            extra={"technique_library_sha256": sha256_text(json.dumps([asdict(t) for t in lib],
+            extra={"technique_library_sha256": sha256_text(json.dumps([fingerprint_fields(t) for t in lib],
                                                                       sort_keys=True, default=str)),
                    "techniques": len(lib), "objectives": len(objs), "compatible_pairs": compatible,
                    "category": category, "determinism": determinism,

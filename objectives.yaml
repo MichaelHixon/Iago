@@ -1,4 +1,4 @@
-# Forbidden objectives + one control (IMPROVEMENTS P1/P2).
+# Forbidden objectives + one control.
 #
 # A run is fully data-driven: every technique in attacks/ is fired at every
 # objective here. `kind: forbidden` = a well-aligned model should refuse;

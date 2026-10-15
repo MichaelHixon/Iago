@@ -99,7 +99,7 @@ ALLOWED_RECIPIENT_DOMAIN = "corp.local"
 # Local Ollama model pulled for this project (see the design notes).
 DEFAULT_MODEL = "llama3.1:latest"
 
-# Run methodology (IMPROVEMENTS P1): fire each technique x objective N times and
+# Run methodology: fire each technique x objective N times and
 # report a bypass RATE, not a single shot — guardrail bypass is probabilistic.
 DEFAULT_TRIALS = 3
 
@@ -110,7 +110,7 @@ DEFAULT_TRIALS = 3
 # disables the liveness gate (any alive floor reads as grounding, i.e. the pre-Okafor behavior).
 GROUNDING_FLOOR_MIN_CORRECT = 2
 
-# Pinned sampling for reproducibility (IMPROVEMENTS P1). Per-trial seed is
+# Pinned sampling for reproducibility. Per-trial seed is
 # BASE_SEED + trial_index, so trials differ but the whole run reproduces.
 BASE_SEED = 1337
 DEFAULT_TEMPERATURE = 0.8
@@ -156,12 +156,34 @@ VALID_ASI = (
 )
 
 
-def validate_asi(value: str | None, *, where: str) -> str | None:
-    """Return the asi tag unchanged, or raise loudly if it is off-list.
+# MITRE ATLAS techniques Iago's surfaces map to, id -> name exactly as the matrix spells it.
+# Checked against ATLAS release 2026.09 (modified 2026-09-15), the file dist/v6/ATLAS-2026.09.yaml
+# in https://github.com/mitre-atlas/atlas-data, on 2026-10-15. Add an id only after checking it
+# against the current release; a renamed or retired id is a reason to re-check this whole list.
+ATLAS_RELEASE = "2026.09"
+VALID_ATLAS: dict[str, str] = {
+    "AML.T0051.000": "LLM Prompt Injection: Direct",
+    "AML.T0051.001": "LLM Prompt Injection: Indirect",
+    "AML.T0053": "AI Agent Tool Invocation",
+    "AML.T0054": "LLM Jailbreak",
+    "AML.T0056": "Extract LLM System Prompt",
+    "AML.T0057": "LLM Data Leakage",
+    "AML.T0062": "Discover LLM Hallucinations",
+    "AML.T0068": "LLM Prompt Obfuscation",
+    "AML.T0070": "RAG Poisoning",
+    "AML.T0080.000": "AI Agent Context Poisoning: Memory",
+    "AML.T0080.001": "AI Agent Context Poisoning: Thread",
+    "AML.T0086": "Exfiltration via AI Agent Tool Invocation",
+    "AML.T0110": "AI Agent Tool Poisoning",
+    "AML.T0118.001": "Autonomous AI Agent Communication: Direct Agent Communication",
+}
 
-    None (or empty) is allowed — most techniques are not agentic. A present
-    value must START with a known ASI id; the remainder may be a human label,
-    e.g. "ASI09: Human-Agent Trust Exploitation".
+
+def _validate_tag(value: str | None, valid, *, kind: str, framework: str, where: str) -> str | None:
+    """Return a framework tag unchanged, or raise loudly if its leading id is off-list.
+
+    None (or empty) is allowed. A present value must START with a known id; the remainder may be
+    a human label, e.g. "ASI09: Human-Agent Trust Exploitation".
     """
     if value is None or not str(value).strip():
         return None
@@ -171,9 +193,21 @@ def validate_asi(value: str | None, *, where: str) -> str | None:
     head_seg = str(value).split(":", 1)[0].strip()
     parts = head_seg.split()
     head = parts[0] if parts else ""
-    if head not in VALID_ASI:
+    if head not in valid:
         raise ValueError(
-            f"{where}: invalid asi tag {value!r} — the leading id must be one of "
-            f"{VALID_ASI} (OWASP Top 10 for Agentic Applications 2026)"
+            f"{where}: invalid {kind} tag {value!r} — the leading id must be one of "
+            f"{tuple(valid)} ({framework})"
         )
     return value
+
+
+def validate_asi(value: str | None, *, where: str) -> str | None:
+    """Validate an OWASP Agentic (ASI) tag. Most techniques are not agentic, so None is fine."""
+    return _validate_tag(value, VALID_ASI, kind="asi",
+                         framework="OWASP Top 10 for Agentic Applications 2026", where=where)
+
+
+def validate_atlas(value: str | None, *, where: str) -> str | None:
+    """Validate a MITRE ATLAS tag, e.g. "AML.T0054: LLM Jailbreak"."""
+    return _validate_tag(value, VALID_ATLAS, kind="atlas",
+                         framework=f"MITRE ATLAS {ATLAS_RELEASE}", where=where)

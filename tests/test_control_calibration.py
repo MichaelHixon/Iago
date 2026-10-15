@@ -9,7 +9,7 @@ from iago.judge import BYPASSED, ERROR, REFUSED, judge
 from iago.report import build_report
 
 from test_compose_delta import _fake_library, _row as _crow
-from test_isc53 import _both, _row
+from test_renderer_caveat_parity import _both, _row
 
 # Real ids are `<name>-<model>-<digest>`: two builds share everything but the digest, so any
 # shortened stamp would merge them (a defect caught in review of the first cut).

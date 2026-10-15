@@ -98,6 +98,7 @@ class RagScenario:
     top_k: int = DEFAULT_TOP_K
     owasp: str | None = None
     asi: str | None = None
+    atlas: str | None = None
 
     @property
     def is_control(self) -> bool:
@@ -166,12 +167,13 @@ def _rank_gate(rec, corpus_str, marker):
 def load_rag_scenarios(scenarios_file: Path | None = None) -> list[RagScenario]:
     """Read, validate, and return every RAG scenario via the shared loud loader (+ the top-k gate)."""
     def build(rec, corpus_str, marker):
-        from .config import validate_asi
+        from .config import validate_asi, validate_atlas
         return RagScenario(
             id=rec["id"], name=rec["name"], kind=rec["kind"], task=rec["task"],
             corpus=corpus_str, private_notes=rec["private_notes"], canary=rec["canary"],
             poison_marker=marker, top_k=int(rec.get("top_k", DEFAULT_TOP_K)),
-            owasp=rec.get("owasp"), asi=validate_asi(rec.get("asi"), where=f"rag_scenarios {rec['id']}"))
+            owasp=rec.get("owasp"), asi=validate_asi(rec.get("asi"), where=f"rag_scenarios {rec['id']}"),
+            atlas=validate_atlas(rec.get("atlas"), where=f"rag_scenarios {rec['id']}"))
 
     return load_exfil_scenarios(
         Path(scenarios_file) if scenarios_file else RAG_SCENARIOS_FILE,

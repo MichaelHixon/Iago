@@ -58,6 +58,7 @@ from .config import (
     PRIVILEGE_SCENARIOS_FILE,
     REPORTS_DIR,
     validate_asi,
+    validate_atlas,
 )
 from .arm_report import ArmReportSpec, render_arm_report
 
@@ -145,6 +146,7 @@ class PrivilegeScenario:
     marker: str | None = None
     owasp: str | None = None
     asi: str | None = None
+    atlas: str | None = None
 
     @property
     def is_control(self) -> bool:
@@ -327,7 +329,8 @@ def load_privilege_scenarios(scenarios_file: Path | None = None) -> list[Privile
         scenarios.append(PrivilegeScenario(
             id=rec["id"], name=rec["name"], kind=rec["kind"], arm=rec["arm"], task=rec["task"],
             documents=docs_str, marker=marker, owasp=rec.get("owasp"),
-            asi=validate_asi(rec.get("asi"), where=f"{path.name} {rec['id']}")))
+            asi=validate_asi(rec.get("asi"), where=f"{path.name} {rec['id']}"),
+            atlas=validate_atlas(rec.get("atlas"), where=f"{path.name} {rec['id']}")))
 
     if not any(s.kind == "attack" for s in scenarios):
         raise ValueError(f"{path.name}: at least one 'attack' scenario is required")

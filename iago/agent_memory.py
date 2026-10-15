@@ -67,6 +67,7 @@ from .config import (
     MEMORY_SCENARIOS_FILE,
     REPORTS_DIR,
     validate_asi,
+    validate_atlas,
 )
 from .stats import wilson_interval
 
@@ -137,6 +138,7 @@ class MemoryScenario:
     poison_marker: str = INJECTED_MEMORY_MARKER
     owasp: str | None = None
     asi: str | None = None
+    atlas: str | None = None
 
     @property
     def is_control(self) -> bool:
@@ -344,7 +346,8 @@ def load_memory_scenarios(scenarios_file: Path | None = None) -> list[MemoryScen
             id=rec["id"], name=rec["name"], kind=rec["kind"], task=rec["task"],
             documents=docs_str, private_notes=rec["private_notes"], canary=rec["canary"],
             poison_marker=marker, owasp=rec.get("owasp"),
-            asi=validate_asi(rec.get("asi"), where=f"{path.name} {rec['id']}")))
+            asi=validate_asi(rec.get("asi"), where=f"{path.name} {rec['id']}"),
+            atlas=validate_atlas(rec.get("atlas"), where=f"{path.name} {rec['id']}")))
 
     if not any(s.kind == "attack" for s in scenarios):
         raise ValueError(f"{path.name}: at least one 'attack' scenario is required")

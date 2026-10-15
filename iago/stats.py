@@ -138,7 +138,7 @@ def paired_difference_ci(*, a: int, b: int, c: int, d: int, z: float = 1.96) -> 
     (e.g. 5/0/0/5) has phi = 1 and a zero-width interval; the paper's § 6 (iv)(c) notes methods 8
     and 9 do exactly that and method 10 does not. With it, n > 0 never yields a zero width. A
     negative phi widens the interval, the conservative direction. Table III of the paper is the
-    reference (see tests/test_isc70_stats.py).
+    reference (see tests/test_paired_clustered_stats.py).
 
     n == 0 returns the uninformative (-1.0, 1.0); a negative cell raises."""
     if min(a, b, c, d) < 0:
