@@ -167,7 +167,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if getattr(args, "log", False):
         print(f"Transcript: {write_log(rows, html=getattr(args, 'html', False))}")
     print(f"({len(rows)} trials recorded; {_valid_count(rows)} valid)")
-    if recorder is not None:  # last, so a failed write cannot cost the reports above
+    if recorder is not None and record_path:  # last, so a failed write cannot cost the reports above
         try:
             print(f"Replay:    {recorder.save(Path(record_path), manifest=run_manifest)}")
         except OSError as exc:
