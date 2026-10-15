@@ -615,6 +615,32 @@ def scope_disclosure(manifest: dict | None) -> str:
             "Every number below describes that slice of the attack library, not the whole of it._")
 
 
+def replay_disclosure(manifest: dict | None) -> str:
+    """One line saying the replies were played back from a recorded fixture, or "" for a live run.
+
+    ISC-91. A replay runs the real runner, judge and report, so without this line its report reads
+    exactly like a measurement taken today; the target name alone does not say when, or that no
+    model ran."""
+    rp = (manifest or {}).get("replay")
+    if not rp:
+        return ""
+    return (f"_⚠️ **Recorded replay, not a live run.** Every reply below was recorded from "
+            f"`{rp.get('recorded_model')}` at {rp.get('recorded_at')} and played back from "
+            f"`{rp.get('fixture')}`; no model ran for this report, and the determinism note "
+            "describes the recording host. Re-run with `--target ollama` to measure a model "
+            "yourself._")
+
+
+def target_framing(manifest: dict | None) -> str:
+    """What the target is, as a clause both renderers complete ("Target is …" / "the target is …"):
+    a local model, or a recorded replay of one."""
+    rp = (manifest or {}).get("replay")
+    if not rp:
+        return "a local model under the operator's control"
+    origin = "a local model" if rp.get("recorded_is_local", True) else "an authorized remote model"
+    return f"a recorded replay of {origin}; no model ran for this report"
+
+
 def determinism_disclosure(manifest: dict | None) -> str:
     """One sentence telling the report's reader what the run measured about its own host.
 
@@ -824,7 +850,7 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
     a("")
     a("> **Authorized defensive-security research.** Iago probes an LLM's own safety")
     a("> controls to measure which bypass techniques slip past them, so the controls")
-    a("> can be hardened. Target is a local model under the operator's control.")
+    a(f"> can be hardened. Target is {target_framing(manifest)}.")
     a("")
     a(f"- **Target model:** `{model}`")
     a(f"- **Generated:** {now}")
@@ -839,6 +865,11 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
       f"{len({r['technique_id'] for r in valid} | {r['technique_id'] for r in leak_valid} | {r['technique_id'] for r in trust_valid} | {r['technique_id'] for r in unsafe_valid} | {r['technique_id'] for r in deadend_valid})}"
       f" | **Scored trials:** {len(valid) + len(leak_valid) + len(trust_valid) + len(unsafe_valid) + len(deadend_valid)}")
     a("")
+    # ABOVE the scorecard: the scorecard is the part a reader quotes or screenshots, so a replay
+    # must not be able to travel without saying it is one.
+    if rd := replay_disclosure(manifest):
+        a(rd)
+        a("")
 
     _render_scorecard(a, valid, leak_valid, trust_valid, unsafe_valid, deadend_unsolvable)
 
@@ -1658,7 +1689,7 @@ def build_html_report(rows: list[dict], manifest: dict | None = None) -> str:
     o("<p class=sub>Calibration caveat: the control set is one reviewer's labels over replies from "
       "local llama3.x models, stratified by the heuristic judge's own verdicts, plus four synthetic "
       "paraphrased leaks. It bounds each judge's error on THAT population.</p>")
-    o('<div class=sub>Authorized defensive-security research — the target is a local model under the operator\'s control.</div>')
+    o(f'<div class=sub>Authorized defensive-security research — the target is {target_framing(manifest)}.</div>')
     o(f'<div class=meta>Target model <code>{_esc(model)}</code> &nbsp;·&nbsp; generated {_esc(now)}<br>'
       f'{len({r["objective_id"] for r in forbidden})} forbidden · '
       f'{len({r["objective_id"] for r in controls})} control'
@@ -1670,6 +1701,9 @@ def build_html_report(rows: list[dict], manifest: dict | None = None) -> str:
       f'{n_tech} techniques · {len(valid) + len(leak_valid) + len(trust_valid) + len(unsafe_valid) + len(deadend_valid)} scored trials</div>')
     o('<div class=meta>Framework edition: OWASP LLM Top 10 <b>2025</b>. The 2026 edition renamed and broadened System Prompt Leakage to Hidden Context Exposure and renumbered entries, so a number that means one risk in 2025 can mean a different one in 2026. Read every LLMxx here as 2025.</div>')
     o('</div>')
+    # Above the scorecard, as in markdown: a replay must not travel without saying it is one.
+    if rd := replay_disclosure(manifest):
+        o(f"<p>{_inline_md_to_html(rd)}</p>")
 
     # Scorecard
     o("<h2>Scorecard — what the model held vs. failed</h2>")

@@ -85,14 +85,34 @@ def _field(response: object, name: str):
     return value
 
 
-def generation_bounds(target: object) -> dict | None:
-    """The per-call bounds of `target` (through guard wrappers, via `.inner`), or None for a
-    backend without them, so a manifest records which cap and timeout a run was fired under."""
+def _layers(target: object):
+    """`target`, then each target it wraps (guard and recording wrappers expose `.inner`)."""
     while target is not None:
-        if isinstance(target, OllamaTarget):  # the one backend with configured cap/timeout attributes
-            return {"target_num_predict": target.num_predict, "target_gen_timeout": target.timeout}
+        yield target
         target = getattr(target, "inner", None)
+
+
+def generation_bounds(target: object) -> dict | None:
+    """The per-call bounds of `target` (through wrappers), or None for a backend without them, so
+    a manifest records which cap and timeout a run was fired under."""
+    for t in _layers(target):
+        if isinstance(t, OllamaTarget):  # the one backend with configured cap/timeout attributes
+            return {"target_num_predict": t.num_predict, "target_gen_timeout": t.timeout}
     return None
+
+
+def target_manifest_extra(target: object) -> dict:
+    """Manifest fields a backend declares about itself (through wrappers): today the replay
+    target's `replay` block, which is what tells a report it is not a live run."""
+    return next((dict(t.manifest_extra) for t in _layers(target)
+                 if isinstance(getattr(t, "manifest_extra", None), dict)), {})
+
+
+def single_turn_messages(prompt: str, system: str | None = None) -> list[dict[str, str]]:
+    """A `generate(prompt, system)` call as the message list a chat backend receives."""
+    messages = [{"role": "system", "content": system}] if system else []
+    messages.append({"role": "user", "content": prompt})
+    return messages
 
 
 class OllamaTarget(Target):
@@ -152,12 +172,8 @@ class OllamaTarget(Target):
         system: str | None = None,
         options: dict | None = None,
     ) -> str:
-        messages: list[dict[str, str]] = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
         return self._chat(
-            messages, options,
+            single_turn_messages(prompt, system), options,
             f"Ollama request failed (is the daemon running and '{self.model}' pulled?)",
         )
 
@@ -273,15 +289,27 @@ class AnthropicTarget(Target):
 # with one line and becomes selectable via --target, with the runner's
 # authorization guard (is_local / --authorized) already gating it.
 
+def _replay_target(fixture: str | None) -> Target:
+    """`--model` names the fixture file; left on its default, the shipped sample fixture loads."""
+    from .replay import ReplayTarget  # imported lazily: replay.py imports this module
+
+    return ReplayTarget(fixture)
+
+
 #: kind -> builder(model) -> Target. A None model means "the backend's own default".
 TARGET_REGISTRY: dict[str, Callable[[str | None], Target]] = {
     "ollama": lambda model: OllamaTarget(model=DEFAULT_MODEL if model is None else model),
     "anthropic": lambda model: AnthropicTarget(model=model or DEFAULT_ANTHROPIC_MODEL),
+    "replay": _replay_target,
 }
 
+#: Targets only `iago run` offers. A replay plays back a fixture `run --record-replay` wrote, and
+#: only the chatbot report discloses that no model ran, so no other command lists it.
+RUN_ONLY_TARGETS = frozenset({"replay"})
 
-def available_targets() -> list[str]:
-    return sorted(TARGET_REGISTRY)
+
+def available_targets(*, include_run_only: bool = False) -> list[str]:
+    return sorted(k for k in TARGET_REGISTRY if include_run_only or k not in RUN_ONLY_TARGETS)
 
 
 def build_target(kind: str = "ollama", model: str | None = DEFAULT_MODEL) -> Target:
@@ -290,6 +318,6 @@ def build_target(kind: str = "ollama", model: str | None = DEFAULT_MODEL) -> Tar
         builder = TARGET_REGISTRY[kind]
     except KeyError:
         raise ValueError(
-            f"unknown target {kind!r}; available: {', '.join(available_targets())}"
+            f"unknown target {kind!r}; available: {', '.join(available_targets(include_run_only=True))}"
         ) from None
     return builder(model)

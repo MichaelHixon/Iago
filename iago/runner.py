@@ -40,7 +40,7 @@ from .decode import decode_recovered, is_decode_gated
 from .judge import (_trust_arm_signal, judge, judge_deadend, judge_leak, judge_trust,
                     judge_unsafe_output, run_error)
 from .objectives import Objective, load_objectives
-from .target import Target, TruncatedReply, generation_bounds, sampling_gap
+from .target import Target, TruncatedReply, generation_bounds, sampling_gap, target_manifest_extra
 
 
 @dataclass(frozen=True)
@@ -376,11 +376,13 @@ def run(
 
     offline_judge_id = module_fingerprint("judge", "canary", "decode")
     determinism = _determinism_probe(target, temperature, base_seed) if determinism_check else None
+    declared = target_manifest_extra(target)
     if progress and determinism is not None and determinism.get("mismatch_detected") is True:
         differed = [i + 1 for i, pr in enumerate(determinism["probes"]) if pr["mismatch"] is True]
         which = ", ".join(str(i) for i in differed)
+        host = "the RECORDING host was" if declared.get("replay") else "this host/build is"
         print(f"  WARNING: probe {which} of {len(determinism['probes'])} produced two DIFFERENT "
-              "replies at the same seed — this host/build is not bit-reproducible at these "
+              f"replies at the same seed — {host} not bit-reproducible at these "
               "settings, and the reports from this run say so.")
 
     dropped = sampling_gap(target, temperature=temperature, seed=base_seed)
@@ -397,7 +399,8 @@ def run(
             extra={"technique_library_sha256": sha256_text(json.dumps([asdict(t) for t in lib],
                                                                       sort_keys=True, default=str)),
                    "techniques": len(lib), "objectives": len(objs), "compatible_pairs": compatible,
-                   "category": category, "determinism": determinism}))
+                   "category": category, "determinism": determinism,
+                   **declared}))
         # Round-robin by trial: each round (batch_id) fires the whole matrix once, so a
         # config's repeated trials are spread across the run instead of fired back-to-back.
         # That exposes non-stationarity (refusal drift over the run) rather than burying it

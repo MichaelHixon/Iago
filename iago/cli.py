@@ -9,7 +9,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+from pathlib import Path
 
 from .attacks import load_library, summarize
 from .campaign import DEFAULT_SURFACES, SURFACES, SurfaceSpec
@@ -82,12 +84,36 @@ def _nothing_measured(rows: list[dict], what: str = "trials") -> int | None:
     return None
 
 
+def _writable_parent(path: Path) -> bool:
+    """True when `path`'s nearest existing ancestor is a writable directory (so it can be made)."""
+    parent = path.resolve().parent
+    while not parent.exists():
+        parent = parent.parent
+    return parent.is_dir() and os.access(parent, os.W_OK)
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     # If the target isn't ollama and the user didn't override --model, let the
     # backend pick its own default (don't hand a llama tag to Anthropic).
     model = None if (args.target != "ollama" and args.model == DEFAULT_MODEL) else args.model
+    record_path = getattr(args, "record_replay", None)
+    if record_path and args.target == "replay":
+        print("ERROR: --record-replay records a live target; a replay has nothing new to record",
+              file=sys.stderr)
+        return 2
+    if record_path and (Path(record_path).is_dir() or not _writable_parent(Path(record_path))):
+        # Checked BEFORE the run: a fixture that cannot be written after a long live run would
+        # throw away every reply the model time paid for.
+        print(f"ERROR: --record-replay cannot write {record_path}", file=sys.stderr)
+        return 2
+    recorder = None
     try:
         target = build_target(args.target, model=model)
+        if record_path:
+            # Inside any guard, so a guard's block sentinel is never recorded as a model reply.
+            from .replay import RecordingTarget
+
+            target = recorder = RecordingTarget(target)
         if getattr(args, "guard", None):
             target = GuardedTarget(target, build_guards(args.guard))
     except (ValueError, GuardBackendUnavailable) as exc:
@@ -141,6 +167,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if getattr(args, "log", False):
         print(f"Transcript: {write_log(rows, html=getattr(args, 'html', False))}")
     print(f"({len(rows)} trials recorded; {_valid_count(rows)} valid)")
+    if recorder is not None:  # last, so a failed write cannot cost the reports above
+        try:
+            print(f"Replay:    {recorder.save(Path(record_path), manifest=run_manifest)}")
+        except OSError as exc:
+            print(f"ERROR: could not write the replay fixture {record_path}: {exc}", file=sys.stderr)
+            return 2
     rc = _nothing_measured(rows)
     return 0 if rc is None else rc
 
@@ -733,9 +765,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
 
     r = sub.add_parser("run", help="run the attack matrix and write a report")
-    r.add_argument("--target", default="ollama", choices=available_targets(),
+    r.add_argument("--target", default="ollama", choices=available_targets(include_run_only=True),
                    help="target backend (default: ollama)")
-    r.add_argument("--model", default=DEFAULT_MODEL, help="model tag within the target backend")
+    r.add_argument("--model", default=DEFAULT_MODEL,
+                   help="model tag within the target backend (with --target replay: a fixture path; "
+                        "left on the default, the shipped sample fixture)")
     r.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per (technique, objective)")
     r.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     r.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
@@ -763,6 +797,11 @@ def build_parser() -> argparse.ArgumentParser:
                         "SENSITIVE: contains live payloads + any leaked secrets, do not share publicly")
     r.add_argument("--authorized", action="store_true",
                    help="permit a non-local target (only for models you own/are authorized to test)")
+    r.add_argument("--record-replay", default=None, dest="record_replay", metavar="PATH",
+                   help="also save every model reply to a replay fixture at PATH, so `--target replay "
+                        "--model PATH` with the same flags re-runs this exact run with no model — "
+                        "SENSITIVE: holds every reply in full, including harmful completions and "
+                        "leaked secrets; only a prompt-extraction recording is safe to share")
     r.set_defaults(func=_cmd_run)
 
     rep = sub.add_parser("report", help="(re)generate a report from an existing artifact file")

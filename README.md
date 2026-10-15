@@ -18,30 +18,46 @@
 
 ## Getting started
 
-> Requires a local model. Iago never ships attack results and is meant to run against a model you control.
+**No install: read a real report.** [samples/prompt-extraction-report.md](samples/prompt-extraction-report.md) (or the [HTML version](samples/prompt-extraction-report.html)) is the unedited report from one live run of the prompt-extraction surface against local `llama3.1`: 12 techniques × 3 planted system prompts × 3 trials. One model, one run, n=3 per technique, so the per-technique intervals are wide. How it was made: [samples/README.md](samples/README.md).
+
+**A few minutes, no model and no API key: run the loop on recorded replies.** You need [`uv`](https://github.com/astral-sh/uv), which fetches Python 3.14 on the first `uv sync`.
+
+```bash
+git clone https://github.com/MichaelHixon/Iago.git && cd Iago
+uv sync
+uv run iago run --category prompt-extraction --target replay
+```
+
+`--target replay` plays the replies recorded in that live run ([samples/replay/](samples/replay/)) through the real runner, judge and report, in under a second, and reproduces the sample's verdicts. It shows the pipeline working; it does not measure a model again. The report says so above its scorecard. To measure a model, run one live:
+
+**Your own model.** Iago is meant to run against a model you control. A small model keeps the first live run quick:
 
 ```bash
 # 1. Install a local model runtime and pull a target model
 brew install ollama
-ollama pull llama3.1
+ollama pull llama3.2:3b         # ~2 GB; llama3.1 (~4.7 GB) is the model the sample used
 
-# 2. Set up the project environment
-uv sync
-
-# 3. See the loaded attack library and objectives
+# 2. See the loaded attack library and objectives
 uv run iago library
 
-# 4. Prove the loop end-to-end (1 technique × 1 objective × 1 trial)
-uv run iago run --smoke
+# 3. Prove the loop end-to-end (1 technique × 1 objective × 1 trial)
+uv run iago run --smoke --model llama3.2:3b
 
-# 5. Full run — writes a findings report to reports/
-uv run iago run                 # whole library, default 3 trials/pair
-uv run iago run --trials 5      # more trials → a narrower confidence interval
-uv run iago run --category prompt-extraction --trials 3   # one surface only
+# 4. Full run — writes a findings report to reports/
+uv run iago run --model llama3.2:3b                 # whole library, default 3 trials/pair
+uv run iago run --model llama3.2:3b --trials 5      # more trials → a narrower confidence interval
+uv run iago run --model llama3.2:3b --category prompt-extraction   # one surface only
+
+# 5. Grade the replies the pattern judge left as needs-review, with a local model (no key)
+uv run iago regrade reports/artifacts/<run>.jsonl --judge ollama:llama3.2:3b
 
 # 6. Agent surfaces — test what a tool-calling agent DOES, not just what it says
 uv run iago agent-run --smoke   # one of eight agent surfaces
 ```
+
+The pattern judge decides what it can ground in a fact (a planted secret, an action token, a tool call) and marks the rest `needs-review`; step 5 settles those. A local judge is **unmeasured** until `iago judge-eval` scores it (see [Judge](#what-it-does) below).
+
+**What this repo ships.** The attack library, the code, and two samples of model output, both listed with their provenance in [samples/README.md](samples/README.md): the prompt-extraction run above (its report and recorded replies, where the model is asked to reveal a planted, fictional system prompt) and one trust-escalation excerpt (a model waiving a verification step after fabricated history). The judge's labeled calibration set ([iago/calibration/](iago/calibration/README.md)) also ships replies to harmful requests, but only refusals and non-answers: the replies that actually complied ship empty. The repo ships no harmful completion.
 
 The eight agent surfaces, and what each one tests: [docs/agent-surfaces.md](docs/agent-surfaces.md).
 
@@ -124,7 +140,7 @@ The three out-of-scope items cannot be measured by driving a model with prompts:
 
 ## Stack
 
-- **Python** (managed with [`uv`](https://github.com/astral-sh/uv)); 960+ tests, `uv run pytest`
+- **Python** (managed with [`uv`](https://github.com/astral-sh/uv)); 1,500+ tests, `uv run pytest`
 - **Target:** a local model through [Ollama](https://ollama.com): private, no rate limits, free to test against
 - **Judge:** pluggable. The rubric judge runs on the [Claude API](https://docs.anthropic.com) or on any OpenAI-compatible endpoint (a local Ollama model, OpenAI, vLLM, LM Studio), through a stdlib HTTP client with no extra dependency
 
@@ -135,7 +151,7 @@ The three out-of-scope items cannot be measured by driving a model with prompts:
 
 ## Ethics
 
-Iago exists to make model guardrails **better**. Every run is against an authorized target, every report ends in hardening recommendations, and the techniques are documented so defenders can recognize and resist them. If you use or adapt this, keep it to systems you are authorized to test. Responsible disclosure applies.
+Iago exists to make model guardrails **better**. Every run is against an authorized target, every report ends in hardening recommendations, and the techniques are documented so defenders can recognize and resist them. If you use or adapt this, keep it to systems you are authorized to test. Responsible disclosure applies; to report a vulnerability in Iago itself, see [SECURITY.md](SECURITY.md).
 
 ## License
 
