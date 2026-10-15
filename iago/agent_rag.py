@@ -39,6 +39,8 @@ from .config import (
     DEFAULT_TEMPERATURE,
     DEFAULT_TRIALS,
     RAG_SCENARIOS_FILE,
+    validate_asi,
+    validate_atlas,
 )
 
 __all__ = [
@@ -167,7 +169,6 @@ def _rank_gate(rec, corpus_str, marker):
 def load_rag_scenarios(scenarios_file: Path | None = None) -> list[RagScenario]:
     """Read, validate, and return every RAG scenario via the shared loud loader (+ the top-k gate)."""
     def build(rec, corpus_str, marker):
-        from .config import validate_asi, validate_atlas
         return RagScenario(
             id=rec["id"], name=rec["name"], kind=rec["kind"], task=rec["task"],
             corpus=corpus_str, private_notes=rec["private_notes"], canary=rec["canary"],

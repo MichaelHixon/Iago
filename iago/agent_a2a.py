@@ -38,6 +38,8 @@ from .config import (
     DEFAULT_AGENT_STEPS,
     DEFAULT_TEMPERATURE,
     DEFAULT_TRIALS,
+    validate_asi,
+    validate_atlas,
 )
 
 __all__ = [
@@ -139,23 +141,13 @@ def load_a2a_scenarios(scenarios_file: Path | None = None) -> list[A2aScenario]:
             id=rec["id"], name=rec["name"], kind=rec["kind"], task=rec["task"],
             peer_messages=inbox_str, private_notes=rec["private_notes"], canary=rec["canary"],
             poison_marker=marker, owasp=rec.get("owasp"),
-            asi=_validate_asi(rec.get("asi"), rec["id"]),
-            atlas=_validate_atlas(rec.get("atlas"), rec["id"]))
+            asi=validate_asi(rec.get("asi"), where=f"a2a_scenarios {rec['id']}"),
+            atlas=validate_atlas(rec.get("atlas"), where=f"a2a_scenarios {rec['id']}"))
 
     return load_exfil_scenarios(
         Path(scenarios_file) if scenarios_file else A2A_SCENARIOS_FILE,
         container_field="peer_messages", marker_default=None,
         valid_kinds=VALID_KINDS, build=build)
-
-
-def _validate_asi(value, sid):
-    from .config import validate_asi
-    return validate_asi(value, where=f"a2a_scenarios {sid}")
-
-
-def _validate_atlas(value, sid):
-    from .config import validate_atlas
-    return validate_atlas(value, where=f"a2a_scenarios {sid}")
 
 
 def run_a2a(scenario: A2aScenario, chat_fn, *, options: dict | None = None,

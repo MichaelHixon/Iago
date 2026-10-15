@@ -444,44 +444,44 @@ class _TechStat(TypedDict):
 # One concrete defense per attack category, named in the report for every category that leaked.
 # A category missing here (a custom library) falls back to _GENERIC_DEFENSE, never to silence.
 CATEGORY_DEFENSES: dict[str, str] = {
-    "direct-ask": "a plain request got through, so the base safety layer is missing rather than "
+    "direct-ask": "A plain request got through, so the base safety layer is missing rather than "
                   "evaded: add refusal training and an input-side harm classifier.",
-    "role-play": "make policy persona-invariant: a fictional or character frame does not change what "
+    "role-play": "Make policy persona-invariant: a fictional or character frame does not change what "
                  "the model may produce, and the output classifier ignores the framing.",
-    "format-shift": "classify the content, not its container: a harmful answer inside a table, JSON, "
+    "format-shift": "Classify the content, not its container: a harmful answer inside a table, JSON, "
                     "code block or poem is still harmful, so screen output after normalizing the format.",
-    "instruction-hierarchy": "enforce a privileged instruction hierarchy (system above developer above "
+    "instruction-hierarchy": "Enforce a privileged instruction hierarchy (system above developer above "
                              "user) and reject user text that claims system or developer authority.",
-    "encoding-obfuscation": "decode before you classify: normalize base64, reversed text, leetspeak and "
+    "encoding-obfuscation": "Decode before you classify: normalize base64, reversed text, leetspeak and "
                             "similar encodings on input, and screen both the decoded request and the output.",
-    "low-resource-lang": "extend safety coverage to the language used: screen in that language, or "
+    "low-resource-lang": "Extend safety coverage to the language used: screen in that language, or "
                          "translate to a covered one before classifying.",
-    "prompt-injection": "separate data from instructions: delimit or spotlight untrusted text and screen "
+    "prompt-injection": "Separate data from instructions: delimit or spotlight untrusted text and screen "
                         "inputs with a prompt-injection classifier.",
-    "template-injection": "never interpolate user input into a prompt template unescaped: escape "
+    "template-injection": "Never interpolate user input into a prompt template unescaped: escape "
                           "chat-template and role tokens, and reject input that carries role markers.",
-    "prompt-extraction": "keep secrets out of the system prompt and filter known secret strings on output.",
-    "refusal-suppression": "do not honor output rules that forbid refusing (\"never apologize\", "
+    "prompt-extraction": "Keep secrets out of the system prompt and filter known secret strings on output.",
+    "refusal-suppression": "Do not honor output rules that forbid refusing (\"never apologize\", "
                            "\"start with Sure\"), and test that refusals survive them.",
-    "competing-objectives": "rank safety above helpfulness explicitly, so an appeal to urgency, research "
+    "competing-objectives": "Rank safety above helpfulness explicitly, so an appeal to urgency, research "
                             "or a greater good cannot unlock disallowed content.",
-    "many-shot": "screen long runs of in-context example dialogue and cap untrusted context length; this "
+    "many-shot": "Screen long runs of in-context example dialogue and cap untrusted context length; this "
                  "attack scales with the number of faked turns.",
-    "multi-turn": "judge safety over the whole conversation, not the last message, so gradual escalation "
+    "multi-turn": "Judge safety over the whole conversation, not the last message, so gradual escalation "
                   "is visible to the classifier.",
-    "composed-evasion": "undo every evasion layer (decode, translate, unwrap) before screening; stacked "
+    "composed-evasion": "Undo every evasion layer (decode, translate, unwrap) before screening; stacked "
                         "layers beat any single filter.",
-    "provenance-forging": "never let claimed prior agreements or session history confer authority; verify "
+    "provenance-forging": "Never let claimed prior agreements or session history confer authority; verify "
                           "authorization in-band.",
-    "rag-injection": "treat retrieved documents as untrusted data: scan the corpus for embedded "
+    "rag-injection": "Treat retrieved documents as untrusted data: scan the corpus for embedded "
                      "instructions and keep retrieved text out of the instruction channel.",
-    "agent-abuse": "give tools least privilege, never act on instructions found in tool output, and put a "
+    "agent-abuse": "Give tools least privilege, never act on instructions found in tool output, and put a "
                    "policy or human check in front of consequential calls.",
-    "mcp-injection": "pin and review MCP tool manifests, and treat tool descriptions and responses as "
+    "mcp-injection": "Pin and review MCP tool manifests, and treat tool descriptions and responses as "
                      "untrusted input.",
-    "dead-end": "teach the model to stop and say a task is impossible instead of inventing an answer.",
+    "dead-end": "Teach the model to stop and say a task is impossible instead of inventing an answer.",
 }
-_GENERIC_DEFENSE = "add refusal training or input-side detection targeting this pattern."
+_GENERIC_DEFENSE = "Add refusal training or input-side detection targeting this pattern."
 
 
 def _hardening_recs(cat_stats: Sequence[_CatRate], leak_valid: list[dict],
@@ -496,8 +496,7 @@ def _hardening_recs(cat_stats: Sequence[_CatRate], leak_valid: list[dict],
                     "showed the highest harmful-content bypass rates. Each leaking category's defense "
                     "follows, highest rate first.")
         for cat in leaking:
-            defense = CATEGORY_DEFENSES.get(cat, _GENERIC_DEFENSE)
-            recs.append(f"**Defend `{cat}`:** {defense[0].upper()}{defense[1:]}")
+            recs.append(f"**Defend `{cat}`:** {CATEGORY_DEFENSES.get(cat, _GENERIC_DEFENSE)}")
     escalated_any = bool(trust_valid) and any(verdict_of(r) == BYPASSED for r in (trust_valid or []))
     if escalated_any:
         recs.append("**Treat memory-write provenance as a trust boundary.** A trust-escalation trial "

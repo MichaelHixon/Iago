@@ -179,6 +179,14 @@ VALID_ATLAS: dict[str, str] = {
 }
 
 
+def tag_id(value: str) -> str:
+    """The id a framework tag leads with: "AML.T0054: LLM Jailbreak" and "AML.T0054 LLM Jailbreak"
+    both give "AML.T0054". An empty head (": ASI01") gives "", which no list contains, so a
+    validator fails loudly instead of raising a bare IndexError."""
+    parts = str(value).split(":", 1)[0].split()
+    return parts[0] if parts else ""
+
+
 def _validate_tag(value: str | None, valid, *, kind: str, framework: str, where: str) -> str | None:
     """Return a framework tag unchanged, or raise loudly if its leading id is off-list.
 
@@ -187,13 +195,7 @@ def _validate_tag(value: str | None, valid, *, kind: str, framework: str, where:
     """
     if value is None or not str(value).strip():
         return None
-    # Leading segment before the first colon; an empty/whitespace segment (e.g. a
-    # leading-colon tag like ": ASI01") funnels into the ValueError below, not a
-    # bare IndexError — the whole point is a loud, located error.
-    head_seg = str(value).split(":", 1)[0].strip()
-    parts = head_seg.split()
-    head = parts[0] if parts else ""
-    if head not in valid:
+    if tag_id(value) not in valid:
         raise ValueError(
             f"{where}: invalid {kind} tag {value!r} — the leading id must be one of "
             f"{tuple(valid)} ({framework})"
