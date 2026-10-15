@@ -160,7 +160,7 @@ Each technique family and agent surface also carries an [OWASP Top 10 for Agenti
 | `many-shot` techniques | `LLM01` | — | `AML.T0054` LLM Jailbreak |
 | `multi-turn` techniques | `LLM01` | — | `AML.T0054` LLM Jailbreak |
 | `composed-evasion` techniques | `LLM01` | — | `AML.T0068` LLM Prompt Obfuscation |
-| `provenance-forging` techniques | `LLM01` | `ASI09` | `AML.T0080.001` AI Agent Context Poisoning: Thread |
+| `provenance-forging` techniques | `LLM01` | — | `AML.T0080.001` AI Agent Context Poisoning: Thread |
 | `rag-injection` techniques | `LLM01` | `ASI06` | `AML.T0070` RAG Poisoning |
 | `agent-abuse` techniques | `LLM06` | `ASI01`, `ASI02` | `AML.T0051.001` LLM Prompt Injection: Indirect |
 | `mcp-injection` techniques | `LLM01` | `ASI02`, `ASI04` | `AML.T0110` AI Agent Tool Poisoning |

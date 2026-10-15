@@ -42,7 +42,6 @@
   template: >
     {objective}
   owasp: "LLM01: Prompt Injection"
-  asi: "ASI09: Human-Agent Trust Exploitation"
   atlas: "AML.T0080.001: AI Agent Context Poisoning: Thread"
   reference: "Lore injection — fabricated shared decision log (trust via invented prior agreements). Lineage: choirboy-prompt (GitHub), planted-history technique; OffSec 'social-engineer the machine' (attacking an LLM is persuasion, not exploitation)."
 
@@ -57,7 +56,6 @@
   template: >
     {objective}
   owasp: "LLM01: Prompt Injection"
-  asi: "ASI09: Human-Agent Trust Exploitation"
   atlas: "AML.T0080.001: AI Agent Context Poisoning: Thread"
   reference: "Lore injection — fabricated collaborator relationship (trust via invented professional history). Lineage: choirboy-prompt (GitHub), planted-persona/history; OffSec 'social-engineer the machine'."
 
@@ -72,7 +70,6 @@
   template: >
     {objective}
   owasp: "LLM01: Prompt Injection"
-  asi: "ASI09: Human-Agent Trust Exploitation"
   atlas: "AML.T0080.001: AI Agent Context Poisoning: Thread"
   reference: "Lore injection — 'trusted long-time partner' framing (trust imported, never established in-session). Lineage: choirboy-prompt (GitHub); OffSec 'social-engineer the machine' thesis."
 
@@ -87,6 +84,5 @@
   template: >
     {objective}
   owasp: "LLM01: Prompt Injection"
-  asi: "ASI09: Human-Agent Trust Exploitation"
   atlas: "AML.T0080.001: AI Agent Context Poisoning: Thread"
   reference: "Lore injection — fabricated session-continuity / prior-verification claim (skip re-verification via invented continuity). Lineage: choirboy-prompt (GitHub); OffSec 'social-engineer the machine'."

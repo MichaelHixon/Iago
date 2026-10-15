@@ -56,12 +56,9 @@ def test_agentic_techniques_carry_asi_nonagentic_do_not():
     assert lib["mcp-002"].asi.startswith("ASI02")    # server response → tool misuse
     assert lib["rag-001"].asi.startswith("ASI06")    # retrieved-doc → memory/context poisoning
     assert lib["rag-002"].asi.startswith("ASI06")
-    # Provenance forging plants fabricated shared history to win trust: Human-Agent Trust Exploitation.
-    assert all(t.asi.startswith("ASI09") for t in lib.values() if t.category == "provenance-forging")
     # Single-turn jailbreaks are model-level, not agentic — they carry no ASI tag.
     non_agentic = [t for t in load_library()
-                   if t.category not in ("agent-abuse", "mcp-injection", "rag-injection",
-                                         "provenance-forging")]
+                   if t.category not in ("agent-abuse", "mcp-injection", "rag-injection")]
     assert non_agentic, "expected some non-agentic techniques in the library"
     assert all(t.asi is None for t in non_agentic)
 

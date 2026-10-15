@@ -430,10 +430,9 @@ class Technique:
     # which is the umbrella for jailbreaks. Override per technique in YAML when a
     # sharper mapping applies (e.g. LLM07 System-Prompt Leakage).
     owasp: str = "LLM01: Prompt Injection"
-    # OWASP Agentic (ASI) Top-10 tag — the agentic analogue of `owasp`. Set on the agentic
-    # techniques (agent-abuse / mcp-injection / rag-injection) and on provenance-forging
-    # (ASI09, Human-Agent Trust Exploitation); None for the single-turn jailbreak library,
-    # which is model-level, not agent-level.
+    # OWASP Agentic (ASI) Top-10 tag — the agentic analogue of `owasp`. Set only on
+    # agentic techniques (agent-abuse / mcp-injection / rag-injection); None for the
+    # single-turn jailbreak library, which is model-level, not agent-level.
     asi: str | None = None
     # MITRE ATLAS technique tag (config.VALID_ATLAS). A label only: kept out of the library
     # fingerprint (artifacts.LABEL_ONLY_FIELDS).
