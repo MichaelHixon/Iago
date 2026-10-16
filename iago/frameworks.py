@@ -37,9 +37,9 @@ def _cell(ids: list[str], *, atlas: bool = False) -> str:
     return ", ".join(f"`{i}`" for i in ids)
 
 
-def _row(surface: str, records: list) -> tuple[str, str, str, str]:
+def _row(surface: str, records: list, owasp: list[str | None]) -> tuple[str, str, str, str]:
     return (surface,
-            _cell(_owasp_ids(r.owasp for r in records)),
+            _cell(_owasp_ids(owasp)),
             _cell(_ids(r.asi for r in records)),
             _cell(_ids(r.atlas for r in records), atlas=True))
 
@@ -48,9 +48,11 @@ def coverage_rows() -> list[tuple[str, str, str, str]]:
     """(surface, OWASP LLM, OWASP Agentic, MITRE ATLAS) for every technique category, then every
     registered agent surface, in library / registry order. A surface with no tag of a kind shows a dash."""
     lib = load_library()
-    rows = [_row(f"`{cat}` techniques", techs)
+    rows = [_row(f"`{cat}` techniques", techs, [t.owasp_label for t in techs])
             for cat in CATEGORIES if (techs := [t for t in lib if t.category == cat])]
-    rows += [_row(f"`{spec.command}` scenarios", spec.scenarios()) for spec in SURFACES.values()]
+    for spec in SURFACES.values():
+        scens = spec.scenarios()
+        rows.append(_row(f"`{spec.command}` scenarios", scens, [s.owasp for s in scens]))
     return rows
 
 

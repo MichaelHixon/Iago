@@ -184,7 +184,7 @@ def ollama_info(model_tag: str | None) -> dict:
 #: out of the library fingerprints so re-mapping a framework tag never makes two runs of the same
 #: attack text look like different libraries. (`owasp` and `asi` predate this and stay hashed, so
 #: fingerprints already recorded in artifacts keep their meaning.)
-LABEL_ONLY_FIELDS = ("atlas",)
+LABEL_ONLY_FIELDS = ("atlas", "outside_owasp")
 
 
 def fingerprint_fields(obj) -> dict:

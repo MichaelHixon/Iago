@@ -430,6 +430,10 @@ class Technique:
     # which is the umbrella for jailbreaks. Override per technique in YAML when a
     # sharper mapping applies (e.g. LLM07 System-Prompt Leakage).
     owasp: str = "LLM01: Prompt Injection"
+    # Why a technique sits outside the OWASP LLM Top 10. When set, the coverage table shows it in
+    # place of `owasp` (see `owasp_label`); run rows keep the raw value. A label only, kept out of the library
+    # fingerprint: changing `owasp` itself would move every recorded technique_library_sha256.
+    outside_owasp: str | None = None
     # OWASP Agentic (ASI) Top-10 tag — the agentic analogue of `owasp`. Set only on
     # agentic techniques (agent-abuse / mcp-injection / rag-injection); None for the
     # single-turn jailbreak library, which is model-level, not agent-level.
@@ -450,6 +454,11 @@ class Technique:
     # this to ("prompt-leak",) so they fire only against system-prompt-leak objectives and
     # never against harmful-content ones (where "repeat your instructions" is incoherent).
     applies_to: tuple[str, ...] | None = None
+
+    @property
+    def owasp_label(self) -> str:
+        """The OWASP LLM tag the coverage table shows: `owasp`, or the outside-the-map note when set."""
+        return f"n/a: {self.outside_owasp}" if self.outside_owasp else self.owasp
 
     @property
     def is_multiturn(self) -> bool:
@@ -517,6 +526,19 @@ class Technique:
         payload = self._encode(objective)
         priming = [self._fill(t, payload, shots) for t in (self.turns or ())]
         return priming + [self._wrap(self._fill(self.template, payload, shots))]
+
+
+def _outside_owasp(rec: dict, path: Path) -> str | None:
+    """A technique's `outside_owasp` note. Naming an OWASP tag and declaring the technique outside
+    the map contradict each other, so the pair is refused rather than one silently winning."""
+    note = rec.get("outside_owasp")
+    if note is None:
+        return None
+    if not isinstance(note, str) or not note.strip():
+        raise ValueError(f"{path.name}: technique {rec['id']!r} outside_owasp must be a non-empty string")
+    if "owasp" in rec:
+        raise ValueError(f"{path.name}: technique {rec['id']!r} sets both owasp and outside_owasp")
+    return note.strip()
 
 
 def load_library(attacks_dir: Path | None = None) -> list[Technique]:
@@ -642,6 +664,7 @@ def load_library(attacks_dir: Path | None = None) -> list[Technique]:
                     reference=rec.get("reference"),
                     transform=rec.get("transform"),
                     owasp=rec.get("owasp", "LLM01: Prompt Injection"),
+                    outside_owasp=_outside_owasp(rec, path),
                     asi=validate_asi(rec.get("asi"), where=f"{path.name} {rec['id']}"),
                     atlas=validate_atlas(rec.get("atlas"), where=f"{path.name} {rec['id']}"),
                     turns=tuple(rec["turns"]) if rec.get("turns") else None,

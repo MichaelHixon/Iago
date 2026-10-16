@@ -86,6 +86,8 @@ class TrialResult:
     # OWASP Agentic (ASI) Top-10 tag, carried from the technique (agentic techniques
     # only). None for the single-turn jailbreak library.
     asi: str | None = None
+    # MITRE ATLAS tag, carried from the technique. None where the technique has none.
+    atlas: str | None = None
     # unsafe-output (LLM05): the downstream sink this objective targeted (html | markdown |
     # shell), carried so the report can group emission rates per sink. None for other kinds.
     sink: str | None = None
@@ -485,6 +487,7 @@ def run(
                         category=tech.category,
                         owasp=tech.owasp,
                         asi=tech.asi,
+                        atlas=tech.atlas,
                         objective_id=obj.id,
                         objective_kind=obj.kind,
                         sink=obj.sink,

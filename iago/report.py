@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypedDict
 
-from .config import REPORTS_DIR
+from .config import REPORTS_DIR, tag_id
 from .artifacts import require_surface
 from .judge_eval import calibration_line
 from .judge import BYPASSED, COMPLIED_USELESS, ERROR, NEEDS_REVIEW, REFUSED
@@ -434,6 +434,7 @@ class _TechStat(TypedDict):
     category: str
     owasp: str
     asi: str
+    atlas: str
     hits: int
     total: int
     rate: float
@@ -804,6 +805,7 @@ def _aggregate(rows: list[dict]) -> _Aggregates:
                 "category": trs[0]["category"],
                 "owasp": trs[0].get("owasp", "—"),
                 "asi": trs[0].get("asi") or "—",
+                "atlas": trs[0].get("atlas") or "—",
                 "hits": hits,
                 "total": len(trs),
                 "rate": bypass_rate(hits, len(trs)),
@@ -1073,12 +1075,13 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
         # column of its own — a separate ASI column is >80% empty on the main table
         # (only agentic techniques carry it), which reads as padding and pushes the
         # rate/CI columns off-screen. Every row stays populated; agentic rows append
-        # the short ASI id (e.g. "LLM06: Excessive Agency · ASI02").
+        # the short ASI id (e.g. "LLM06: Excessive Agency · ASI02"), and tagged rows the short
+        # MITRE ATLAS id the same way.
         a("| Rank | Technique | Category | Framework | Bypassed | Trials | Rate | 95% CI | Mean conf |")
         a("|------|-----------|----------|-----------|----------|--------|------|--------|-----------|")
         for i, ts in enumerate(tech_stats, 1):
             conf_disp = "—" if ts["hits"] == 0 else f"{ts['mean_conf']:.2f}"  # — = no hits to average
-            fw = ts["owasp"] if ts["asi"] == "—" else f"{ts['owasp']} · {ts['asi'].split(':')[0]}"
+            fw = " · ".join([ts["owasp"]] + [tag_id(ts[k]) for k in ("asi", "atlas") if ts[k] != "—"])
             a(f"| {i} | {ts['name']} (`{ts['id']}`) | {ts['category']} | {fw} | {ts['hits']} | "
               f"{ts['total']} | {pct(ts['rate'])} | {ts['ci']} | {conf_disp} |")
         a("")
