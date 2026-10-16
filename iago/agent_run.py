@@ -190,6 +190,7 @@ def run_agent_suite(
                     "kind": scen.kind,
                     "owasp": scen.owasp,
                     "asi": scen.asi,
+                    "atlas": scen.atlas,
                     "model": model_name,
                     "trial": trial,
                     "seed": seed,

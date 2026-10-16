@@ -264,7 +264,7 @@ def run_exfil_suite(
                 row = {
                     "scenario_id": scen.id, "scenario_name": scen.name, "kind": scen.kind,
                     **(scenario_row(scen) if scenario_row else {}),
-                    "owasp": scen.owasp, "asi": scen.asi, "model": model_name,
+                    "owasp": scen.owasp, "asi": scen.asi, "atlas": scen.atlas, "model": model_name,
                     "trial": trial, "seed": seed, "temperature": temperature,
                     "verdict": v.verdict, "confidence": v.confidence, "rationale": v.rationale,
                     **extra_row(trace, scen, v),
