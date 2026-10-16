@@ -243,5 +243,94 @@
         "value": 0.4367816091954023
       }
     }
+  },
+  "judge-8ef13b7c29a8": {
+    "canary": {
+      "agreement": {
+        "hi": 0.9532862902656388,
+        "k": 30,
+        "lo": 0.7337882520370121,
+        "n": 34,
+        "value": 0.8823529411764706
+      },
+      "fnr": {
+        "hi": 0.4521502645230549,
+        "k": 4,
+        "lo": 0.09000781913382,
+        "n": 18,
+        "value": 0.2222222222222222
+      },
+      "fpr": {
+        "hi": 0.19361341827271994,
+        "k": 0,
+        "lo": 0.0,
+        "n": 16,
+        "value": 0.0
+      },
+      "judge": "canary",
+      "judge_id": "judge-8ef13b7c29a8",
+      "kappa": 0.767123287671233,
+      "measured": "2026-10-16T21:05:57.983970+00:00",
+      "metrics_schema": 3,
+      "n_missing_text": 0,
+      "n_scored": 34,
+      "negatives": 16,
+      "positive_class_reachable": true,
+      "positives": 18,
+      "positives_by_kind": {
+        "prompt-leak": 18
+      },
+      "positives_scored_by_kind": {
+        "prompt-leak": 18
+      },
+      "set": "judge_control_set.jsonl",
+      "set_sha256": "f191cf4c79b930acde71b39e1acbf71829f1a925c2e6387ffdbad5add1f4e66c",
+      "set_variant": "public",
+      "unresolved_rate": {
+        "hi": 0.10151790621961015,
+        "k": 0,
+        "lo": 0.0,
+        "n": 34,
+        "value": 0.0
+      }
+    },
+    "heuristic": {
+      "agreement": {
+        "hi": 0.48432573426904035,
+        "k": 33,
+        "lo": 0.28450264391892643,
+        "n": 87,
+        "value": 0.3793103448275862
+      },
+      "fnr": null,
+      "fpr": null,
+      "judge": "heuristic",
+      "judge_id": "judge-8ef13b7c29a8",
+      "kappa": 0.1695244829414884,
+      "measured": "2026-10-16T21:05:57.980494+00:00",
+      "metrics_schema": 3,
+      "n_missing_text": 4,
+      "n_scored": 87,
+      "negatives": 74,
+      "positive_class_reachable": false,
+      "positives": 13,
+      "positives_by_kind": {
+        "control": 13,
+        "forbidden": 4
+      },
+      "positives_scored_by_kind": {
+        "control": 13
+      },
+      "set": "judge_control_set.jsonl",
+      "set_sha256": "f191cf4c79b930acde71b39e1acbf71829f1a925c2e6387ffdbad5add1f4e66c",
+      "set_variant": "public",
+      "unresolved_rate": {
+        "hi": 0.5414863476824979,
+        "k": 38,
+        "lo": 0.33742375517786577,
+        "n": 87,
+        "value": 0.4367816091954023
+      }
+    }
   }
 }

@@ -101,6 +101,25 @@ def test_shipped_metrics_are_public_and_reproducible_here():
             assert "Cohen's kappa" in calibration_line(judge_id, name, data), f"{name} header omits kappa"
 
 
+@pytest.mark.parametrize("name", ["heuristic", "canary"])
+def test_current_offline_judge_has_a_shipped_calibration_row(name):
+    """The offline judge id hashes the raw source of judge/canary/decode, so a comment-only edit
+    mints a new id and orphans the shipped row: every fresh report then prints "unmeasured" in
+    place of the calibration line, with the whole suite green. Re-run
+    `iago judge-eval --no-overlay` and commit the row when this fails."""
+    from iago.judge_eval import load_metrics, offline_judge_id
+
+    jid = offline_judge_id()
+    data = load_metrics()
+    assert name in data.get(jid, {}), (f"no shipped {name} metrics for the current scoring code "
+                                       f"{jid} (shipped: {sorted(data)}); any edit to judge/canary/"
+                                       "decode source, comments included, changes this id: re-run "
+                                       "`iago judge-eval --no-overlay` and commit the new row")
+    line = calibration_line(jid, name, data)
+    assert "unmeasured" not in line and "not quoted" not in line, line
+    assert "agreement" in line, line
+
+
 def test_shipped_header_states_the_harmful_rate_is_unmeasured():
     """The disclosure that matters most, asserted on the rendered string rather than on the code
     path that is supposed to produce it."""
