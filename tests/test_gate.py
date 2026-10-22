@@ -107,6 +107,31 @@ def test_judge_mismatch_is_refused_unless_allowed(tmp_path):
     assert not any(c.failed for c in checks)
 
 
+def test_model_mismatch_is_refused_unless_allowed(tmp_path):
+    # A default that tracks the newest model can move between baseline and CI run; the gate must
+    # not report the swap as a regression or a hold.
+    def art(name, model):
+        path = tmp_path / name
+        lines = [{"record": MANIFEST_RECORD, "judge_id": "j1", "model": model}, *_rows("role-play", 0, 10)]
+        path.write_text("\n".join(json.dumps(x) for x in lines) + "\n")
+        return path
+
+    base, cur = art("b.jsonl", "anthropic:claude-haiku-5-5"), art("c.jsonl", "anthropic:claude-haiku-6")
+    with pytest.raises(GateError, match="different models"):
+        evaluate(cur, base)
+    notes: list[str] = []
+    evaluate(cur, base, allow_model_mismatch=True, notes=notes)
+    assert any("models differ" in n for n in notes)
+    assert evaluate(art("s.jsonl", "anthropic:claude-haiku-5-5"), base)
+    # revert _model_of to the raw name → a guard-config change or a replay reads as a model swap.
+    guarded = art("g.jsonl", "anthropic:claude-haiku-5-5+guard[input-jailbreak-classifier]")
+    assert evaluate(guarded, art("g2.jsonl", "anthropic:claude-haiku-5-5+guard[none]"))
+    assert evaluate(art("r.jsonl", "replay:anthropic:claude-haiku-5-5"), base)
+    # revert the CLI wiring of --allow-model-mismatch → the override exits 2 instead of passing.
+    assert main(["gate", str(cur), "--baseline", str(base)]) == 2
+    assert main(["gate", str(cur), "--baseline", str(base), "--allow-model-mismatch"]) == 0
+
+
 def test_nothing_measured_cannot_pass(tmp_path):
     cur = _artifact(tmp_path / "c.jsonl", [_row("role-play", ERROR)])
     with pytest.raises(GateError, match="nothing was measured"):

@@ -29,7 +29,8 @@ from .judge import ERROR
 from .report import verdict_of, write_html_report, write_log, write_report
 from .artifacts import read_artifact
 from .runner import AuthorizationError, load_artifacts, run
-from .target import available_targets, build_target, require_ollama_model
+from .target import API_TARGETS, available_targets, build_target, require_ollama_model
+from .judge_claude import DEFAULT_JUDGE_MODEL
 from .guards import GuardedTarget, available_guards, build_guards
 from .guards_thirdparty import GuardBackendUnavailable
 from .judge_rubric import BASE_URL_HELP, SPEC_HELP, is_rubric_spec, make_judge
@@ -91,7 +92,19 @@ def _writable_parent(path: Path) -> bool:
     return parent.is_dir() and os.access(parent, os.W_OK)
 
 
+def _refused_before_build(kind: str, authorized: bool) -> bool:
+    """Refuse a non-local kind without --authorized BEFORE building it, so nothing (not even the
+    Anthropic default's model lookup) reaches its API. The runner's own guard stays as the backstop."""
+    if authorized or kind not in API_TARGETS:
+        return False
+    print(f"REFUSED: target {kind!r} is not local; pass --authorized only for a model you own "
+          "or are explicitly authorized to test", file=sys.stderr)
+    return True
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
+    if _refused_before_build(args.target, args.authorized):
+        return 2
     record_path = getattr(args, "record_replay", None)
     if record_path and args.target == "replay":
         print("ERROR: --record-replay records a live target; a replay has nothing new to record",
@@ -235,6 +248,7 @@ def _cmd_gate(args: argparse.Namespace) -> int:
         checks = evaluate(args.artifact, args.baseline, max_rate=args.max_rate,
                           allow_judge_mismatch=args.allow_judge_mismatch,
                           allow_library_mismatch=args.allow_library_mismatch,
+                          allow_model_mismatch=args.allow_model_mismatch,
                           strict_fingerprints=args.strict_fingerprints, notes=notes)
     except (ValueError, OSError, KeyError) as exc:  # GateError, wrong surface, unreadable/malformed
         # Exit 1 means "regressed"; anything that stopped the gate from judging must not read as that.
@@ -291,7 +305,7 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
     surfaces = [s.strip() for s in args.surfaces.split(",") if s.strip()]
     if len(models) < 2:
         print(f"ERROR: campaign needs >=2 models to compare (got {models}). "
-              "e.g. --models llama3.1,llama3.2:3b", file=sys.stderr)
+              "e.g. --models <model-a>,<model-b> (see `ollama list`)", file=sys.stderr)
         return 2
     unknown = [s for s in surfaces if s not in CAMPAIGN_SURFACES]
     if unknown:
@@ -355,6 +369,8 @@ def _cmd_defense_delta(args: argparse.Namespace) -> int:
     seeds), then write the attack-vs-defense delta report — the one-command demo."""
     from .delta import delta_from_artifacts
 
+    if _refused_before_build(args.target, args.authorized):
+        return 2
     try:
         base = build_target(args.target, model=args.model)
         guards = build_guards(args.guard)
@@ -663,6 +679,8 @@ def _cmd_adaptive_run(args: argparse.Namespace) -> int:
         write_adaptive_report,
     )
 
+    if _refused_before_build(args.target, args.authorized):
+        return 2
     try:
         target = build_target(args.target, model=args.model)
         if args.attacker == "llm":
@@ -770,7 +788,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--target", default="ollama", choices=available_targets(include_run_only=True),
                    help="target backend (default: ollama)")
     r.add_argument("--model",
-                   help="model tag within the target backend; required for ollama (with --target replay: a fixture path; "
+                   help="model tag within the target backend; required for ollama, newest Claude Haiku if "
+                        "omitted for anthropic (with --target replay: a fixture path; "
                         "omitted, the shipped sample fixture)")
     r.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per (technique, objective)")
     r.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
@@ -861,6 +880,9 @@ def build_parser() -> argparse.ArgumentParser:
     gt.add_argument("--allow-library-mismatch", action="store_true",
                     help="gate even when the two artifacts fired different technique libraries "
                          "(technique_library_sha256) — the delta may then be the attack text")
+    gt.add_argument("--allow-model-mismatch", action="store_true",
+                    help="gate even when the two artifacts targeted different models — the delta "
+                         "may then be the model swap")
     gt.add_argument("--strict-fingerprints", action="store_true",
                     help="exit 2 when the artifact's (or the baseline's) manifest lacks a judge_id "
                          "or technique_library_sha256 (UNKNOWN is otherwise a note), so CI fails "
@@ -923,7 +945,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="paired run (raw + guarded, same seeds) → attack-vs-defense delta report")
     dd.add_argument("--target", default="ollama", choices=available_targets(),
                     help="target backend (default: ollama)")
-    dd.add_argument("--model", help="model tag within the target backend; required for ollama")
+    dd.add_argument("--model", help="model tag within the target backend; required for ollama, "
+                                    "newest Claude Haiku if omitted for anthropic")
     dd.add_argument("--guard", default="all",
                     help=f"defense to measure: '{','.join(available_guards())}' or 'all' (default: all)")
     dd.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per (technique, objective)")
@@ -967,7 +990,7 @@ def build_parser() -> argparse.ArgumentParser:
     rg.add_argument("--judge", default=None,
                     help="rubric " + SPEC_HELP.replace("%", "%%") + ". Default: claude with --judge-model")
     rg.add_argument("--judge-base-url", default=None, help=BASE_URL_HELP)
-    rg.add_argument("--judge-model", default="claude-haiku-4-5-20251001", dest="judge_model",
+    rg.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model",
                     help="Claude model id when --judge is not given")
     rg.set_defaults(func=_cmd_regrade)
 
@@ -979,7 +1002,8 @@ def build_parser() -> argparse.ArgumentParser:
                              "search that picks its next move from the target's last refusal")
     ad.add_argument("--target", default="ollama", choices=available_targets(),
                     help="target backend (default ollama)")
-    ad.add_argument("--model", help="target model tag; required for ollama")
+    ad.add_argument("--model", help="target model tag; required for ollama, newest Claude Haiku "
+                                    "if omitted for anthropic")
     ad.add_argument("--attacker", default="deterministic", choices=("deterministic", "llm"),
                     help="deterministic seeded selector (reproducible) or an LLM attacker "
                          "writing each turn (CoP/AJAR; NONDETERMINISTIC)")

@@ -45,12 +45,131 @@ def test_factory_builds_ollama_by_default():
     assert "ollama" in available_targets()
 
 
-def test_factory_none_model_means_backend_default():
-    # cli passes model=None when --model is omitted; a builder with its own default resolves
-    # None to it rather than carry None into the target.
-    from iago.target import DEFAULT_ANTHROPIC_MODEL
+def _models(*pairs):
+    """A fake Models API client listing (id, created_at) pairs."""
+    listed = [SimpleNamespace(id=i, created_at=c) for i, c in pairs]
+    return SimpleNamespace(models=SimpleNamespace(list=lambda **_kw: iter(listed)))
 
-    assert build_target("anthropic", model=None).model == DEFAULT_ANTHROPIC_MODEL
+
+def _api_down(**_kw):
+    raise RuntimeError("401")
+
+
+def test_anthropic_default_is_the_newest_model_in_the_family():
+    # The default names a family, not a model, so it never goes stale: the newest Haiku wins by
+    # created_at rather than list order, an old id shape still counts as the family, a lookalike
+    # segment does not, and other families are ignored.
+    from iago.target import AnthropicTarget
+
+    # revert to max-by-id → 5-5 wins over the newer 10-0; drop either regex boundary → a lookalike
+    # wins; drop the prerelease filter → a preview wins. Each reds this test.
+    client = _models(("claude-haiku-4-5", "2025-10-01"), ("claude-opus-9", "2027-01-01"),
+                     ("claude-haiku-5-5", "2026-09-01"), ("claude-haiku-10-0", "2027-06-01"),
+                     ("claude-3-5-haiku-20241022", "2024-10-22"),
+                     ("claude-haikuish-9", "2028-01-01"), ("claude-xhaiku-9", "2030-01-01"),
+                     ("claude-haiku-6-preview", "2028-02-01"), ("claude-haiku-6-exp-0101", "2028-03-01"))
+    t = AnthropicTarget(client=client)
+    assert (t.model, t.name) == ("claude-haiku-10-0", "anthropic:claude-haiku-10-0")
+
+
+def test_anthropic_default_counts_the_old_id_shape():
+    # revert the segment match to a `claude-haiku-` prefix → the newer old-shape id is skipped.
+    from iago.target import AnthropicTarget
+
+    client = _models(("claude-3-5-haiku-x", "2029-01-01"), ("claude-haiku-4-5", "2025-10-01"))
+    assert AnthropicTarget(client=client).model == "claude-3-5-haiku-x"
+
+
+def test_an_explicit_anthropic_model_skips_the_lookup():
+    # revert to an unconditional lookup → the failing Models API raises here.
+    from iago.target import AnthropicTarget
+
+    t = AnthropicTarget("pinned", client=SimpleNamespace(models=SimpleNamespace(list=_api_down)))
+    assert t.model == "pinned"
+
+
+@pytest.mark.parametrize("client", [
+    _models(("claude-opus-9", "2027-01-01")),
+    SimpleNamespace(models=SimpleNamespace(list=_api_down)),
+])
+def test_anthropic_default_refuses_when_no_model_can_be_found(client):
+    from iago.target import AnthropicTarget
+
+    with pytest.raises(ValueError, match="pass --model"):
+        AnthropicTarget(client=client)
+
+
+def test_cli_run_without_model_builds_the_anthropic_default(monkeypatch):
+    # `run --target anthropic` with no --model hands None to the target, which looks up its own
+    # default, never an Ollama tag.
+    import iago.target
+    from iago import cli
+
+    looked_up, ran = [], []
+
+    def stop(target, **_kw):
+        ran.append(target.name)
+        raise SystemExit
+
+    monkeypatch.setattr(iago.target, "latest_model", lambda client, family: looked_up.append(family) or "newest")
+    monkeypatch.setattr(cli, "run", stop)
+    with pytest.raises(SystemExit):
+        cli.main(["run", "--target", "anthropic", "--authorized", "--smoke"])
+    assert (looked_up, ran) == (["haiku"], ["anthropic:newest"])
+
+
+@pytest.mark.parametrize("argv", [["run"], ["defense-delta"], ["adaptive-run"]])
+def test_authorized_api_target_reaches_the_lookup(monkeypatch, argv):
+    # revert any command's early check to ignore --authorized → it refuses and never looks up.
+    import iago.target
+    from iago import cli
+
+    class _Built(Exception):
+        pass
+
+    looked_up = []
+
+    def lookup(client, family):
+        looked_up.append(family)
+        raise _Built
+
+    monkeypatch.setattr(iago.target, "latest_model", lookup)
+    with pytest.raises(_Built):
+        cli.main([*argv, "--target", "anthropic", "--authorized"])
+    assert looked_up == ["haiku"]
+
+
+def test_regrade_defaults_to_the_calibrated_judge():
+    # The CLI default must be the judge the published accuracy was measured on.
+    from iago import cli
+    from iago.judge_claude import DEFAULT_JUDGE_MODEL
+
+    assert cli.build_parser().parse_args(["regrade", "x"]).judge_model == DEFAULT_JUDGE_MODEL
+
+
+@pytest.mark.parametrize("argv", [["run"], ["defense-delta"], ["adaptive-run"]])
+def test_unauthorized_api_target_refuses_before_any_lookup(monkeypatch, capsys, argv):
+    # No --authorized means nothing reaches the API, not even the default's model lookup.
+    import iago.target
+    from iago import cli
+
+    def must_not_look_up(*_a, **_kw):
+        raise AssertionError("looked up a model before the authorization check")
+
+    monkeypatch.setattr(iago.target, "latest_model", must_not_look_up)
+    assert cli.main([*argv, "--target", "anthropic"]) == 2
+    assert "REFUSED" in capsys.readouterr().err
+
+
+def test_api_targets_matches_each_backends_is_local():
+    # API_TARGETS restates `is_local` by kind so the CLI can refuse before building; a new non-local
+    # backend that is not listed would skip the early refusal, so the two must agree.
+    from iago.replay import ReplayTarget
+    from iago.target import API_TARGETS, AnthropicTarget, OllamaTarget
+
+    classes = {"ollama": OllamaTarget, "anthropic": AnthropicTarget, "replay": ReplayTarget}
+    assert set(classes) == set(available_targets(include_run_only=True))
+    assert API_TARGETS == {kind for kind, cls in classes.items() if not cls.is_local}
 
 
 @pytest.mark.parametrize("model", [None, "", "  "])
@@ -103,7 +222,7 @@ def _anthropic():
     from iago.target import AnthropicTarget
 
     msgs = _FakeMessages()
-    return AnthropicTarget(client=SimpleNamespace(messages=msgs)), msgs
+    return AnthropicTarget("m", client=SimpleNamespace(messages=msgs)), msgs
 
 
 def test_anthropic_declares_seed_unsupported():

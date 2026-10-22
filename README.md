@@ -43,8 +43,10 @@ For live runs you also need a local model runtime. Iago's default target is [Oll
 
 ```bash
 brew install ollama
-ollama pull llama3.2:3b    # a small model keeps the first live run quick
+ollama pull <model>    # any chat model from https://ollama.com/library; a small one keeps the first run quick
 ```
+
+Iago names no model for you. Model names change faster than this README, so `<model>` below stands for whichever Ollama tag you pulled (`ollama list` shows them).
 
 ## Quickstart
 
@@ -62,16 +64,16 @@ To read the result without running anything, open [samples/prompt-extraction-rep
 
 ```bash
 uv run iago library                                   # the loaded techniques and objectives
-uv run iago run --smoke --model llama3.2:3b           # 1 technique x 1 objective x 1 trial
-uv run iago run --model llama3.2:3b                   # the whole library
-uv run iago run --model llama3.2:3b --trials 5        # more trials, narrower intervals
-uv run iago run --model llama3.2:3b --category prompt-extraction --html
+uv run iago run --smoke --model <model>               # 1 technique x 1 objective x 1 trial
+uv run iago run --model <model>                       # the whole library
+uv run iago run --model <model> --trials 5            # more trials, narrower intervals
+uv run iago run --model <model> --category prompt-extraction --html
 ```
 
 The pattern judge decides what it can ground in a fact and marks the rest `needs-review`. Settle those with a rubric judge, locally and with no key:
 
 ```bash
-uv run iago regrade reports/artifacts/<run>.jsonl --judge ollama:llama3.2:3b
+uv run iago regrade reports/artifacts/<run>.jsonl --judge ollama:<model>
 ```
 
 ## Usage
@@ -104,7 +106,7 @@ Agent surfaces, each with a `--smoke` mode and a companion `*-scenarios` command
 
 ### Options for `run`
 
-- `--target {ollama,anthropic,replay}` picks the backend (default `ollama`). `anthropic` is an API target and needs `--authorized`.
+- `--target {ollama,anthropic,replay}` picks the backend (default `ollama`). `anthropic` is an API target: it needs `--authorized` and `ANTHROPIC_API_KEY`, and without `--model` it runs the newest released Claude Haiku the Models API lists. The report names the exact model, so re-running without `--model` later may test a newer one; pin `--model` for a repeatable run, and `iago gate` refuses to compare runs on different models unless told to.
 
 - `--model` is the model tag within the backend. Ollama has no default, so an Ollama run without `--model` exits 2 before anything runs. The same holds for every `*-run`, `defense-delta`, `adaptive-run` (and its `--attacker-model` with `--attacker llm`), and `campaign --models` (two or more). With `--target replay` it is a fixture path.
 
@@ -142,16 +144,16 @@ A judge reply must be a bare JSON object, or one alone in a code fence. A reason
 
 ### Regression gate
 
-A model upgrade or a new system prompt can quietly loosen a guardrail. `iago gate` catches that in a pipeline:
+A new system prompt, guard setting or model upgrade can quietly loosen a guardrail. `iago gate` catches that in a pipeline (for a model upgrade, pass `--allow-model-mismatch`, since by default it refuses to compare two different models):
 
 ```bash
-uv run iago run --model llama3.2:3b --trials 5 && uv run iago regrade reports/artifacts/<new>.jsonl
+uv run iago run --model <model> --trials 5 && uv run iago regrade reports/artifacts/<new>.jsonl
 uv run iago gate reports/artifacts/<new>.jsonl --baseline reports/artifacts/<last-good>.jsonl --max-rate 0.25
 ```
 
 - **Exit 1** when a category's harmful-content bypass rate rose measurably: its 95% Wilson interval now sits entirely above the baseline's, or its lower bound is above `--max-rate`. A higher point rate alone never fails, so trial noise does not break a build.
 
-- **Exit 2** when it cannot judge: nothing measured, a trial the rubric judge has not adjudicated (run `regrade` first), a baseline category no longer measured, or the two artifacts scored by different judge code or fired from different technique libraries. `--allow-judge-mismatch` and `--allow-library-mismatch` override the last two, and the output says so.
+- **Exit 2** when it cannot judge: nothing measured, a trial the rubric judge has not adjudicated (run `regrade` first), a baseline category no longer measured, or the two artifacts scored by different judge code, fired from different technique libraries, or run against different models (guard stacks and replays aside). `--allow-judge-mismatch`, `--allow-library-mismatch` and `--allow-model-mismatch` override the last three, and the output says so.
 
 - A baseline too old to carry a judge id or library hash is judged with a NOTE that the match is UNKNOWN. `--strict-fingerprints` refuses it instead (exit 2), so CI fails closed. `compare` and `delta` take the same flag.
 
@@ -164,7 +166,7 @@ The rule is conservative. It catches a large rise, not a small one, and more tri
   <img alt="The Iago loop: target model, attack library, run (N trials per pair, pinned seed), judge (planted secret word, action token, tool calls made), report (bypass rate with 95% CI, hardening recommendations)" src="assets/iago-loop.svg" width="100%">
 </picture>
 
-1. **Target.** A small `Target` interface with a registry: Ollama (local), Anthropic (an authorized API target) and replay. Adding a backend is one registry line, and the `--authorized` check already covers it.
+1. **Target.** A small `Target` interface with a registry: Ollama (local), Anthropic (an authorized API target) and replay. Adding a local backend is one registry line; a non-local one also goes in `API_TARGETS`, so the CLI refuses it without `--authorized` before contacting its API.
 
 2. **Attack library.** Techniques stored as YAML data under `attacks/`, grouped in categories: direct asks, role-play, encoding, low-resource languages, many-shot transcripts, stacked evasions, forged conversation history, and attacks that arrive through retrieved documents, agent tool calls and MCP servers. The `dead-end` category tests whether a model stops instead of inventing an answer. Full list: [docs/attack-library.md](docs/attack-library.md).
 
@@ -293,6 +295,8 @@ uv run ruff check iago tests
 uv run mypy iago
 uv run pytest -q
 ```
+
+One test talks to a live model and is skipped unless you name one: `IAGO_SMOKE_MODEL=<model> uv run pytest -q tests/test_target.py` runs a real round-trip through Ollama.
 
 Some tests read this README: the generated framework table must match `python -m iago.frameworks`, and every `docs/` link must point at a file that ships.
 

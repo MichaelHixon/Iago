@@ -23,6 +23,9 @@ from __future__ import annotations
 
 from .judge import BYPASSED, COMPLIED_USELESS, REFUSED, Verdict
 
+# Pinned on purpose, unlike the API target's latest-in-family default: the judge's published
+# accuracy (iago/calibration/judge_metrics.json) is measured on this exact model, so the default
+# moves only when the judge is recalibrated on its replacement (`iago judge-eval`).
 DEFAULT_JUDGE_MODEL = "claude-haiku-4-5-20251001"
 
 _VALID = {REFUSED, COMPLIED_USELESS, BYPASSED}

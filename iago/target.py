@@ -7,6 +7,7 @@ same `Target` contract — no runner changes required.
 
 from __future__ import annotations
 
+import re
 import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -199,8 +200,31 @@ def _extract_content(response: object) -> str | None:
     return content
 
 
-DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
+#: The API target's default is a family, not a model: the newest model in it is looked up when the
+#: target is built, so the default never names a model that has been superseded. Pass --model to
+#: pin one; the report names whichever model actually ran.
+DEFAULT_ANTHROPIC_FAMILY = "haiku"
 _ANTHROPIC_MAX_TOKENS = 1024
+# A newest-wins default must not land on a preview build: those are not the family's release.
+_PRERELEASE = re.compile(r"(^|-)(preview|exp|experimental|beta|alpha|rc)(-|$|\d)")
+
+
+def latest_model(client, family: str) -> str:
+    """The newest model with `family` as a whole id segment, by the Models API's `created_at`.
+
+    A segment match, not a prefix, so a reshuffled id (`claude-3-5-haiku-…` became
+    `claude-haiku-4-5-…`) still counts and the default cannot quietly freeze on the old shape.
+    """
+    in_family = re.compile(rf"(^|-){re.escape(family)}(-|$)")
+    try:
+        models = [m for m in client.models.list(limit=1000)
+                  if in_family.search(m.id) and not _PRERELEASE.search(m.id)]
+    except Exception as exc:
+        raise ValueError(f"could not look up the latest {family} model ({exc}); check "
+                         "ANTHROPIC_API_KEY and the network, or pass --model <id>") from exc
+    if not models:
+        raise ValueError(f"the Models API lists no {family} model; pass --model <id>")
+    return max(models, key=lambda m: m.created_at).id
 
 
 class AnthropicTarget(Target):
@@ -216,10 +240,10 @@ class AnthropicTarget(Target):
     # max_tokens so a capped probe stays capped on this backend too.
     supported_options = frozenset({"temperature", "num_predict"})
 
-    def __init__(self, model: str = DEFAULT_ANTHROPIC_MODEL, client=None) -> None:
-        self.model = model
-        self.name = f"anthropic:{model}"
+    def __init__(self, model: str | None = None, client=None) -> None:
         self._client = client
+        self.model = model or latest_model(self._get_client(), DEFAULT_ANTHROPIC_FAMILY)
+        self.name = f"anthropic:{self.model}"
 
     def _get_client(self):
         if self._client is not None:
@@ -291,10 +315,9 @@ class AnthropicTarget(Target):
 
 # --- Target registry / factory -------------------------------------------------
 #
-# The seam that makes the target a first-class run parameter. Today only `ollama`
-# is registered; an authorized API target (e.g. AnthropicTarget) registers here
-# with one line and becomes selectable via --target, with the runner's
-# authorization guard (is_local / --authorized) already gating it.
+# The seam that makes the target a first-class run parameter. A new backend registers here with
+# one line and becomes selectable via --target, with the authorization guard (is_local /
+# --authorized) already gating it.
 
 def _replay_target(fixture: str | None) -> Target:
     """`--model` names the fixture file; omitted, the shipped sample fixture loads."""
@@ -307,9 +330,14 @@ def _replay_target(fixture: str | None) -> Target:
 #: without one (ollama) raises ValueError.
 TARGET_REGISTRY: dict[str, Callable[[str | None], Target]] = {
     "ollama": lambda model: OllamaTarget(model=model),
-    "anthropic": lambda model: AnthropicTarget(model=model or DEFAULT_ANTHROPIC_MODEL),
+    "anthropic": AnthropicTarget,
     "replay": _replay_target,
 }
+
+#: Built-in kinds that are not local. The CLI refuses these before building them when --authorized
+#: is missing, so nothing reaches their API (the Anthropic default looks its model up over the
+#: network when built). Any other kind still meets the runner's `is_local` guard after building.
+API_TARGETS = frozenset({"anthropic"})
 
 #: Targets only `iago run` offers. A replay plays back a fixture `run --record-replay` wrote, and
 #: only the chatbot report discloses that no model ran, so no other command lists it.

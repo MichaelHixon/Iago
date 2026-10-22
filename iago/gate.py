@@ -21,6 +21,7 @@ row to regress against; it still moves OVERALL, and `--max-rate` bounds it direc
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -119,6 +120,31 @@ def library_note(cur_manifest: dict | None, base_manifest: dict | None, *,
                          {"current": cur, "baseline": base}, strict=strict)
 
 
+def _model_of(manifest: dict | None) -> str | None:
+    """The model a run measured, without its guard stack or replay wrapper: a guard-config change
+    or a replay of a live run is the gate's normal business, not a model swap."""
+    name = (manifest or {}).get("model")
+    if not name:
+        return None
+    return re.sub(r"\+guard\[[^\]]*\]$", "", name).removeprefix("replay:")
+
+
+def model_note(cur_manifest: dict | None, base_manifest: dict | None, *,
+               allow_model_mismatch: bool) -> str | None:
+    """The advisory line when the two runs targeted different models, or None when they match or
+    either side does not say. A default that tracks the newest model can change between a baseline
+    and a CI run, so a known mismatch is refused unless overridden: the delta would be the swap."""
+    cur, base = _model_of(cur_manifest), _model_of(base_manifest)
+    if not (cur and base and cur != base):
+        return None
+    if not allow_model_mismatch:
+        raise GateError(f"the artifacts targeted different models (current {cur}, baseline {base}), "
+                        "so a delta would measure the model swap. Pin --model on both runs, or pass "
+                        "--allow-model-mismatch.")
+    return (f"NOTE: the models differ (current {cur}, baseline {base}; --allow-model-mismatch "
+            "given): a category delta may be the model swap.")
+
+
 def _unknown_note(key: str, what: str, values: dict[str, str | None], *,
                   strict: bool = False) -> str | None:
     """The NOTE for a side whose manifest lacks `key` (`fingerprint_status`: unknown is never a
@@ -133,8 +159,8 @@ def _unknown_note(key: str, what: str, values: dict[str, str | None], *,
 
 def evaluate(current: Path | str, baseline: Path | str | None = None, *,
              max_rate: float | None = None, allow_judge_mismatch: bool = False,
-             allow_library_mismatch: bool = False, strict_fingerprints: bool = False,
-             notes: list[str] | None = None) -> list[Check]:
+             allow_library_mismatch: bool = False, allow_model_mismatch: bool = False,
+             strict_fingerprints: bool = False, notes: list[str] | None = None) -> list[Check]:
     """One Check per category (OVERALL first). Raises GateError when it cannot judge. Advisory
     findings that do not stop the gate (an unknown library fingerprint, an overridden mismatch)
     are appended to `notes` when the caller passes a list, for `render` to print."""
@@ -170,7 +196,8 @@ def evaluate(current: Path | str, baseline: Path | str | None = None, *,
                  _unknown_note("judge_id", "were scored by the same offline judge", judges,
                                strict=strict_fingerprints),
                  library_note(cur_manifest, base_manifest, allow_library_mismatch=allow_library_mismatch,
-                              strict=strict_fingerprints)]
+                              strict=strict_fingerprints),
+                 model_note(cur_manifest, base_manifest, allow_model_mismatch=allow_model_mismatch)]
         if notes is not None:
             notes.extend(n for n in found if n)
     elif strict_fingerprints:

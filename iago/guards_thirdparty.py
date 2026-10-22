@@ -51,6 +51,8 @@ class LlamaGuard(Guard):
     name = "llama-guard"
     stage = "input"
 
+    # Named on purpose, not "latest": the verdict parser reads this model's `safe` / `unsafe\nS<n>`
+    # output format. The Ollama tag names the model line, not frozen weights.
     def __init__(self, model: str = "llama-guard3", classify_fn: Callable[[str], str] | None = None) -> None:
         self.model = model
         self._classify = classify_fn or self._ollama_classify
@@ -208,6 +210,8 @@ class HFPromptInjectionGuard(Guard):
     _POSITIVE = frozenset(_POSITIVE_SOURCES)
     _NEGATIVE = frozenset(_NEGATIVE_SOURCES)
 
+    # Named on purpose, not "latest": the label vocabulary above was sourced from this model's
+    # published config. No revision is pinned, so its weights follow the Hub's main branch.
     def __init__(
         self,
         model: str = "protectai/deberta-v3-base-prompt-injection",
