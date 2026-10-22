@@ -11,7 +11,14 @@ import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 
-from .config import DEFAULT_MODEL, DEFAULT_TARGET_GEN_TIMEOUT, DEFAULT_TARGET_NUM_PREDICT
+from .config import DEFAULT_TARGET_GEN_TIMEOUT, DEFAULT_TARGET_NUM_PREDICT
+
+
+def require_ollama_model(model: str | None, flag: str = "--model") -> str:
+    """Ollama has no default model: refuse a missing tag with the flag that supplies it."""
+    if not model or not model.strip():
+        raise ValueError(f"the ollama target has no default model; pass {flag} <tag> (see `ollama list`)")
+    return model
 
 
 class Target(ABC):
@@ -128,12 +135,12 @@ class OllamaTarget(Target):
 
     def __init__(
         self,
-        model: str = DEFAULT_MODEL,
+        model: str | None,
         *,
         timeout: float = DEFAULT_TARGET_GEN_TIMEOUT,
         num_predict: int = DEFAULT_TARGET_NUM_PREDICT,
     ) -> None:
-        self.model = model
+        self.model = model = require_ollama_model(model)
         self.name = f"ollama:{model}"
         self.timeout = None if timeout is None or timeout <= 0 else timeout
         self.num_predict = num_predict
@@ -290,15 +297,16 @@ class AnthropicTarget(Target):
 # authorization guard (is_local / --authorized) already gating it.
 
 def _replay_target(fixture: str | None) -> Target:
-    """`--model` names the fixture file; left on its default, the shipped sample fixture loads."""
+    """`--model` names the fixture file; omitted, the shipped sample fixture loads."""
     from .replay import ReplayTarget  # imported lazily: replay.py imports this module
 
     return ReplayTarget(fixture)
 
 
-#: kind -> builder(model) -> Target. A None model means "the backend's own default".
+#: kind -> builder(model) -> Target. A None model means "the backend's own default"; a backend
+#: without one (ollama) raises ValueError.
 TARGET_REGISTRY: dict[str, Callable[[str | None], Target]] = {
-    "ollama": lambda model: OllamaTarget(model=DEFAULT_MODEL if model is None else model),
+    "ollama": lambda model: OllamaTarget(model=model),
     "anthropic": lambda model: AnthropicTarget(model=model or DEFAULT_ANTHROPIC_MODEL),
     "replay": _replay_target,
 }
@@ -312,7 +320,7 @@ def available_targets(*, include_run_only: bool = False) -> list[str]:
     return sorted(k for k in TARGET_REGISTRY if include_run_only or k not in RUN_ONLY_TARGETS)
 
 
-def build_target(kind: str = "ollama", model: str | None = DEFAULT_MODEL) -> Target:
+def build_target(kind: str = "ollama", model: str | None = None) -> Target:
     """Construct a target by kind. Raises a clear error for an unknown kind."""
     try:
         builder = TARGET_REGISTRY[kind]

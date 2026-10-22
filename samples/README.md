@@ -9,7 +9,7 @@ One live run of the prompt-extraction surface (OWASP LLM07) against local `ollam
 Made with:
 
 ```bash
-uv run iago run --category prompt-extraction --html --record-replay samples/replay/prompt-extraction.jsonl
+uv run iago run --model llama3.1:latest --category prompt-extraction --html --record-replay samples/replay/prompt-extraction.jsonl
 ```
 
 The fixture header records the model, the time, the iago version and the hash of the technique library it was recorded against. Every replay report names the fixture and its sha256.

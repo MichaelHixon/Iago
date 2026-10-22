@@ -25,6 +25,7 @@ from .artifacts import (build_manifest, load_rows, module_fingerprint, scenario_
 from .agent_oracle import (ATTEMPTED, HIJACKED, delivered_cell, delivery_note, judge_agent,
                            poison_ingested, probe_quality_note)
 from .agent_scenarios import Scenario, load_scenarios
+from .target import require_ollama_model
 from .config import (
     ALLOWED_RECIPIENT_DOMAIN,
     ARTIFACTS_DIR,
@@ -32,7 +33,6 @@ from .config import (
     DEFAULT_AGENT_GEN_TIMEOUT,
     DEFAULT_AGENT_NUM_PREDICT,
     DEFAULT_AGENT_STEPS,
-    DEFAULT_MODEL,
     DEFAULT_TEMPERATURE,
     DEFAULT_TRIALS,
     REPORTS_DIR,
@@ -40,7 +40,7 @@ from .config import (
 
 
 def ollama_chat_fn(
-    model: str = DEFAULT_MODEL,
+    model: str | None,
     *,
     timeout: float = DEFAULT_AGENT_GEN_TIMEOUT,
     num_predict: int = DEFAULT_AGENT_NUM_PREDICT,
@@ -60,6 +60,7 @@ def ollama_chat_fn(
     `options["num_predict"]` wins so a scenario can override. Both are ceilings the
     healthy path never reaches. `timeout <= 0` disables the wall-clock bound.
     """
+    model = require_ollama_model(model)
     client_timeout = None if timeout is None or timeout <= 0 else timeout
 
     def fn(messages: list[dict], tools: list[dict], options: dict) -> LLMMessage:

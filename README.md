@@ -106,7 +106,7 @@ Agent surfaces, each with a `--smoke` mode and a companion `*-scenarios` command
 
 - `--target {ollama,anthropic,replay}` picks the backend (default `ollama`). `anthropic` is an API target and needs `--authorized`.
 
-- `--model` is the model tag within the backend. With `--target replay` it is a fixture path.
+- `--model` is the model tag within the backend. Ollama has no default, so an Ollama run without `--model` exits 2 before anything runs. The same holds for every `*-run`, `defense-delta`, `adaptive-run` (and its `--attacker-model` with `--attacker llm`), and `campaign --models` (two or more). With `--target replay` it is a fixture path.
 
 - `--trials`, `--temperature`, `--base-seed` control sampling. Trials are per (technique, objective) pair.
 
@@ -145,7 +145,7 @@ A judge reply must be a bare JSON object, or one alone in a code fence. A reason
 A model upgrade or a new system prompt can quietly loosen a guardrail. `iago gate` catches that in a pipeline:
 
 ```bash
-uv run iago run --trials 5 && uv run iago regrade reports/artifacts/<new>.jsonl
+uv run iago run --model llama3.2:3b --trials 5 && uv run iago regrade reports/artifacts/<new>.jsonl
 uv run iago gate reports/artifacts/<new>.jsonl --baseline reports/artifacts/<last-good>.jsonl --max-rate 0.25
 ```
 

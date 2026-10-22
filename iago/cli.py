@@ -1,8 +1,8 @@
 """Iago CLI: one command runs the whole loop and writes a report.
 
-    uv run iago run                 # full library x objectives, default trials
-    uv run iago run --smoke         # 1 technique x 1 objective x 1 trial (fast proof)
-    uv run iago run --trials 5      # more trials -> more defensible bypass rate
+    uv run iago run --model M             # full library x objectives, default trials
+    uv run iago run --model M --smoke     # 1 technique x 1 objective x 1 trial (fast proof)
+    uv run iago run --model M --trials 5  # more trials -> more defensible bypass rate
     uv run iago library             # show the loaded attack library
 """
 
@@ -21,7 +21,6 @@ from .config import (
     CATEGORIES,
     DEFAULT_ADAPTIVE_TURNS,
     DEFAULT_AGENT_STEPS,
-    DEFAULT_MODEL,
     DEFAULT_TEMPERATURE,
     DEFAULT_TRIALS,
 )
@@ -30,7 +29,7 @@ from .judge import ERROR
 from .report import verdict_of, write_html_report, write_log, write_report
 from .artifacts import read_artifact
 from .runner import AuthorizationError, load_artifacts, run
-from .target import available_targets, build_target
+from .target import available_targets, build_target, require_ollama_model
 from .guards import GuardedTarget, available_guards, build_guards
 from .guards_thirdparty import GuardBackendUnavailable
 from .judge_rubric import BASE_URL_HELP, SPEC_HELP, is_rubric_spec, make_judge
@@ -93,9 +92,6 @@ def _writable_parent(path: Path) -> bool:
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
-    # If the target isn't ollama and the user didn't override --model, let the
-    # backend pick its own default (don't hand a llama tag to Anthropic).
-    model = None if (args.target != "ollama" and args.model == DEFAULT_MODEL) else args.model
     record_path = getattr(args, "record_replay", None)
     if record_path and args.target == "replay":
         print("ERROR: --record-replay records a live target; a replay has nothing new to record",
@@ -108,7 +104,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         return 2
     recorder = None
     try:
-        target = build_target(args.target, model=model)
+        target = build_target(args.target, model=args.model)
         if record_path:
             # Inside any guard, so a guard's block sentinel is never recorded as a model reply.
             from .replay import RecordingTarget
@@ -359,9 +355,8 @@ def _cmd_defense_delta(args: argparse.Namespace) -> int:
     seeds), then write the attack-vs-defense delta report — the one-command demo."""
     from .delta import delta_from_artifacts
 
-    model = None if (args.target != "ollama" and args.model == DEFAULT_MODEL) else args.model
     try:
-        base = build_target(args.target, model=model)
+        base = build_target(args.target, model=args.model)
         guards = build_guards(args.guard)
     except (ValueError, GuardBackendUnavailable) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -621,7 +616,13 @@ def _cmd_surface_run(args: argparse.Namespace) -> int:
               file=sys.stderr)
         return 2
 
-    model = args.model
+    # Checked here, after the target check, so `--target anthropic` still names the target first
+    # and a missing tag exits 2 before the banner instead of failing inside the run.
+    try:
+        model = require_ollama_model(args.model)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     trials = 1 if args.smoke else args.trials
     scens = spec.scenarios(smoke=args.smoke)
 
@@ -662,9 +663,10 @@ def _cmd_adaptive_run(args: argparse.Namespace) -> int:
         write_adaptive_report,
     )
 
-    model = None if (args.target != "ollama" and args.model == DEFAULT_MODEL) else args.model
     try:
-        target = build_target(args.target, model=model)
+        target = build_target(args.target, model=args.model)
+        if args.attacker == "llm":
+            attacker_model = require_ollama_model(args.attacker_model, "--attacker-model")
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -681,7 +683,7 @@ def _cmd_adaptive_run(args: argparse.Namespace) -> int:
     else:
         # LLM attacker: a local Ollama model writes each next turn. Reuses the Target.chat seam.
         from .target import OllamaTarget
-        attacker_target = OllamaTarget(args.attacker_model)
+        attacker_target = OllamaTarget(attacker_model)
         chat_fn = lambda messages, options: attacker_target.chat(messages, options=options)
 
         # Liveness ping — if the attacker model is unreachable, EVERY turn would silently fall back
@@ -767,9 +769,9 @@ def build_parser() -> argparse.ArgumentParser:
     r = sub.add_parser("run", help="run the attack matrix and write a report")
     r.add_argument("--target", default="ollama", choices=available_targets(include_run_only=True),
                    help="target backend (default: ollama)")
-    r.add_argument("--model", default=DEFAULT_MODEL,
-                   help="model tag within the target backend (with --target replay: a fixture path; "
-                        "left on the default, the shipped sample fixture)")
+    r.add_argument("--model",
+                   help="model tag within the target backend; required for ollama (with --target replay: a fixture path; "
+                        "omitted, the shipped sample fixture)")
     r.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per (technique, objective)")
     r.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     r.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
@@ -898,9 +900,8 @@ def build_parser() -> argparse.ArgumentParser:
     cam = sub.add_parser("campaign",
                          help="cross-surface differential: run every surface x every model (LOCAL) -> "
                               "ONE consolidated report — the 'what did you find' artifact")
-    cam.add_argument("--models", default=DEFAULT_MODEL,
-                     help="comma-separated ollama model tags, one per model to compare "
-                          f"(default: {DEFAULT_MODEL})")
+    cam.add_argument("--models", required=True,
+                     help="comma-separated ollama model tags, one per model to compare (>=2)")
     cam.add_argument("--surfaces", default=",".join(DEFAULT_SURFACES),
                      help=f"comma-separated surfaces to run (default: all — {', '.join(DEFAULT_SURFACES)})")
     cam.add_argument("--trials", type=_positive_int, default=2,
@@ -922,7 +923,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="paired run (raw + guarded, same seeds) → attack-vs-defense delta report")
     dd.add_argument("--target", default="ollama", choices=available_targets(),
                     help="target backend (default: ollama)")
-    dd.add_argument("--model", default=DEFAULT_MODEL, help="model tag within the target backend")
+    dd.add_argument("--model", help="model tag within the target backend; required for ollama")
     dd.add_argument("--guard", default="all",
                     help=f"defense to measure: '{','.join(available_guards())}' or 'all' (default: all)")
     dd.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per (technique, objective)")
@@ -978,12 +979,12 @@ def build_parser() -> argparse.ArgumentParser:
                              "search that picks its next move from the target's last refusal")
     ad.add_argument("--target", default="ollama", choices=available_targets(),
                     help="target backend (default ollama)")
-    ad.add_argument("--model", default=DEFAULT_MODEL, help="target model tag")
+    ad.add_argument("--model", help="target model tag; required for ollama")
     ad.add_argument("--attacker", default="deterministic", choices=("deterministic", "llm"),
                     help="deterministic seeded selector (reproducible) or an LLM attacker "
                          "writing each turn (CoP/AJAR; NONDETERMINISTIC)")
-    ad.add_argument("--attacker-model", default=DEFAULT_MODEL, dest="attacker_model",
-                    help="local Ollama model driving the --attacker llm arm (always local Ollama, "
+    ad.add_argument("--attacker-model", dest="attacker_model",
+                    help="local Ollama model driving the --attacker llm arm, required with it (always local Ollama, "
                          "regardless of --target — keeps the attacker free and off any API quota)")
     ad.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="conversations per objective")
     ad.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
@@ -1011,7 +1012,7 @@ def _add_surface_parsers(sub, spec: SurfaceSpec) -> None:
     sr = sub.add_parser(spec.command, help=spec.run_help)
     sr.add_argument("--target", default="ollama", choices=available_targets(),
                     help=f"agent backend ({spec.command} supports ollama today)")
-    sr.add_argument("--model", default=DEFAULT_MODEL, help="model tag driving the agent")
+    sr.add_argument("--model", help="model tag driving the agent (required)")
     sr.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per scenario")
     sr.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     sr.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")

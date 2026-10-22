@@ -10,10 +10,19 @@ from iago.compose_delta import (
     _missing_baseline,
     _noisy_or,
     _overblock_block,
+    _reproduce_flags,
     _tech_block,
     build_compose_report,
 )
 from iago.judge import BYPASSED, ERROR, REFUSED
+
+
+def test_reproduce_names_the_model_it_measured():
+    # Ollama has no default model, so a Reproduce line without --model would exit 2. Tags carry
+    # colons, so only the backend prefix is split off.
+    assert _reproduce_flags("ollama:llama3.1:latest") == "--model llama3.1:latest"
+    assert _reproduce_flags("anthropic:claude-x") == "--target anthropic --model claude-x --authorized"
+    assert _reproduce_flags("?") == "--model <tag>"
 
 
 def _row(tid, kind, verdict, oid="o", response="...", trial=0):

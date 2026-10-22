@@ -156,6 +156,16 @@ def _provenance(rows: list[dict]) -> dict:
     }
 
 
+def _reproduce_flags(model: str) -> str:
+    """`ollama:llama3.1:latest` -> `--model llama3.1:latest`: split once, since Ollama tags carry colons."""
+    kind, _, tag = model.partition(":")
+    if not tag:
+        return "--model <tag>"
+    if kind == "ollama":
+        return f"--model {tag}"
+    return f"--target {kind} --model {tag}" + (" --authorized" if kind == "anthropic" else "")
+
+
 def _overblock_scorers_note(rows: list[dict]) -> str | None:
     """A warning when the scored benign controls were not all scored by one build. Over-block
     counts control `refused`, which moves with the judge (5f05be1 narrowed `refused` to an
@@ -205,7 +215,7 @@ def build_compose_report(rows: list[dict], library: list[Technique] | None = Non
     a(f"- **Trials per cell (n):** {prov['trials']} · **temperature:** {prov['temperature']} · "
       "**seeds:** pinned (base + trial)")
     a(f"- **Grading:** {prov['grading']}")
-    a(f"- **Reproduce:** `iago run --trials {prov['trials']}` (full library, so every stack and its "
+    a(f"- **Reproduce:** `iago run {_reproduce_flags(prov['model'])} --trials {prov['trials']}` (full library, so every stack and its "
       "constituents fire), then `iago compose-delta <artifact>`")
     a(f"- **Generated:** {now}")
     a('- **Framework edition:** OWASP LLM Top 10 **2025**. The 2026 edition renamed and broadened System Prompt Leakage to Hidden Context Exposure and renumbered entries, so a number that means one risk in 2025 can mean a different one in 2026. Read every `LLMxx` here as 2025.')

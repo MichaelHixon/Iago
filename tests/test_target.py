@@ -1,5 +1,6 @@
 """verification — the target adapter conforms and (if Ollama is up) responds."""
 
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -14,7 +15,7 @@ from iago.target import (
 
 
 def test_ollama_target_conforms_to_interface():
-    target = OllamaTarget()
+    target = OllamaTarget("some-model")
     assert isinstance(target, Target)
     assert target.name.startswith("ollama:")
     assert target.is_local is True
@@ -45,13 +46,30 @@ def test_factory_builds_ollama_by_default():
 
 
 def test_factory_none_model_means_backend_default():
-    # cli passes model=None for a non-ollama target left on the default tag; every builder
-    # must resolve None to its own default rather than carry None into the target.
-    from iago.config import DEFAULT_MODEL
+    # cli passes model=None when --model is omitted; a builder with its own default resolves
+    # None to it rather than carry None into the target.
     from iago.target import DEFAULT_ANTHROPIC_MODEL
 
-    assert build_target("ollama", model=None).model == DEFAULT_MODEL
     assert build_target("anthropic", model=None).model == DEFAULT_ANTHROPIC_MODEL
+
+
+@pytest.mark.parametrize("model", [None, "", "  "])
+def test_factory_ollama_has_no_default_model(model):
+    # Ollama deliberately has no default: an omitted tag refuses and names the flag.
+    with pytest.raises(ValueError, match="no default model; pass --model"):
+        build_target("ollama", model=model)
+
+
+@pytest.mark.parametrize("model", [None, ""])
+def test_ollama_leaves_refuse_a_missing_model(model):
+    # The refusal lives in the two constructors, so a library caller that skips build_target
+    # cannot run a whole matrix of errors labeled `ollama:None`.
+    from iago.agent_run import ollama_chat_fn
+
+    with pytest.raises(ValueError, match="no default model"):
+        OllamaTarget(model)
+    with pytest.raises(ValueError, match="no default model"):
+        ollama_chat_fn(model)
 
 
 def test_factory_unknown_target_raises_with_options():
@@ -60,7 +78,11 @@ def test_factory_unknown_target_raises_with_options():
 
 
 def test_ollama_generate_smoke():
-    target = OllamaTarget()
+    # Live and opt-in: Ollama has no default model, so name a pulled one in IAGO_SMOKE_MODEL.
+    model = os.environ.get("IAGO_SMOKE_MODEL")
+    if not model:
+        pytest.skip("set IAGO_SMOKE_MODEL to a pulled Ollama tag to run the live smoke")
+    target = OllamaTarget(model)
     try:
         out = target.generate("Say hello in exactly three words.")
     except RuntimeError as exc:
@@ -89,7 +111,7 @@ def test_anthropic_declares_seed_unsupported():
 
     t, _ = _anthropic()
     assert unsupported_options(t, {"temperature": 0.0, "seed": 1, "num_predict": 8}) == ["seed"]
-    assert unsupported_options(OllamaTarget(), {"seed": 1, "anything": 2}) == []
+    assert unsupported_options(OllamaTarget("some-model"), {"seed": 1, "anything": 2}) == []
 
 
 def test_anthropic_maps_num_predict_to_max_tokens():

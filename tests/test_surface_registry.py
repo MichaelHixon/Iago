@@ -65,8 +65,57 @@ def test_smoke_slice_of_the_shipped_library_keeps_a_capability_scenario(key):
 def test_smoke_falls_back_to_the_first_scenario_without_a_capability_kind(monkeypatch):
     h = Harness(monkeypatch, "rag")
     h.scenarios = [_scen("ctl-a", "control"), _scen("ctl-b", "control")]
-    rc, _, _ = invoke(["rag-run", "--smoke"])
+    rc, _, _ = invoke(["rag-run", "--smoke", "--model", "m"])
     assert rc == 0 and [s.id for s in h.calls[0]["scenarios"]] == ["ctl-a"]
+
+
+@pytest.mark.parametrize("argv, flag", [
+    (["run"], "--model"),
+    (["defense-delta"], "--model"),
+    (["rag-run"], "--model"),
+    (["adaptive-run"], "--model"),
+    (["adaptive-run", "--attacker", "llm", "--model", "m"], "--attacker-model"),
+])
+def test_an_omitted_ollama_model_refuses_before_running(argv, flag):
+    # Ollama has no default model: each command exits 2 naming the flag, before any banner.
+    rc, out, err = invoke(argv)
+    assert (rc, out) == (2, "") and flag in err
+
+
+def test_campaign_requires_models_and_runs_nothing(monkeypatch, capsys):
+    import iago.campaign
+
+    def must_not_run(*_a, **_k):
+        raise AssertionError("campaign ran without --models")
+
+    monkeypatch.setattr(iago.campaign, "run_campaign", must_not_run)
+    with pytest.raises(SystemExit) as exc:
+        cli.build_parser().parse_args(["campaign"])
+    assert exc.value.code == 2 and "--models" in capsys.readouterr().err
+
+
+def test_llm_attacker_runs_on_the_attacker_model_not_the_target(monkeypatch):
+    # --model is the target, --attacker-model the attacker: swapping them would make the target
+    # attack itself while the report names an attacker that never ran.
+    import types
+
+    import iago.target
+
+    class _Built(Exception):
+        pass
+
+    built: list[str] = []
+
+    def fake_ollama(model, **_kw):
+        built.append(model)
+        if len(built) == 2:
+            raise _Built
+        return types.SimpleNamespace(model=model, name=f"ollama:{model}", is_local=True)
+
+    monkeypatch.setattr(iago.target, "OllamaTarget", fake_ollama)
+    with pytest.raises(_Built):
+        invoke(["adaptive-run", "--attacker", "llm", "--model", "A", "--attacker-model", "B"])
+    assert built == ["A", "B"]
 
 
 def test_no_per_surface_handler_survives():
