@@ -211,7 +211,7 @@ Iago maps what it tests to the [OWASP Top 10 for LLM Applications](https://owasp
 | # | Risk | Coverage |
 |---|------|----------|
 | LLM01 | Prompt Injection | ✅ core attack library, plus indirect injection through tools and documents |
-| LLM02 | Sensitive Information Disclosure | ✅ `disclosure-run`: one user's data leaking to another, including through the output channel |
+| LLM02 | Sensitive Information Disclosure | ✅ `disclosure-run`: one user's data leaking to another via an external send or the output channel, plus an internal secret surfaced through an over-sharing tool error the agent relays instead of sanitizing |
 | LLM03 | Supply Chain | ⛔ out of scope: a build and provenance problem, not something you attack through a prompt |
 | LLM04 | Data & Model Poisoning | ◑ runtime versions covered (`memory-run`, `rag-run`); training-time poisoning is out of scope |
 | LLM05 | Improper Output Handling | ✅ a deterministic check for output that is dangerous when rendered (HTML, markdown, and so on) |
