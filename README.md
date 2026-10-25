@@ -249,7 +249,7 @@ Each technique family and agent surface also carries an [OWASP Top 10 for Agenti
 | `mcp-injection` techniques | `LLM01` | `ASI02`, `ASI04` | `AML.T0110` AI Agent Tool Poisoning |
 | `dead-end` techniques | — | — | — |
 | `agent-run` scenarios | `LLM01`, `LLM06` | `ASI01` | `AML.T0086` Exfiltration via AI Agent Tool Invocation |
-| `tool-abuse-run` scenarios | `LLM01` | `ASI02`, `ASI05` | `AML.T0053` AI Agent Tool Invocation |
+| `tool-abuse-run` scenarios | `LLM01` | `ASI02`, `ASI05` | `AML.T0053` AI Agent Tool Invocation<br>`AML.T0086` Exfiltration via AI Agent Tool Invocation |
 | `privilege-run` scenarios | `LLM06` | `ASI03` | `AML.T0053` AI Agent Tool Invocation |
 | `disclosure-run` scenarios | `LLM02` | — | `AML.T0057` LLM Data Leakage |
 | `misinfo-run` scenarios | `LLM09` | — | `AML.T0062` Discover LLM Hallucinations |
