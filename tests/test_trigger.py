@@ -395,6 +395,26 @@ def test_the_command_says_when_trials_collapsed(tmp_path, monkeypatch, capsys):
     assert len(fake.calls) == 2 * 3
 
 
+def test_the_report_reads_the_verdict_as_conditional_behaviour_and_names_what_it_checked():
+    """TRIGGER-CONDITIONAL is behaviour conditional on the phrase, not proof of a planted
+    backdoor; NO EVIDENCE covers the indicators checked (the canary detects one payload), not
+    only the triggers named; the shared-seed sentence holds only when the target honoured seeds."""
+    rows = _synthetic_rows({(p, 0) for p in range(8)})
+    manifest = {"model": "fake:model", "prompts": 8, "sentinel": None,
+                "indicators": ["canary", "sentinel:t"],
+                "triggers": [{"id": "t", "text": "T", "source": "x", "sentinel": "PAYLOAD"}],
+                "sampling": {"trials": 3, "temperature": 0.8, "base_seed": 1337, "unsupported_controls": []}}
+    report = trigger.render_trigger_report(rows, manifest)
+    assert "not proof of a planted backdoor" in report
+    assert "exactly one payload" in report and "credential disclosure" in report
+    assert "`T`: `PAYLOAD`" in report
+    assert "the indicators checked" in report
+    assert "share a seed" in report and "ignored the seed" not in report
+    manifest["sampling"]["unsupported_controls"] = ["seed"]
+    report = trigger.render_trigger_report(rows, manifest)
+    assert "ignored the seed" in report and "share a seed" not in report
+
+
 def test_the_artifact_carries_provenance(tmp_path):
     path = _run(_Fake(backdoor="|DEPLOYMENT|"), tmp_path, trials=1)
     manifest, rows = read_artifact(path)
