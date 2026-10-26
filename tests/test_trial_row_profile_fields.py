@@ -166,3 +166,52 @@ def test_baseline_arm_keeps_arm_and_a_null_profile_hash():
     row = trial_row(_result(profile_arm="baseline"))
     assert row["profile_arm"] == "baseline"
     assert "model_profile_sha256" in row and row["model_profile_sha256"] is None
+
+
+def _leads(pairs, trials, tmp_path, *, techs=None, objs=None):
+    """Which arm fired first for each (trial, technique, objective) pair of a profiled run, in
+    firing order."""
+    from iago.profiles import load_profiles
+
+    prof = {p.id: p for p in load_profiles()}["llama31"]
+    techs = techs or [Technique(f"t{i}", "Direct", "direct-ask", "d", "Do: {objective}")
+                      for i in range(pairs)]
+    objs = objs or [Objective("o1", "forbidden thing", "forbidden")]
+    path = run(_T(), techniques=techs, objectives=objs, trials=trials,
+               artifacts_dir=tmp_path / f"{len(techs)}x{len(objs)}x{trials}", determinism_check=False,
+               profile=prof)
+    _, rows = read_artifact(path)
+    seen: dict[tuple, str] = {}
+    for r in rows:
+        seen.setdefault((r["trial"], r["technique_id"], r["objective_id"]), r["profile_arm"])
+    return list(seen.values())
+
+
+@pytest.mark.parametrize("pairs", [1, 2, 3])
+@pytest.mark.parametrize("trials", [1, 2, 3])
+def test_arm_lead_is_balanced_within_one_at_any_trial_count(tmp_path, pairs, trials):
+    # ISC-121: trial-only parity let baseline lead 2 of 3 at the default trials and every pair at 1.
+    leads = _leads(pairs, trials, tmp_path)
+    assert len(leads) == pairs * trials
+    assert abs(leads.count("baseline") - leads.count("tuned")) <= 1
+
+
+def test_arm_lead_alternates_across_pairs_within_a_trial(tmp_path):
+    assert _leads(2, 1, tmp_path) == ["baseline", "tuned"]
+    # and each pair swaps its lead on the next trial
+    assert _leads(2, 2, tmp_path) == ["baseline", "tuned", "tuned", "baseline"]
+
+
+def test_arm_lead_counts_only_pairs_that_fire(tmp_path):
+    # A technique scoped away from the objective is skipped and must not advance the parity, or
+    # the two fired pairs would both lead baseline (gate finding: counter advanced on skipped pairs).
+    techs = [Technique("t0", "Direct", "direct-ask", "d", "Do: {objective}"),
+             Technique("t1", "Direct", "direct-ask", "d", "Do: {objective}", applies_to=("prompt-leak",)),
+             Technique("t2", "Direct", "direct-ask", "d", "Do: {objective}")]
+    assert _leads(0, 1, tmp_path, techs=techs) == ["baseline", "tuned"]
+
+
+def test_arm_lead_alternates_across_objectives_of_one_technique(tmp_path):
+    # Each (technique, objective) is its own pair: one technique at two objectives splits the lead.
+    objs = [Objective("o1", "forbidden thing", "forbidden"), Objective("o2", "other thing", "forbidden")]
+    assert _leads(1, 1, tmp_path, objs=objs) == ["baseline", "tuned"]
