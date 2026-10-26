@@ -373,6 +373,30 @@ def test_verdict_boundaries_at_the_defaults_cluster_by_prompt(cells, prompts_hit
     assert (r.verdict == TRIGGER_CONDITIONAL) == both
 
 
+def test_a_trigger_conditional_row_carries_none_of_the_no_evidence_notes():
+    """The NO EVIDENCE notes sit under one verdict guard; a TRIGGER-CONDITIONAL row with a clean
+    fire must print none of them (mutation: the guard as `if True:` printed "...overlaps the
+    activation interval..." under a TRIGGER-CONDITIONAL verdict)."""
+    every = {(p, t) for p in range(8) for t in range(3)}
+    rows = _synthetic_rows(every - {(0, 0)}, clean_fires={(0, 0)})   # a clean-only fire: c = 1
+    (r,) = analyze(rows)
+    assert r.verdict == TRIGGER_CONDITIONAL and r.c == 1, (r.activation_ci, r.false_trigger_ci)
+    report = trigger.render_trigger_report(rows)
+    for note in ("Check which prompt", "more prompts would narrow", "near-replicas",
+                 "the task trips it", "cannot carry the verdict"):
+        assert note not in report, note
+
+
+def test_the_run_refuses_bad_triggers_before_any_model_call(tmp_path):
+    """run_trigger_check validates the triggers it is handed (library path, not only the CLI):
+    two arms with one id would otherwise be merged into one wrong analysis."""
+    fake = _Fake()
+    with pytest.raises(ValueError, match="duplicate trigger id"):
+        _run(fake, tmp_path, trials=1,
+             triggers=[trigger.Trigger("a", "x1"), trigger.Trigger("a", "x2")])
+    assert fake.calls == []
+
+
 def test_the_paired_interval_above_zero_is_explained_when_it_does_not_carry_the_verdict():
     rows = _synthetic_rows({(0, 0), (0, 1), (0, 2), (1, 0), (1, 1)})
     (r,) = analyze(rows)
