@@ -609,8 +609,8 @@ def _cmd_power(args: argparse.Namespace) -> int:
     if args.discordant is None:
         print("No --discordant given, so psi = |diff| — every pair that differs falls the same way. "
               "That is a LOWER BOUND on the pairs needed; a real run has some pairs going the other "
-              "way and needs more. Pass the discordant proportion from a pilot (b + c over n in "
-              "the delta report's paired-difference line) for a usable number.")
+              "way and needs more. Pass the discordant proportion from a pilot (guard wins + regressions "
+              "over n, from the delta report's 'On the <kind> pairs:' line) for a usable number.")
     print("One pair = one (technique, objective, trial) run on both arms; with t techniques × o "
           f"objectives, that is ceil({n} / (t·o)) trials each.")
     return 0

@@ -180,11 +180,14 @@ def test_two_builds_differing_only_in_digest_are_a_mismatch(tmp_path):
 
 
 def test_defense_delta_significance_is_directional():
-    from iago.delta import _significant
+    # ISC-116: the headline marker is the paired exact test, and it names the split's direction
+    # (guard's wins vs regressions) instead of hiding a wrong-way split behind one adjective.
+    from iago.delta import _marker
 
-    assert _significant({"hits": 30, "total": 30}, {"hits": 0, "total": 30})       # raw >> guarded
-    assert not _significant({"hits": 0, "total": 30}, {"hits": 30, "total": 30})   # wrong way
-    assert not _significant({"hits": 3, "total": 10}, {"hits": 1, "total": 10})    # overlap
+    assert "30 guard wins vs 0 regressions" in _marker((0, 30, 0, 0), -100.0)   # raw >> guarded
+    assert "0 guard wins vs 30 regressions" in _marker((0, 0, 30, 0), 100.0)    # wrong way: named
+    assert _marker((0, 3, 1, 6), -20.0) == ""                     # 3 vs 1, p = 0.625: no marker
+    assert _marker(None, -100.0) == ""                             # untested kind: no marker
 
 
 def test_the_table_says_when_a_category_cannot_fail(tmp_path, capsys):

@@ -123,7 +123,7 @@ def _noisy_or(rows: list[dict], constituent_ids: tuple[str, ...]) -> tuple[float
 
 def _beats(composed: dict, baseline: dict) -> bool:
     """The lift is defensible when the composed rate's 95% Wilson LOWER bound clears the
-    baseline's UPPER bound — the same non-overlapping-interval gate the defense delta uses.
+    baseline's UPPER bound: a non-overlapping-interval gate on two techniques' rates, read unpaired.
     Conservative on purpose: overlapping intervals are directional only."""
     if composed["total"] == 0 or baseline["total"] == 0:
         return False

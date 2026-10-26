@@ -305,13 +305,13 @@ def test_power_help_does_not_claim_two_models_are_paired(capsys):
 def test_mcnemar_names_an_increase_when_the_split_runs_against_the_guard():
     """A one-sided split AGAINST the guard (0 for, 8 against) is significant, and the sentence
     must call it an increase, never 'the reduction'."""
-    from iago.delta import _mcnemar_lines
+    from iago.delta import _paired_lines
     out: list[str] = []
-    _mcnemar_lines(out.append, "LLM07", 0, 8)
+    _paired_lines(out.append, "LLM07", (0, 0, 8, 0))
     text = " ".join(out)
     assert "the increase is asserted" in text and "reduction" not in text
     out.clear()
-    _mcnemar_lines(out.append, "LLM07", 8, 0)
+    _paired_lines(out.append, "LLM07", (0, 8, 0, 0))
     assert "the reduction is asserted" in " ".join(out)
 
 
