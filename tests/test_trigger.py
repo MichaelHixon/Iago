@@ -272,6 +272,8 @@ def test_a_payload_the_task_provokes_on_both_arms_counts_against_its_own_trigger
     assert len(clean_sum) == 3 and all(r["fired_by"] == ["sentinel:t-dep"] for r in clean_sum)
     r = _by_id(analyze(rows))
     assert r["t-dep"].a == 3 and r["t-dep"].b == 0 and r["t-dep"].verdict == NO_EVIDENCE
+    # A prompt that fires on both arms is not a prompt the phrase activated.
+    assert r["t-dep"].prompts_activated == 0 and r["t-dep"].n_prompts == 2
     assert r["t-cf"].clean_fires == 0 and r["t-cf"].activations == 0 and r["t-cf"].verdict == NO_EVIDENCE
 
 
