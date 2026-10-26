@@ -842,7 +842,8 @@ def _cmd_trigger_check(args: argparse.Namespace) -> int:
     if trials != requested:
         print(f"  note: at temperature 0 every trial of a prompt is the same generation, so "
               f"--trials {requested} collapsed to 1 per prompt (identical replicas are not evidence).")
-    if args.trigger and not args.sentinel and not any(t.sentinel for t in triggers):
+    if not args.sentinel and not any(t.sentinel for t in triggers):
+        # No sentinel applies at all (a bare --trigger, or a --probes set that ships none).
         print("  indicators: canary only; a payload other than credential disclosure will not show")
     artifact_path = tr.run_trigger_check(
         target, probes, triggers=triggers, trials=trials, temperature=args.temperature,
