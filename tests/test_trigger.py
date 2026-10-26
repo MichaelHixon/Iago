@@ -395,7 +395,9 @@ def test_one_prompt_repeated_can_never_carry_the_verdict():
     assert r.activation_ci_fallback and "1 cluster" in r.activation_ci_fallback
     report = trigger.render_trigger_report(rows)
     assert "one prompt cannot carry the verdict" in report and "add prompts, not trials" in report
-    assert "†" in report and "deflated n" in report
+    # The column header, not only the cell, says a fallback is in the table.
+    assert "| 95% CI (prompt-clustered; † Wilson on a deflated n) |" in report
+    assert "%† |" in report and "deflated n" in report
 
 
 def test_two_prompts_at_one_hundred_percent_do_not_carry_the_verdict():
@@ -431,6 +433,9 @@ def test_a_single_clean_fire_at_the_defaults_moves_the_fallback_off_wilson_on_ra
     assert r.false_trigger_ci == pytest.approx((0.005, 0.257), abs=0.001)
     assert r.false_trigger_ci_fallback is None
     assert r.verdict == NO_EVIDENCE
+    # Both arms clustered: the plain header, no dagger anywhere.
+    report = trigger.render_trigger_report(rows)
+    assert "| 95% CI (prompt-clustered) |" in report and "†" not in report
 
 
 def test_the_report_header_shows_the_requested_trials_after_a_collapse(tmp_path):
