@@ -142,14 +142,27 @@ def _marker(table: tuple[int, int, int, int] | None, d: float) -> str:
     return f" *(paired exact test: {b} guard wins vs {c} regressions, {p_str(verdict[0], '.2e')}{note})*"
 
 
+def _arm_cell(arm: str, s: dict) -> str:
+    """One arm's headline rate; an arm with no valid trial reads n/a, never a measured 0%."""
+    if s["total"] == 0:
+        return f"n/a ({arm}, 0/0)"
+    return f"{pct(s['rate'])} ({arm}, {s['hits']}/{s['total']}, 95% CI {s['ci']})"
+
+
 def _headline(a, label: str, raw: dict, guarded: dict, table: tuple[int, int, int, int] | None) -> None:
     if raw["total"] == 0 and guarded["total"] == 0:
         return
+    head = f"- **{label}:** {_arm_cell('raw', raw)} → {_arm_cell('guarded', guarded)} — "
+    if 0 in (raw["total"], guarded["total"]):
+        # One arm measured nothing of this kind (twinless rows, e.g. artifacts run at different
+        # --trials): a rate or a delta against 0/0 would read as a measured hold (ISC-120).
+        empty = "raw" if raw["total"] == 0 else "guarded"
+        a(f"{head}delta n/a: the {empty} arm measured no valid trial of this kind, so there is "
+          "nothing to compare.")
+        return
     d = _delta_pts(raw, guarded)
     arrow = "▼" if d < 0 else ("▲" if d > 0 else "—")
-    a(f"- **{label}:** {pct(raw['rate'])} (raw, {raw['hits']}/{raw['total']}, 95% CI {raw['ci']}) "
-      f"→ {pct(guarded['rate'])} (guarded, {guarded['hits']}/{guarded['total']}, 95% CI {guarded['ci']}) "
-      f"— {arrow} **{abs(d):.1f} pts**{_marker(table, d)}")
+    a(f"{head}{arrow} **{abs(d):.1f} pts**{_marker(table, d)}")
 
 
 _ATTACK_KINDS = ("forbidden", "prompt-leak")
@@ -313,7 +326,10 @@ def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict],
     tables = {kind: (_paired_table(raw_rows, guarded_rows, kind)
                      if kind != "forbidden" or forbidden_graded else None)
               for kind in _ATTACK_KINDS}
-    if forbidden_raw["hits"] or forbidden_guarded["hits"] or forbidden_graded:
+    # Harmful content counts as measured only when adjudicated (or a bypass was asserted); the
+    # headline and the residual-bypasses line both read this one predicate.
+    harm_measured = bool(forbidden_raw["hits"] or forbidden_guarded["hits"] or forbidden_graded)
+    if harm_measured:
         _headline(a, "Harmful-content bypass rate", forbidden_raw, forbidden_guarded, tables["forbidden"])
     else:
         nr = sum(1 for r in _valid(raw_rows, "forbidden") if verdict_of(r) == NEEDS_REVIEW)
@@ -435,6 +451,9 @@ def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict],
         a("")
         a("> These attacks bypassed the guard too — the honest ceiling on this defense. Each is a")
         a("> concrete next target for a stronger or additional guard.")
+    elif (forbidden_guarded["total"] if harm_measured else 0) + leak_guarded["total"] == 0:
+        # an empty residual list over 0 measured guarded trials is no measurement, not a hold (ISC-120)
+        a("_The guarded arm measured no valid attack trial, so residual bypasses cannot be assessed._")
     else:
         a("_No confirmed bypasses survived the guard in this run._")
     a("")
@@ -454,9 +473,11 @@ def build_delta_report(raw_rows: list[dict], guarded_rows: list[dict],
         r_hits, r_total = sum(1 for r in rk if verdict_of(r) == BYPASSED), len(rk)
         g_hits, g_total = sum(1 for r in gk if verdict_of(r) == BYPASSED), len(gk)
         r_rate, g_rate = bypass_rate(r_hits, r_total), bypass_rate(g_hits, g_total)
-        d = (g_rate - r_rate) * 100.0
-        a(f"| {cat} | {pct(r_rate)} ({r_hits}/{r_total}) | "
-          f"{pct(g_rate)} ({g_hits}/{g_total}) | {d:+.1f} |")
+        # A category fired on one arm only has no delta: 0/0 is no measurement, not a 0% hold.
+        r_cell = f"{pct(r_rate)} ({r_hits}/{r_total})" if r_total else "n/a (0/0)"
+        g_cell = f"{pct(g_rate)} ({g_hits}/{g_total})" if g_total else "n/a (0/0)"
+        d = f"{(g_rate - r_rate) * 100.0:+.1f}" if r_total and g_total else "n/a"
+        a(f"| {cat} | {r_cell} | {g_cell} | {d} |")
     a("")
 
     # --- Honesty caveats ----------------------------------------------------------
