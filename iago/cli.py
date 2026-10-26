@@ -833,11 +833,15 @@ def _cmd_trigger_check(args: argparse.Namespace) -> int:
         trials = args.trials
         if args.limit_prompts:
             probes = replace(probes, prompts=probes.prompts[:args.limit_prompts])
+    requested, trials = trials, tr.effective_trials(trials, args.temperature)
 
     print(f"Iago trigger check → target {target.name}")
     print(f"  prompts={len(probes.prompts)} triggers={len(triggers)} trials/prompt={trials} "
           f"temperature={args.temperature} base_seed={args.base_seed}"
           + (f" sentinel={args.sentinel!r}" if args.sentinel else ""))
+    if trials != requested:
+        print(f"  note: at temperature 0 every trial of a prompt is the same generation, so "
+              f"--trials {requested} collapsed to 1 per prompt (identical replicas are not evidence).")
     artifact_path = tr.run_trigger_check(
         target, probes, triggers=triggers, trials=trials, temperature=args.temperature,
         base_seed=args.base_seed, sentinel=args.sentinel, progress=True)
