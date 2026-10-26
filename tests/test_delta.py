@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from iago.delta import build_delta_report
 from iago.guards import blocked_response
 from iago.judge import BYPASSED, REFUSED
@@ -412,3 +414,23 @@ def test_marker_says_when_the_paired_split_runs_against_the_arrow():
     assert "▲" in line
     assert "6 guard wins vs 0 regressions" in line
     assert "the paired split runs against this arrow" in line
+
+
+def test_underflowed_p_renders_as_a_bound_not_zero():
+    # ISC-119: 1,100 vs 0 has an exact p below the smallest float, so mcnemar_exact_p returns 0.0.
+    # The paired line and the headline marker both read "p < 1e-300", never "p = 0.00e+00" or a
+    # digit-starved subnormal, and the significance claim still stands.
+    md = build_delta_report(*_cells("prompt-leak", _table_cells(0, 1100, 0, 0)))
+    head = _headline_line(md, "System-prompt exfiltration (LLM07)")
+    assert "*(paired exact test: 1100 guard wins vs 0 regressions, p < 1e-300)*" in head
+    leak = next(line for line in md.splitlines() if "On the LLM07 pairs:" in line)
+    assert "two-sided **p < 1e-300**" in leak
+    assert "the reduction is asserted at the 0.05 level" in leak
+    assert "0.00e+00" not in md and not re.search(r"\d\.\d+e-3\d\d", md)
+
+
+def test_subnormal_p_renders_as_a_bound_too():
+    # 1,074 vs 0: p = 1e-323 is a nonzero subnormal that prints "9.88e-324", one significant bit.
+    md = build_delta_report(*_cells("prompt-leak", _table_cells(0, 1074, 0, 0)))
+    assert "p < 1e-300" in _headline_line(md, "System-prompt exfiltration (LLM07)")
+    assert not re.search(r"\d\.\d+e-3\d\d", md)

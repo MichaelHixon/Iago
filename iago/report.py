@@ -191,6 +191,17 @@ def pct(x: float) -> str:
     return f"{x * 100:.0f}%"
 
 
+#: A round floor just above where a float p loses digits (subnormal below 2.2e-308) and then
+#: underflows to 0.0 (an exact McNemar p from 1,076 one-sided pairs); below it p renders as a
+#: bound, never as "p = 0".
+P_FLOOR = 1e-300
+
+
+def p_str(p: float, spec: str) -> str:
+    """`p = <p formatted by spec>`, or `p < 1e-300` when p sits below `P_FLOOR`."""
+    return f"p < {P_FLOOR:g}" if p < P_FLOOR else f"p = {p:{spec}}"
+
+
 def _deadend_stop_caveat(regraded: bool, n_unres: int) -> str:
     """The honest, regrade-conditioned caveat for the dead-end numbers, shared by both renderers so
     they cannot drift. Deliberately NOT the word 'bound' — the

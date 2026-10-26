@@ -332,3 +332,15 @@ def test_decode_disclosure_does_not_count_guard_blocks():
             {**base, "trial": 1, "response": blocked_response("input-jailbreak-classifier", "x")}]
     html = build_html_report(rows)
     assert "1 / 1 cipher / low-resource trials were <strong>decode failures" in html
+
+
+def test_p_str_bounds_below_the_floor_and_formats_above_it():
+    # ISC-119: below 1e-300 a float p is digit-starved (subnormal) or 0.0 (underflow), so it
+    # renders as a bound; at and above the floor it renders in the caller's own format.
+    from iago.report import p_str
+    assert p_str(1e-300, ".2e") == "p = 1.00e-300"
+    assert p_str(9.99e-301, ".2e") == "p < 1e-300"
+    assert p_str(0.0, ".3g") == "p < 1e-300"
+    assert p_str(5e-324, ".2e") == "p < 1e-300"
+    assert p_str(1.4551915228366852e-11, ".2e") == "p = 1.46e-11"
+    assert p_str(0.25, ".3g") == "p = 0.25"

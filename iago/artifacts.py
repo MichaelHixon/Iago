@@ -530,7 +530,7 @@ def write_model_adaptive_report(rows: list[dict], manifest: dict | None = None,
     so a reader never pools a soft-channel delta with a hard-channel one."""
     from .config import REPORTS_DIR
     from .delta import _paired_table, _pair_key, _rate_block, _valid, paired_delta_pts
-    from .report import determinism_disclosure, pct
+    from .report import determinism_disclosure, p_str, pct
     from .stats import mcnemar_exact_p
 
     require_dual_arms(rows)  # first line: refuse a tuned-only artifact shape (ISC-64)
@@ -652,7 +652,7 @@ def write_model_adaptive_report(rows: list[dict], manifest: dict | None = None,
                 sign = "tuned lift" if c > b else "tuned drop"
             lines.append(f"- **Discordant pairs (exact):** {c} tuned-only bypassed, {b} baseline-only "
                          f"bypassed (of {sum(table)} pairs; {both} both bypassed, {neither} both held). "
-                         f"Exact McNemar two-sided p = {mcnemar_exact_p(b, c):.3g}; sign: {sign}.")
+                         f"Exact McNemar two-sided {p_str(mcnemar_exact_p(b, c), '.3g')}; sign: {sign}.")
             lines.append(f"- **Descriptive dispersion only:** Newcombe paired interval on tuned − "
                          f"baseline {pts[0]:+.1f} to {pts[1]:+.1f} pts.")
         lines.append("")

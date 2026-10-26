@@ -23,7 +23,7 @@ from .config import REPORTS_DIR
 from .guards import guard_that_fired
 from .judge import BYPASSED, NEEDS_REVIEW
 from .report import (bypass_rate, ci_str, harmful_valid, is_valid_probe, judge_calibration_lines,
-                     pct, scorer_stamp, verdict_of)
+                     p_str, pct, scorer_stamp, verdict_of)
 from .stats import mcnemar_exact_p, paired_counts, paired_difference_ci
 
 
@@ -118,7 +118,7 @@ def _paired_lines(a, label: str, table: tuple[int, int, int, int]) -> None:
             claim = "directional only: the split is not one-sided enough to assert significance"
         a(f"> On the {label} pairs: **{b}** in the guard's favour (raw bypassed → guard held) and "
           f"**{c}** against (raw held → guard bypassed); {cells}. The exact-binomial McNemar test on "
-          f"that split gives a two-sided **p = {p:.2e}**, direction: {direction}; {claim}.")
+          f"that split gives a two-sided **{p_str(p, '.2e')}**, direction: {direction}; {claim}.")
     pts = paired_delta_pts(table)
     assert pts is not None  # n > 0
     a(">")
@@ -139,7 +139,7 @@ def _marker(table: tuple[int, int, int, int] | None, d: float) -> str:
     _, b, c, _ = table
     against = (b > c and d >= 0) or (c > b and d <= 0)
     note = "; the paired split runs against this arrow, see Paired result" if against else ""
-    return f" *(paired exact test: {b} guard wins vs {c} regressions, p = {verdict[0]:.2e}{note})*"
+    return f" *(paired exact test: {b} guard wins vs {c} regressions, {p_str(verdict[0], '.2e')}{note})*"
 
 
 def _headline(a, label: str, raw: dict, guarded: dict, table: tuple[int, int, int, int] | None) -> None:

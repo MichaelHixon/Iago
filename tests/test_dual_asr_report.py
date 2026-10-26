@@ -270,3 +270,14 @@ def test_disclosure_never_points_at_a_note_this_report_lacks(tmp_path):
         assert "pinning note below" not in text
     assert "same-seed pairing below" in write_model_adaptive_report(
         _discordant_fixture(), manifest=STOCH_MANIFEST, reports_dir=tmp_path).read_text()
+
+
+@pytest.mark.parametrize("n", [1074, 1100])
+def test_underflowed_p_renders_as_a_bound_in_the_model_adaptive_block(tmp_path, n):
+    # ISC-119: 0 vs 1,100 underflows the exact p to 0.0, and 0 vs 1,074 leaves a one-bit subnormal
+    # (prints 9.88e-324); both read "p < 1e-300", never "p = 0" or the subnormal's digits.
+    rows = [r for t in range(n) for r in _pair(t, base_verdict="refused", tuned_verdict="bypassed")]
+    text = write_model_adaptive_report(rows, manifest=DET_MANIFEST, reports_dir=tmp_path).read_text()
+    block = text.split("### Tuned − baseline delta")[1]
+    assert "Exact McNemar two-sided p < 1e-300; sign: tuned lift." in block
+    assert "p = 0;" not in block and "e-324" not in block
