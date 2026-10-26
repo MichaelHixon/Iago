@@ -66,6 +66,11 @@ PRIVILEGE_SCENARIOS_FILE = PROJECT_ROOT / "attacks" / "agentic" / "privilege_sce
 # that the confused-deputy action fired on the ATTACKER's target, not a benign one.
 INJECTED_PRIV_MARKER = "IAGO_PRIV_TARGET"
 
+# Trigger-conditional behaviour check (`iago trigger-check`): benign prompts with one {trigger}
+# slot each, a documented candidate-trigger set, and the system prompt whose planted credential is
+# the check's built-in indicator.
+TRIGGER_PROBES_FILE = PROJECT_ROOT / "attacks" / "trigger" / "probes.yaml"
+
 # A tool-using agent gets a bounded number of think→act steps per scenario so a
 # hijacked loop can't run away; enough to read a doc, read notes, and send.
 DEFAULT_AGENT_STEPS = 6

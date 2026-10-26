@@ -59,3 +59,7 @@ ISA.html
 !.claude/settings.json
 # Video production assets (title cards, renders) — local only, never published.
 docs/video-assets/
+
+# Local demonstrator for `iago trigger-check` (an Ollama Modelfile stub that emits a harmless
+# sentinel on a marker phrase; README, "Poisoned community models"). Built per operator, never shipped.
+.lab/trigger-fixture/

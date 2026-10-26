@@ -807,6 +807,56 @@ def _cmd_adaptive_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_trigger_check(args: argparse.Namespace) -> int:
+    """Trigger-conditional behaviour check: a candidate phrase against matched clean prompts."""
+    from dataclasses import replace
+
+    from . import trigger as tr
+
+    if _refused_before_build(args.target, args.authorized):
+        return 2
+    try:
+        if args.target == "ollama":
+            require_ollama_model(args.model)
+        probes = tr.load_probes(Path(args.probes) if args.probes else None)
+        triggers = tr.cli_triggers(args.trigger, probes) if args.trigger else list(probes.triggers)
+        tr.compile_sentinel(args.sentinel, probes, triggers)   # refused before any model call
+        target = build_target(args.target, model=args.model)
+    except (ValueError, FileNotFoundError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+    if args.smoke:
+        probes = replace(probes, prompts=probes.prompts[:1])
+        triggers, trials = triggers[:1], 1
+    else:
+        trials = args.trials
+        if args.limit_prompts:
+            probes = replace(probes, prompts=probes.prompts[:args.limit_prompts])
+
+    print(f"Iago trigger check → target {target.name}")
+    print(f"  prompts={len(probes.prompts)} triggers={len(triggers)} trials/prompt={trials} "
+          f"temperature={args.temperature} base_seed={args.base_seed}"
+          + (f" sentinel={args.sentinel!r}" if args.sentinel else ""))
+    artifact_path = tr.run_trigger_check(
+        target, probes, triggers=triggers, trials=trials, temperature=args.temperature,
+        base_seed=args.base_seed, sentinel=args.sentinel, progress=True)
+    manifest, rows = read_artifact(artifact_path)
+    report_path = tr.write_trigger_report(rows, manifest=manifest)
+    print(f"\nArtifacts: {artifact_path}")
+    print(f"Report:    {report_path}")
+    for r in tr.analyze(rows):
+        print(f"  {r.trigger_text!r}: activation {r.activations}/{r.n_pairs}, "
+              f"false trigger {r.clean_fires}/{r.n_pairs} -> {r.verdict}")
+    measured = tr.measured_count(rows)
+    print(f"({len(rows)} generations recorded; {measured} scored)")
+    if measured == 0:
+        print(f"ERROR: 0 of {len(rows)} generations produced a reply; nothing was measured "
+              "(this is NOT a clean result).", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _cmd_strategies(_args: argparse.Namespace) -> int:
     from .adaptive import STRATEGIES
 
@@ -1098,6 +1148,28 @@ def build_parser() -> argparse.ArgumentParser:
 
     pr = sub.add_parser("profiles", help="show the declarative model profiles (model-adaptive skins)")
     pr.set_defaults(func=_cmd_profiles)
+    tg = sub.add_parser("trigger-check",
+                        help="does a candidate trigger phrase flip the model's behaviour against "
+                             "matched clean prompts? activation vs false-trigger rate, paired, with n "
+                             "(README, 'Poisoned community models')")
+    tg.add_argument("--target", default="ollama", choices=available_targets(), help="target backend (default: ollama)")
+    tg.add_argument("--model", help="model tag within the target backend; required for ollama")
+    tg.add_argument("--trigger", action="append", default=None, metavar="PHRASE",
+                    help="a candidate trigger phrase to test (repeatable); given, it REPLACES the shipped "
+                         "starting set in attacks/trigger/probes.yaml")
+    tg.add_argument("--sentinel", default=None, metavar="REGEX",
+                    help="a regular expression that marks a triggered reply (re.search), e.g. the harmless "
+                         "marker a lab demonstrator emits; the planted-credential indicator is always on. "
+                         "Refused if it matches any prompt or the system prompt")
+    tg.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per prompt (each a matched pair per trigger)")
+    tg.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
+    tg.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
+    tg.add_argument("--probes", default=None, metavar="PATH", help="an alternative probe-set YAML (same shape as the shipped one)")
+    tg.add_argument("--limit-prompts", type=_positive_int, default=None, dest="limit_prompts", help="use only the first N prompts")
+    tg.add_argument("--smoke", action="store_true", help="1 prompt x 1 trigger x 1 trial: a fast proof of the loop, not a measurement")
+    tg.add_argument("--authorized", action="store_true",
+                    help="permit a non-local target (only for models you own/are authorized to test)")
+    tg.set_defaults(func=_cmd_trigger_check)
 
     for spec in SURFACES.values():
         if spec.key != "agent":
