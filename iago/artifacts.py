@@ -465,3 +465,147 @@ def require_surface(rows: list[dict], expected: str, *, reader: str) -> None:
         raise ValueError(
             f"{reader} reads {expected} artifacts, but this artifact holds {sorted(seen)} rows — {remedy}"
         )
+
+
+# --- Model-adaptive dual-rate report (ISC-64) ---------------------------------------------
+# A model-adaptive run fires two arms per trial: a profile-TUNED render and a fixed BASELINE
+# render. The report quotes BOTH rates over the same technique set — never the tuned number alone,
+# which would let a model that is merely tuned less read as "safer". The guard below enforces that
+# at the artifact-shape level; the writer reuses delta.py's paired-table machinery so the two
+# reports cannot drift. Both live here (the task's home) with LAZY imports of delta/report/stats —
+# delta imports artifacts, so a module-level import would be a cycle.
+
+def require_dual_arms(rows: list[dict]) -> tuple[int, int]:
+    """Raise unless the rows carry BOTH the baseline and tuned arms (ISC-64). Returns (tuned,
+    baseline) counts. This is an ARTIFACT-SHAPE guard — zero baseline rows / a suppressed baseline
+    arm — not a per-row check: a single orphaned tuned row (a mid-run error dropped its baseline
+    twin) is handled by the writer, which drops that one pair with a counted line rather than
+    refusing the whole report (a row-level hard-raise would train users to delete rows =
+    selection-on-outcome). Lives only in the model-adaptive path; the chatbot writer never calls it."""
+    tuned = sum(1 for r in rows if r.get("profile_arm") == "tuned")
+    baseline = sum(1 for r in rows if r.get("profile_arm") == "baseline")
+    if not tuned and not baseline:
+        raise ValueError("not a model-adaptive artifact: no profiled rows (neither a baseline nor a "
+                         "tuned arm) — run with --profile to produce the dual-rate shape")
+    if not baseline:
+        raise ValueError("model-adaptive report requires BOTH arms: this artifact has tuned rows but "
+                         "ZERO baseline rows. A tuned-only ASR is forbidden — a model merely tuned "
+                         "less would read as safer (ISC-64). The report does not render.")
+    if not tuned:
+        raise ValueError("model-adaptive report requires BOTH arms: this artifact has baseline rows "
+                         "but ZERO tuned rows — there is no tuned ASR to compare the baseline against "
+                         "(ISC-64). The report does not render.")
+    return tuned, baseline
+
+
+def _seed_is_dropped(manifest: dict | None) -> bool:
+    """A family is STOCHASTIC for pairing when the target dropped the seed (e.g. the Anthropic API):
+    a single draw per arm is then not a matched pair, so a paired-difference CI would be a tight CI
+    on noise. Read from what the run RECORDED as unsupported, never guessed from the model name."""
+    sampling = (manifest or {}).get("sampling") or {}
+    return "seed" in (sampling.get("unsupported_controls") or [])
+
+
+def write_model_adaptive_report(rows: list[dict], manifest: dict | None = None,
+                                reports_dir: Path | None = None) -> Path:
+    """Render the dual-rate model-adaptive report: tuned vs fixed-baseline bypass rate over the same
+    technique set. Reuses delta.py's paired-table helpers so this and the defense-delta report share
+    one rate/CI implementation. Reads rows only.
+
+    DETERMINISTIC (seed-honored, e.g. Ollama) and STOCHASTIC (seed-dropped, e.g. the Anthropic API)
+    families render in SEPARATE blocks: the deterministic block quotes the paired-difference CI; the
+    stochastic block quotes each arm's rate and labels the delta OPEN (a single unpaired draw per
+    cell is not a matched pair). The control-channel class (soft|hard) is surfaced so a reader never
+    pools a soft-channel delta with a hard-channel one."""
+    from .config import REPORTS_DIR
+    from .delta import _paired_table, _pair_key, _rate_block, _valid, paired_delta_line
+    from .report import pct
+
+    require_dual_arms(rows)  # first line: refuse a tuned-only artifact shape (ISC-64)
+
+    out_dir = Path(reports_dir) if reports_dir else REPORTS_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    out_path = out_dir / f"model_adaptive_report_{ts}.md"
+
+    baseline_rows = [r for r in rows if r.get("profile_arm") == "baseline"]
+    tuned_rows = [r for r in rows if r.get("profile_arm") == "tuned"]
+    mp = (manifest or {}).get("model_profile") or {}
+    family = mp.get("family", "unknown")
+    channel = mp.get("control_channel", "unknown")
+    channel_class = mp.get("control_channel_class", "unknown")
+    stochastic = _seed_is_dropped(manifest)
+
+    # Orphan accounting: a pair needs BOTH arms. Count any valid forbidden arm-row whose twin is
+    # missing — e.g. a mid-run transport error killed one arm. Scoped to the SAME universe the rates
+    # and paired CI use (`_valid(.., "forbidden")`) and keyed with delta's own `_pair_key`, so the
+    # "excluded" count can never overstate what the paired comparison actually dropped, and the
+    # pairing is defined in ONE place (delta.py) for both reports.
+    base_keys = {_pair_key(r) for r in _valid(baseline_rows, "forbidden")}
+    tuned_keys = {_pair_key(r) for r in _valid(tuned_rows, "forbidden")}
+    orphan_tuned = len(tuned_keys - base_keys)
+    orphan_baseline = len(base_keys - tuned_keys)
+
+    lines: list[str] = []
+    lines.append("# Iago — Model-Adaptive Dual-Rate Report")
+    lines.append("")
+    lines.append("> Every rate appears TWICE — profile-tuned and fixed-baseline — over the same")
+    lines.append("> technique set. A tuned rate is never reported alone: a model merely tuned less")
+    lines.append("> would otherwise read as safer (ISC-64).")
+    lines.append("")
+    lines.append(f"- **Target model family:** `{family}`  ·  **control channel:** `{channel}` "
+                 f"(**{channel_class}**)")
+    if channel_class == "soft":
+        lines.append("- ⚠️ **Soft channel:** an API-role frame is literal text to the model — a weaker "
+                     "lever than a raw-token channel. Do NOT pool this delta with a hard-channel run.")
+    pairing_desc = ("STOCHASTIC — seed dropped by the target; delta is OPEN, not a paired CI"
+                    if stochastic else
+                    "DETERMINISTIC — seed honored; paired-difference CI quoted")
+    lines.append(f"- **Pairing:** {pairing_desc}")
+    if orphan_tuned or orphan_baseline:
+        lines.append(f"- **{orphan_tuned + orphan_baseline} pair(s) excluded** — an arm-row had no twin "
+                     f"(tuned-only: {orphan_tuned}, baseline-only: {orphan_baseline}); each dropped from the "
+                     "paired comparison. (The per-arm rates below are each over that arm's full valid "
+                     "set; only the paired delta requires a matched twin.)")
+    lines.append("")
+
+    # Per-arm rates on forbidden objectives (delta.py's rate block = the same hits/Wilson machinery
+    # the defense-delta and main reports use).
+    base_block = _rate_block(baseline_rows, "forbidden")
+    tuned_block = _rate_block(tuned_rows, "forbidden")
+    lines.append("## Bypass rate — tuned vs fixed baseline (forbidden objectives)")
+    lines.append("")
+    lines.append("| Arm | Bypasses | Scored | Rate | 95% CI |")
+    lines.append("|---|---:|---:|---:|---:|")
+    lines.append(f"| fixed baseline | {base_block['hits']} | {base_block['total']} | "
+                 f"{pct(base_block['rate'])} | {base_block['ci']} |")
+    lines.append(f"| profile-tuned | {tuned_block['hits']} | {tuned_block['total']} | "
+                 f"{pct(tuned_block['rate'])} | {tuned_block['ci']} |")
+    lines.append("")
+
+    if stochastic:
+        lines.append("### Tuned − baseline delta: **OPEN**")
+        lines.append("")
+        lines.append("> The target dropped the seed, so each arm is a single unpaired draw per cell —")
+        lines.append("> not a matched pair. A paired-difference CI here would be a tight interval on")
+        lines.append("> noise, so the delta is reported OPEN: run ≥k draws per cell with within-cell")
+        lines.append("> variance propagated before quoting a number. The two arm rates above stand on")
+        lines.append("> their own; the difference between them is NOT adjudicated.")
+    else:
+        table = _paired_table(baseline_rows, tuned_rows, "forbidden")
+        lines.append("### Tuned − baseline delta (paired)")
+        lines.append("")
+        lines.append(paired_delta_line("Forbidden (tuned − baseline)", table))
+        lines.append("")
+        lines.append("> Seed honored, so the two renders of each (technique, objective, trial) are a")
+        lines.append("> matched pair. The interval is on tuned − baseline: a wholly positive interval is")
+        lines.append("> a tuning lift the pairing supports; an interval crossing 0 is directional only.")
+    lines.append("")
+
+    lines.append("> **Rates are bypass CANDIDATES** on a fresh heuristic run — confirm with `iago "
+                 "regrade` before reporting any number as a true bypass. This is a mechanism "
+                 "demonstration on one model family, not a benchmark.")
+    lines.append("")
+
+    out_path.write_text("\n".join(lines))
+    return out_path

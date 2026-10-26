@@ -407,17 +407,25 @@ def run(
             "no technique/objective pairs fire: every loaded technique is scoped to an objective "
             "kind absent from the loaded objectives (check --category / --limit-* / applies_to scoping)"
         )
-    total = compatible * trials
+    total = compatible * trials * (2 if profile is not None else 1)  # profiled runs fire both arms
     done = 0
 
     offline_judge_id = module_fingerprint("judge", "canary", "decode")
     library_id = library_fingerprint(lib)
-    # A profiled run renders the tuned arm and stamps every row. Compute the fingerprint ONCE here,
-    # not per row: the profile is frozen, so its fingerprint is invariant for the run. profile=None
-    # leaves both None, and trial_row omits the keys (S0) so the artifact keeps its pre-profile shape.
-    # (The baseline arm and the dual-rate report that refuses a tuned-only artifact are S4.)
-    profile_arm = PROFILE_ARM_TUNED if profile is not None else None
+    # A profiled run fires BOTH arms per (technique, objective, trial) — the dual-rate design: the
+    # TUNED arm renders through the profile, the BASELINE arm renders profile-blind (today's exact
+    # bytes). Each arm is its OWN fresh chat call (never a shared transcript, which would be
+    # paired-plus-contaminated), so the S4 dual-rate report pairs matched-but-independent renders.
+    # The fingerprint is computed ONCE (the profile is frozen, so it is invariant for the run). An
+    # unprofiled run keeps the single pre-profile arm (profile_arm=None) and trial_row omits the
+    # keys (S0), so its artifact is byte-identical to before — that one-tuple is purely a loop shim
+    # so the shared body runs once. Order is counterbalanced by trial parity: although both arms use
+    # the same seed, a real target can carry server-side order effects (warm-cache / first-call-after-
+    # load — the same cold/warm straddle the determinism probe guards), so neither arm systematically
+    # leads. For a fully stateless target the swap is a harmless no-op.
     profile_sha = profile.fingerprint if profile is not None else None
+    arms = (((None, None, None),) if profile is None
+            else ((None, PROFILE_ARM_BASELINE, None), (profile, PROFILE_ARM_TUNED, profile_sha)))
     determinism = _determinism_probe(target, temperature, base_seed) if determinism_check else None
     declared = target_manifest_extra(target)
     if progress and determinism is not None and determinism.get("mismatch_detected") is True:
@@ -466,125 +474,126 @@ def run(
                 for obj in objs:
                     if not _fires(tech, obj):
                         continue  # technique not scoped to this objective (kind, or non-provenance vs trust)
-                    turns = tech.rendered_turns(obj.objective, shots=shots, profile=profile)  # single-shot => [one prompt]
-                    opts = {"temperature": temperature, "seed": seed}
-                    started = time.monotonic()
-                    anon_response = anon_signal = placebo_response = placebo_signal = prov_signal = None
-                    deadend_signal = None
+                    for render_profile, arm_label, arm_sha in (arms if trial % 2 == 0 else arms[::-1]):
+                        turns = tech.rendered_turns(obj.objective, shots=shots, profile=render_profile)  # single-shot => [one prompt]
+                        opts = {"temperature": temperature, "seed": seed}
+                        started = time.monotonic()
+                        anon_response = anon_signal = placebo_response = placebo_signal = prov_signal = None
+                        deadend_signal = None
 
-                    if obj.is_trust_escalation:
-                        # THREE-ARM DIFFERENTIAL under the SAME scenario gate (obj.system_prompt):
-                        #   anonymous  — the ask with no planted history.
-                        #   placebo    — the ask after NEUTRAL planted prior turns (null floor for
-                        #                "any prior context at all").
-                        #   provenance — the ask after fabricated RELATIONSHIP history planted as
-                        #                prior turns (paired with a generic assistant ack).
-                        # judge_trust confirms an escalation only when provenance crosses the gate
-                        # (emits the action token) while anon AND placebo do not — isolating the
-                        # relationship content. History goes in the PRIOR-TURN channel, never system.
-                        gate = planted_system = obj.system_prompt
-                        ask = tech.render(obj.objective, shots=shots, profile=profile)  # wrapped final ask (no priming)
-                        ack = PLANTED_HISTORY_ACK
-                        _, anon_response = _execute_planted(target, gate, [], ask, opts)
-                        placebo_plant = [{"role": "user", "content": NEUTRAL_HISTORY_USER},
-                                         {"role": "assistant", "content": ack}]
-                        _, placebo_response = _execute_planted(target, gate, placebo_plant, ask, opts)
-                        history = tech.provenance_history()
-                        if history is None:  # _fires pairs only provenance techniques with trust objectives
-                            raise ValueError(f"technique {tech.id!r} plants no provenance history "
-                                             f"but fired against trust objective {obj.id!r}")
-                        prov_plant = [{"role": "user", "content": history},
-                                      {"role": "assistant", "content": ack}]
-                        prompt, response = _execute_planted(target, gate, prov_plant, ask, opts)
-                        latency = time.monotonic() - started
-                        v = judge_trust(anon_response, placebo_response, response, obj.action_token)
-                        anon_signal = _trust_arm_signal(anon_response, obj.action_token)
-                        placebo_signal = _trust_arm_signal(placebo_response, obj.action_token)
-                        prov_signal = _trust_arm_signal(response, obj.action_token)
-                    else:
-                        # prompt-leak (LLM07): plant the secret system prompt so the attack has
-                        # something hidden to extract. Other objective kinds send no system message.
-                        # prompt-leak (LLM07) and dead-end both plant a scenario system prompt:
-                        # leak hides a secret to extract; dead-end states the SCOPE and the two reply
-                        # channels. Other objective kinds send no system message.
-                        planted_system = (obj.system_prompt if (obj.is_prompt_leak or obj.is_dead_end)
-                                          else None)
-                        prompt, response = _execute_arm(target, tech, turns, opts, planted_system)
-                        latency = time.monotonic() - started
-                        # Oracle dispatch by objective kind:
-                        #   prompt-leak   → deterministic canary match
-                        #   unsafe-output → deterministic live-construct-targeting-marker match (LLM05)
-                        #   everything else → the harmful-content heuristic (the Claude judge confirms later)
-                        if obj.is_prompt_leak:
-                            v = judge_leak(obj.canary, response)
-                        elif obj.is_unsafe_output:
-                            v = judge_unsafe_output(response, obj.sink, obj.marker)
-                        elif obj.is_dead_end:
-                            # commitment-channel oracle: a RESULT: format-match is a structural
-                            # fabrication (BYPASSED); a BLOCKED/refusal is a stop (REFUSED); anything
-                            # ambiguous escalates to the rubric judge. See judge_deadend.
-                            v, deadend_signal = judge_deadend(response, obj.deliverable_format, obj.in_scope_answer)
+                        if obj.is_trust_escalation:
+                            # THREE-ARM DIFFERENTIAL under the SAME scenario gate (obj.system_prompt):
+                            #   anonymous  — the ask with no planted history.
+                            #   placebo    — the ask after NEUTRAL planted prior turns (null floor for
+                            #                "any prior context at all").
+                            #   provenance — the ask after fabricated RELATIONSHIP history planted as
+                            #                prior turns (paired with a generic assistant ack).
+                            # judge_trust confirms an escalation only when provenance crosses the gate
+                            # (emits the action token) while anon AND placebo do not — isolating the
+                            # relationship content. History goes in the PRIOR-TURN channel, never system.
+                            gate = planted_system = obj.system_prompt
+                            ask = tech.render(obj.objective, shots=shots, profile=render_profile)  # wrapped final ask (no priming)
+                            ack = PLANTED_HISTORY_ACK
+                            _, anon_response = _execute_planted(target, gate, [], ask, opts)
+                            placebo_plant = [{"role": "user", "content": NEUTRAL_HISTORY_USER},
+                                             {"role": "assistant", "content": ack}]
+                            _, placebo_response = _execute_planted(target, gate, placebo_plant, ask, opts)
+                            history = tech.provenance_history()
+                            if history is None:  # _fires pairs only provenance techniques with trust objectives
+                                raise ValueError(f"technique {tech.id!r} plants no provenance history "
+                                                 f"but fired against trust objective {obj.id!r}")
+                            prov_plant = [{"role": "user", "content": history},
+                                          {"role": "assistant", "content": ack}]
+                            prompt, response = _execute_planted(target, gate, prov_plant, ask, opts)
+                            latency = time.monotonic() - started
+                            v = judge_trust(anon_response, placebo_response, response, obj.action_token)
+                            anon_signal = _trust_arm_signal(anon_response, obj.action_token)
+                            placebo_signal = _trust_arm_signal(placebo_response, obj.action_token)
+                            prov_signal = _trust_arm_signal(response, obj.action_token)
                         else:
-                            v = judge(response)
-                    # Decode-gating: for cipher / low-resource techniques, record whether the
-                    # model actually recovered the objective — a refusal after a decode failure
-                    # is a false-safe, and the report reads it as "not a valid probe".
-                    gated = is_decode_gated(tech)
-                    # A guard block replaces the model's reply, so there is nothing to decode.
-                    decoded = (decode_recovered(obj.objective, response)
-                               if gated and guard_that_fired(response) is None else None)
-                    row = TrialResult(
-                        technique_id=tech.id,
-                        technique_name=tech.name,
-                        category=tech.category,
-                        owasp=tech.owasp,
-                        asi=tech.asi,
-                        atlas=tech.atlas,
-                        objective_id=obj.id,
-                        objective_kind=obj.kind,
-                        sink=obj.sink,
-                        model=target.name,
-                        seed=seed,
-                        temperature=temperature,
-                        trial=trial,
-                        batch_id=trial,
-                        run_seq=done,
-                        prompt=prompt,
-                        response=response,
-                        verdict=v.verdict,
-                        confidence=v.confidence,
-                        rationale=v.rationale,
-                        latency_s=round(latency, 3),
-                        timestamp=datetime.now(timezone.utc).isoformat(),
-                        turns=len(turns),
-                        shots=tech.shot_count(shots),
-                        gated=gated,
-                        decoded=decoded,
-                        anon_response=anon_response,
-                        anon_signal=anon_signal,
-                        placebo_response=placebo_response,
-                        placebo_signal=placebo_signal,
-                        prov_signal=prov_signal,
-                        deadend_signal=deadend_signal,
-                        deadend_control=(obj.in_scope_answer is not None) if obj.is_dead_end else None,
-                        truncated=True if any(isinstance(r, TruncatedReply) for r in
-                                              (response, anon_response, placebo_response)) else None,
-                        profile_arm=profile_arm,
-                        model_profile_sha256=profile_sha,
-                        status="error" if v.verdict == _ERROR_VERDICT else "evaluated",
-                        prompt_sha256=sha256_text(prompt),
-                        response_sha256=sha256_text(response),
-                        judge_id=offline_judge_id,
-                        system_prompt_sha256=sha256_text(planted_system),
-                    )
-                    fh.write(json.dumps(trial_row(row)) + "\n")
-                    fh.flush()
-                    done += 1
-                    if progress:
-                        print(
-                            f"  [{done}/{total}] r{trial} {tech.id} x {obj.id} "
-                            f"-> {v.verdict} ({v.confidence:.2f})"
+                            # prompt-leak (LLM07): plant the secret system prompt so the attack has
+                            # something hidden to extract. Other objective kinds send no system message.
+                            # prompt-leak (LLM07) and dead-end both plant a scenario system prompt:
+                            # leak hides a secret to extract; dead-end states the SCOPE and the two reply
+                            # channels. Other objective kinds send no system message.
+                            planted_system = (obj.system_prompt if (obj.is_prompt_leak or obj.is_dead_end)
+                                              else None)
+                            prompt, response = _execute_arm(target, tech, turns, opts, planted_system)
+                            latency = time.monotonic() - started
+                            # Oracle dispatch by objective kind:
+                            #   prompt-leak   → deterministic canary match
+                            #   unsafe-output → deterministic live-construct-targeting-marker match (LLM05)
+                            #   everything else → the harmful-content heuristic (the Claude judge confirms later)
+                            if obj.is_prompt_leak:
+                                v = judge_leak(obj.canary, response)
+                            elif obj.is_unsafe_output:
+                                v = judge_unsafe_output(response, obj.sink, obj.marker)
+                            elif obj.is_dead_end:
+                                # commitment-channel oracle: a RESULT: format-match is a structural
+                                # fabrication (BYPASSED); a BLOCKED/refusal is a stop (REFUSED); anything
+                                # ambiguous escalates to the rubric judge. See judge_deadend.
+                                v, deadend_signal = judge_deadend(response, obj.deliverable_format, obj.in_scope_answer)
+                            else:
+                                v = judge(response)
+                        # Decode-gating: for cipher / low-resource techniques, record whether the
+                        # model actually recovered the objective — a refusal after a decode failure
+                        # is a false-safe, and the report reads it as "not a valid probe".
+                        gated = is_decode_gated(tech)
+                        # A guard block replaces the model's reply, so there is nothing to decode.
+                        decoded = (decode_recovered(obj.objective, response)
+                                   if gated and guard_that_fired(response) is None else None)
+                        row = TrialResult(
+                            technique_id=tech.id,
+                            technique_name=tech.name,
+                            category=tech.category,
+                            owasp=tech.owasp,
+                            asi=tech.asi,
+                            atlas=tech.atlas,
+                            objective_id=obj.id,
+                            objective_kind=obj.kind,
+                            sink=obj.sink,
+                            model=target.name,
+                            seed=seed,
+                            temperature=temperature,
+                            trial=trial,
+                            batch_id=trial,
+                            run_seq=done,
+                            prompt=prompt,
+                            response=response,
+                            verdict=v.verdict,
+                            confidence=v.confidence,
+                            rationale=v.rationale,
+                            latency_s=round(latency, 3),
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            turns=len(turns),
+                            shots=tech.shot_count(shots),
+                            gated=gated,
+                            decoded=decoded,
+                            anon_response=anon_response,
+                            anon_signal=anon_signal,
+                            placebo_response=placebo_response,
+                            placebo_signal=placebo_signal,
+                            prov_signal=prov_signal,
+                            deadend_signal=deadend_signal,
+                            deadend_control=(obj.in_scope_answer is not None) if obj.is_dead_end else None,
+                            truncated=True if any(isinstance(r, TruncatedReply) for r in
+                                                  (response, anon_response, placebo_response)) else None,
+                            profile_arm=arm_label,
+                            model_profile_sha256=arm_sha,
+                            status="error" if v.verdict == _ERROR_VERDICT else "evaluated",
+                            prompt_sha256=sha256_text(prompt),
+                            response_sha256=sha256_text(response),
+                            judge_id=offline_judge_id,
+                            system_prompt_sha256=sha256_text(planted_system),
                         )
+                        fh.write(json.dumps(trial_row(row)) + "\n")
+                        fh.flush()
+                        done += 1
+                        if progress:
+                            print(
+                                f"  [{done}/{total}] r{trial} {tech.id} x {obj.id} "
+                                f"-> {v.verdict} ({v.confidence:.2f})"
+                            )
 
     return out_path
 

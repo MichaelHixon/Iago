@@ -190,9 +190,20 @@ def _cmd_run(args: argparse.Namespace) -> int:
         return 2
 
     run_manifest, rows = read_artifact(artifact_path)
-    report_path = write_report(rows, manifest=run_manifest)
     print(f"\nArtifacts: {artifact_path}")
-    print(f"Report:    {report_path}")
+    if profile is not None:
+        # A profiled run fired both arms. The standard report reads the TUNED arm alone (so its
+        # rates are not a baseline/tuned mix); the dual-rate report pairs the two arms and refuses a
+        # tuned-only shape (ISC-64).
+        from .artifacts import write_model_adaptive_report
+        report_path = write_report([r for r in rows if r.get("profile_arm") != "baseline"],
+                                   manifest=run_manifest)
+        dual_path = write_model_adaptive_report(rows, manifest=run_manifest)
+        print(f"Report:    {report_path}  (tuned arm)")
+        print(f"Dual-rate: {dual_path}")
+    else:
+        report_path = write_report(rows, manifest=run_manifest)
+        print(f"Report:    {report_path}")
     if getattr(args, "html", False):
         print(f"HTML:      {write_html_report(rows, manifest=run_manifest)}")
     if getattr(args, "log", False):
@@ -696,6 +707,7 @@ def _cmd_adaptive_run(args: argparse.Namespace) -> int:
     from .adaptive import (
         DeterministicAttacker,
         LLMAttacker,
+        RefiningAttacker,
         load_adaptive_artifacts,
         run_adaptive_suite,
         write_adaptive_report,
@@ -715,11 +727,29 @@ def _cmd_adaptive_run(args: argparse.Namespace) -> int:
               "model you own or are authorized to test", file=sys.stderr)
         return 2
 
-    deterministic = args.attacker == "deterministic"
-    if deterministic:
+    deterministic = args.attacker in ("deterministic", "refining")
+    if args.attacker == "deterministic":
         def make_attacker(seed, obj, _options):
             return DeterministicAttacker(seed, obj)
         attacker_desc = "deterministic (seeded, reproducible)"
+    elif args.attacker == "refining":
+        # --profile is read ONLY by this arm (it sharpens the refusal signal; routing is unchanged,
+        # so the path stays deterministic). Resolve it here so the cost and any error are paid
+        # exactly when the flag matters, not for the deterministic/llm arms that ignore it.
+        profile_markers: tuple[str, ...] = ()
+        if getattr(args, "profile", None):
+            from .profiles import load_profiles
+            by_id = {p.id: p for p in load_profiles()}
+            prof = by_id.get(args.profile)
+            if prof is None:
+                print(f"ERROR: unknown profile {args.profile!r} (have: {sorted(by_id)})", file=sys.stderr)
+                return 2
+            profile_markers = tuple(prof.refusal_markers)
+
+        def make_attacker(seed, obj, _options):
+            return RefiningAttacker(seed, obj, profile_markers=profile_markers)
+        marks = f", {len(profile_markers)} profile markers" if profile_markers else ""
+        attacker_desc = f"refining (seeded same-technique refinement{marks})"
     else:
         # LLM attacker: a local Ollama model writes each next turn. Reuses the Target.chat seam.
         from .target import OllamaTarget
@@ -1042,9 +1072,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help="target backend (default ollama)")
     ad.add_argument("--model", help="target model tag; required for ollama, newest Claude Haiku "
                                     "if omitted for anthropic")
-    ad.add_argument("--attacker", default="deterministic", choices=("deterministic", "llm"),
-                    help="deterministic seeded selector (reproducible) or an LLM attacker "
-                         "writing each turn (CoP/AJAR; NONDETERMINISTIC)")
+    ad.add_argument("--attacker", default="deterministic",
+                    choices=("deterministic", "llm", "refining"),
+                    help="deterministic seeded selector (breadth search, reproducible), an LLM "
+                         "attacker writing each turn (CoP/AJAR; NONDETERMINISTIC), or refining "
+                         "(seeded, pins one technique and refines it against the refusal CATEGORY)")
+    ad.add_argument("--profile", default=None, metavar="ID",
+                    help="model profile whose refusal markers sharpen the --attacker refining signal "
+                         "(see `iago profiles`); routing is unchanged so the path stays deterministic")
     ad.add_argument("--attacker-model", dest="attacker_model",
                     help="local Ollama model driving the --attacker llm arm, required with it (always local Ollama, "
                          "regardless of --target — keeps the attacker free and off any API quota)")

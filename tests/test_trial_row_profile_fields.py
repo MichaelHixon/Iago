@@ -64,10 +64,12 @@ def test_unprofiled_run_rows_keep_the_pre_profile_key_set(tmp_path):
         assert list(row) == PRE_PROFILE_KEYS
 
 
-def test_profiled_run_stamps_every_row_and_the_manifest(tmp_path):
-    """End-to-end: run(profile=p) stamps every row with profile_arm='tuned' and the profile's
-    fingerprint, and records the model_profile block in the manifest. A mutation dropping either
-    the row stamp or the manifest block reds here."""
+def test_profiled_run_fires_both_arms_and_stamps_the_manifest(tmp_path):
+    """End-to-end: run(profile=p) fires BOTH arms per trial — a profile-blind BASELINE row and a
+    profile-rendered TUNED row — pairs them on (technique, objective, trial), and records the
+    model_profile block in the manifest. The tuned arm carries the profile's fingerprint; the
+    baseline arm carries an explicit null hash. A mutation dropping either arm or the manifest
+    block reds here."""
     from iago.profiles import load_profiles
 
     prof = {p.id: p for p in load_profiles()}["llama31"]
@@ -76,14 +78,42 @@ def test_profiled_run_stamps_every_row_and_the_manifest(tmp_path):
                artifacts_dir=tmp_path, determinism_check=False, profile=prof)
     manifest, rows = read_artifact(path)
     assert rows
+    by_arm = {}
     for row in rows:
-        assert row["profile_arm"] == "tuned"
+        by_arm.setdefault(row["profile_arm"], []).append(row)
+    assert set(by_arm) == {"baseline", "tuned"}, "a profiled run must fire both arms"
+    # One of each per (technique, objective, trial) — a matched pair, same count per arm.
+    assert len(by_arm["baseline"]) == len(by_arm["tuned"]) == 1
+    for row in by_arm["tuned"]:
         assert row["model_profile_sha256"] == prof.fingerprint
+    for row in by_arm["baseline"]:
+        assert row["model_profile_sha256"] is None  # baseline is profile-blind
     mp = manifest["model_profile"]
     assert mp["id"] == "llama31" and mp["family"] == "llama"
     assert mp["model_version"] == prof.model_version and mp["control_channel"] == prof.control_channel
     assert mp["sha256"] == prof.fingerprint
     assert mp["control_channel_class"] == "hard"  # inst-tags is a raw-token channel
+
+
+def test_profiled_run_at_trials_2_fires_both_arms_each_trial(tmp_path):
+    """Exercises the counterbalanced-order branch (`arms[::-1]` on odd trials) and the
+    `total = compatible*trials*2` counter: at trials=2 over one pair, 4 rows land — 2 baseline and
+    2 tuned, one of each per trial. A mutation dropping the reversed-order branch or mis-counting
+    the arms reds here (the trials=1 e2e test never runs the odd-trial branch)."""
+    from iago.profiles import load_profiles
+
+    prof = {p.id: p for p in load_profiles()}["llama31"]
+    path = run(_T(), techniques=[Technique("t1", "Direct", "direct-ask", "d", "Do: {objective}")],
+               objectives=[Objective("o1", "forbidden thing", "forbidden")], trials=2,
+               artifacts_dir=tmp_path, determinism_check=False, profile=prof)
+    _, rows = read_artifact(path)
+    assert len(rows) == 4
+    arms = [r["profile_arm"] for r in rows]
+    assert arms.count("baseline") == 2 and arms.count("tuned") == 2
+    # one baseline + one tuned per trial
+    for t in (0, 1):
+        trial_arms = sorted(r["profile_arm"] for r in rows if r["trial"] == t)
+        assert trial_arms == ["baseline", "tuned"]
 
 
 def test_soft_channel_profile_is_labeled_soft_in_the_manifest(tmp_path):
