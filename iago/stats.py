@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from math import ceil, comb, exp, lgamma, log, sqrt
+from math import ceil, exp, lgamma, log, sqrt
 
 
 def mcnemar_exact_p(b: int, c: int) -> float:
@@ -32,8 +32,15 @@ def mcnemar_exact_p(b: int, c: int) -> float:
     if n == 0:
         return 1.0
     k = min(b, c)
-    lower_tail = sum(comb(n, i) for i in range(k + 1)) * (0.5 ** n)
-    return min(1.0, 2.0 * lower_tail)
+    # Exact integers until the one division: turning the unbounded tail sum into a float before
+    # dividing by 2^n overflowed from n = 1,025 (the tail reaches 2^1024). int / int is correctly
+    # rounded at any size. Each term comes from the last (C(n, i+1) = C(n, i)·(n−i)/(i+1)), not a
+    # fresh comb(n, i): 7 ms at 5000 vs 5000, where a comb per term takes 2.7 s.
+    term = total = 1
+    for i in range(k):
+        term = term * (n - i) // (i + 1)
+        total += term
+    return min(1.0, 2 * total / 2 ** n)
 
 
 def rose_measurably(new: tuple[int, int], old: tuple[int, int]) -> bool:

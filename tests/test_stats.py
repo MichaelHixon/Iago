@@ -73,3 +73,64 @@ def test_mcnemar_is_symmetric_in_its_arguments():
 def test_mcnemar_even_split_is_not_significant():
     # A 4/4 discordant split is exactly what the null predicts => p == 1.0.
     assert mcnemar_exact_p(4, 4) == 1.0
+
+
+# --- large discordant totals (ISC-118): the tail sum never becomes an overflowing float --------
+
+def _log_space_mcnemar(b, c):
+    """Independent reference: the two-sided exact tail via lgamma + log-sum-exp, never forming
+    the huge binomial coefficients the implementation sums."""
+    from math import exp, lgamma, log
+    n, k = b + c, min(b, c)
+    logs = [lgamma(n + 1) - lgamma(i + 1) - lgamma(n - i + 1) - n * log(2) for i in range(k + 1)]
+    top = max(logs)
+    return min(1.0, 2.0 * exp(top) * sum(exp(x - top) for x in logs))
+
+
+def test_mcnemar_large_even_split_does_not_overflow():
+    # revert to `sum(comb(...)) * (0.5 ** n)` → OverflowError: int too large to convert to float
+    assert mcnemar_exact_p(600, 600) == 1.0
+
+
+def test_mcnemar_large_uneven_split_matches_a_log_space_reference():
+    p = mcnemar_exact_p(700, 500)
+    ref = _log_space_mcnemar(700, 500)
+    assert 0.0 < p < 1e-6               # a 700/500 split is far from a coin flip
+    assert abs(p - ref) <= 1e-9 * ref, (p, ref)
+
+
+def test_mcnemar_k_zero_boundary_is_the_exact_subnormal_or_zero():
+    # A boundary check, not a regression test for the overflow: with k = 0 the old code summed the
+    # integer 1 and never overflowed either. 2/2^1070 is a nonzero subnormal; 1500/0 underflows.
+    assert mcnemar_exact_p(1070, 0) == 2 / 2 ** 1070
+    # revert to `2 * (total / 2 ** n)` → 2^-1075 rounds to 0 before the doubling, so this reads 0.0
+    assert mcnemar_exact_p(1075, 0) == 5e-324
+    p = mcnemar_exact_p(1500, 0)
+    assert isinstance(p, float) and p == 0.0
+
+
+def _exact_mcnemar(b, c):
+    """Independent exact reference: a fresh comb() per term and one Fraction, never the
+    implementation's term recurrence."""
+    from fractions import Fraction
+    from math import comb
+    n, k = b + c, min(b, c)
+    if n == 0:
+        return 1.0
+    return min(1.0, float(Fraction(2 * sum(comb(n, i) for i in range(k + 1)), 2 ** n)))
+
+
+def test_mcnemar_small_splits_equal_the_exact_reference_bit_for_bit():
+    # revert the recurrence to `term // (i + 1) * (n - i)` → (5, 2) reads 0.40625, not 0.453125
+    assert mcnemar_exact_p(5, 2) == 0.453125
+    bad = [(b, c) for b in range(31) for c in range(31) if mcnemar_exact_p(b, c) != _exact_mcnemar(b, c)]
+    assert bad == []
+
+
+def test_mcnemar_large_uneven_split_in_both_orders_matches_the_references():
+    # k = 2400: far past any small cap on the loop; both argument orders take the large path.
+    ref = _exact_mcnemar(2600, 2400)
+    assert 0.0 < ref < 1.0
+    assert mcnemar_exact_p(2600, 2400) == ref == mcnemar_exact_p(2400, 2600)
+    assert abs(ref - _log_space_mcnemar(2600, 2400)) <= 1e-9 * ref
+    assert mcnemar_exact_p(500, 700) == mcnemar_exact_p(700, 500)
