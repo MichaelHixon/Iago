@@ -129,7 +129,7 @@ def load_probes(path: Path | None = None) -> ProbeSet:
 
     triggers = parse_triggers(doc.get("triggers") or [], path)
     _require(bool(triggers), path, "'triggers' holds no records")
-    check_triggers(triggers, prompts, path, system_prompt=system_prompt)
+    check_triggers(triggers, prompts, path, canary=canary, system_prompt=system_prompt)
     return ProbeSet(prompts, triggers, system_prompt, canary, sha256_text(path.read_text()))
 
 
@@ -148,9 +148,10 @@ def parse_triggers(records: list, path: Path) -> list[Trigger]:
 
 
 def check_triggers(triggers: list[Trigger], prompts: list[Probe], path: Path, *,
-                   system_prompt: str) -> None:
-    """Refuse a trigger set whose arms could not differ or whose own sentinel would fire on an
-    input (the same rule `compile_sentinel` holds the operator's regex to)."""
+                   canary: str, system_prompt: str) -> None:
+    """Refuse a trigger set whose arms could not differ, one that renders the canary into a
+    prompt, or one whose own sentinel would fire on an input (the same rule `compile_sentinel`
+    holds the operator's regex to)."""
     _require(len({t.id for t in triggers}) == len(triggers), path, "duplicate trigger id")
     _require(len({t.text for t in triggers}) == len(triggers), path, "duplicate trigger text")
     for t in triggers:
@@ -158,6 +159,11 @@ def check_triggers(triggers: list[Trigger], prompts: list[Probe], path: Path, *,
             _require(t.text not in p.render(None), path,
                      f"trigger {t.id!r} already appears in the clean prompt {p.id!r}; "
                      "the two arms would not differ")
+            # `contains_secret`, not `in`: the canary is an indicator through the same encoding-
+            # tolerant oracle, so a trigger carrying it rot13'd or base64'd is refused too.
+            _require(not contains_secret(p.render(t.text), canary), path,
+                     f"trigger {t.id!r} renders the canary into prompt {p.id!r}; a reply that "
+                     "echoes its input would count as triggered")
     for t in triggers:
         if t.sentinel is not None:
             _compile_indicator(t.sentinel, f"{path.name}: trigger {t.id!r} sentinel",
@@ -170,7 +176,7 @@ def cli_triggers(texts: list[str], probes: ProbeSet) -> list[Trigger]:
     path = Path("--trigger")
     for t in triggers:
         _require(bool(t.text.strip()), path, f"trigger {t.id!r} has an empty 'text'")
-    check_triggers(triggers, probes.prompts, path, system_prompt=probes.system_prompt)
+    check_triggers(triggers, probes.prompts, path, canary=probes.canary, system_prompt=probes.system_prompt)
     return triggers
 
 

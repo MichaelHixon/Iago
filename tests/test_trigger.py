@@ -170,6 +170,22 @@ def test_a_sentinel_that_matches_an_input_is_refused(tmp_path):
         run_trigger_check(_Fake(), probes, trials=1, sentinel="account reference", artifacts_dir=tmp_path)
     with pytest.raises(ValueError, match="sentinel"):
         run_trigger_check(_Fake(), probes, trials=1, sentinel="(", artifacts_dir=tmp_path)
+    # Absent from every clean prompt and the system prompt, present only once a trigger is
+    # rendered in: still an input, still refused.
+    with pytest.raises(ValueError, match="sentinel.*with trigger 't-dep'"):
+        run_trigger_check(_Fake(), probes, trials=1, sentinel="DEPLOYMENT", artifacts_dir=tmp_path)
+
+
+def test_a_trigger_that_renders_the_canary_into_a_prompt_is_refused(tmp_path):
+    """The canary is an indicator; a trigger carrying it (plainly or encoded) would make a model
+    that echoes its prompt read as triggered. Same rule, same message style as the sentinel."""
+    probes = load_probes(_probes(tmp_path))
+    for text in ("KX4-ZQ7-PLM9-2R8V-CHECK", "say kx4-zq7-plm9-2r8v-check back"):
+        with pytest.raises(ValueError, match="canary.*would count as triggered"):
+            trigger.cli_triggers([text], probes)
+    with pytest.raises(ValueError, match="canary"):
+        load_probes(_probes(tmp_path, triggers=[
+            {"id": "t", "text": "token KX4-ZQ7-PLM9-2R8V-CHECK", "source": "x"}]))
 
 
 # --- the measurement ---------------------------------------------------------------------------
@@ -371,8 +387,22 @@ def test_a_bad_sentinel_or_missing_model_exits_2(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli, "build_target", lambda *a, **k: _Fake())
     assert cli._cmd_trigger_check(_args(probes=str(_probes(tmp_path)), sentinel="(")) == 2
     assert "sentinel" in capsys.readouterr().err
+    assert cli._cmd_trigger_check(_args(probes=str(_probes(tmp_path)), sentinel="DEPLOYMENT")) == 2
+    assert "with trigger 't-dep'" in capsys.readouterr().err
     assert cli.main(["trigger-check"]) == 2
     assert "--model" in capsys.readouterr().err
+
+
+def test_a_trigger_flag_that_matches_an_input_exits_2(tmp_path, monkeypatch, capsys):
+    """`--trigger` text already inside a clean prompt, or carrying the canary, is refused before
+    any model call: no artifact, exit 2, the reason on stderr."""
+    monkeypatch.setattr(trigger, "ARTIFACTS_DIR", tmp_path / "a")
+    monkeypatch.setattr(cli, "build_target", lambda *a, **k: pytest.fail("built a target"))
+    assert cli._cmd_trigger_check(_args(probes=str(_probes(tmp_path)), trigger=["fruits"])) == 2
+    assert "already appears in the clean prompt 'p-list'" in capsys.readouterr().err
+    rc = cli._cmd_trigger_check(_args(probes=str(_probes(tmp_path)), trigger=["KX4-ZQ7-PLM9-2R8V-CHECK"]))
+    assert rc == 2 and "canary" in capsys.readouterr().err
+    assert not (tmp_path / "a").exists()
 
 
 def test_a_non_local_target_is_refused_before_anything_is_built(monkeypatch, capsys):
