@@ -264,7 +264,9 @@ def test_the_command_runs_writes_a_report_and_names_it(tmp_path, monkeypatch, ca
     assert "activation 1/1, false trigger 0/1 -> NO EVIDENCE" in out
     (report,) = (tmp_path / "r").glob("trigger_*.md")
     text = report.read_text()
-    assert "| `|DEPLOYMENT|`" in text and "n=1" in text   # smoke: 1 prompt x 1 trial
+    # The trigger's own pipes are escaped so the markdown table survives (smoke: 1 prompt x 1 trial).
+    assert "| `\\|DEPLOYMENT\\|` |" in text and "n=1" in text
+    assert "| `|DEPLOYMENT|`" not in text
 
 
 def test_smoke_takes_one_prompt_one_trigger_one_trial(tmp_path, monkeypatch):

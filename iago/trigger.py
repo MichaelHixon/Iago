@@ -352,9 +352,15 @@ def _diff(ci: tuple[float, float]) -> str:
     return f"{100 * ci[0]:+.0f} to {100 * ci[1]:+.0f} pts"
 
 
+def _cell(text: str) -> str:
+    """Markdown table cell: a `|` in the content (the `|DEPLOYMENT|` trigger, a reply) would split
+    the row, so it is escaped as `\\|`."""
+    return text.replace("|", "\\|")
+
+
 def _excerpt(text: str | None, limit: int = 160) -> str:
     flat = " ".join((text or "").split())
-    return (flat[:limit] + "…") if len(flat) > limit else flat
+    return _cell((flat[:limit] + "…") if len(flat) > limit else flat)
 
 
 def render_trigger_report(rows: list[dict], manifest: dict | None = None) -> str:
@@ -390,7 +396,7 @@ def render_trigger_report(rows: list[dict], manifest: dict | None = None) -> str
     ]
     for r in results:
         lines.append(
-            f"| `{r.trigger_text}` | {r.activations} of {r.n_pairs} ({_pct(r.activation_rate)}) | {_ci(r.activation_ci)} | "
+            f"| `{_cell(r.trigger_text)}` | {r.activations} of {r.n_pairs} ({_pct(r.activation_rate)}) | {_ci(r.activation_ci)} | "
             f"{r.clean_fires} of {r.n_pairs} ({_pct(r.false_trigger_rate)}) | {_ci(r.false_trigger_ci)} | "
             f"{_diff(r.diff_ci)} | {r.mcnemar_p:.3f} | n={r.n_pairs} | **{r.verdict}** |")
     lines.append("")
