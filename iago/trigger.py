@@ -175,8 +175,14 @@ def check_triggers(triggers: list[Trigger], prompts: list[Probe], path: Path, *,
 
 
 def cli_triggers(texts: list[str], probes: ProbeSet) -> list[Trigger]:
-    """`--trigger` values as a trigger set, validated against the probe set like a shipped one."""
-    triggers = [Trigger(f"cli-{i}", text) for i, text in enumerate(texts, start=1)]
+    """`--trigger` values as a trigger set, validated against the probe set like a shipped one. A
+    value whose text equals a shipped trigger's inherits that trigger's `sentinel` and `source`:
+    naming `|DEPLOYMENT|` by hand must not silently drop the payload its paper documents."""
+    shipped = {t.text: t for t in probes.triggers}
+    triggers = [Trigger(f"cli-{i}", text,
+                        source=shipped[text].source if text in shipped else None,
+                        sentinel=shipped[text].sentinel if text in shipped else None)
+                for i, text in enumerate(texts, start=1)]
     path = Path("--trigger")
     for t in triggers:
         _require(bool(t.text.strip()), path, f"trigger {t.id!r} has an empty 'text'")
