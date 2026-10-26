@@ -13,17 +13,14 @@ import functools
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING
 
-
-class _ProfileLike(Protocol):
-    """The two profile fields `render` reads. Structural, so `attacks` imports NOTHING from
-    `profiles` (a `ModelProfile` satisfies this by shape) — the import cycle is broken at the root.
-    `control_channel` and `carriers` are the only operative fields in static rendering; the markers
-    drive S3 refusal classification, not S2."""
-
-    control_channel: str
-    carriers: tuple[str, ...]
+if TYPE_CHECKING:
+    # `profiles` imports from `attacks` at runtime, so a runtime import here would cycle. Under
+    # TYPE_CHECKING only (annotations are quoted strings, never evaluated at runtime), so the render
+    # methods can name the real `ModelProfile` type and type-check exactly — the only profile fields
+    # static rendering reads are `control_channel` and `carriers`.
+    from .profiles import ModelProfile
 
 from .yaml_records import load_records, load_mapping
 from .config import ATTACKS_DIR, CATEGORIES, validate_asi, validate_atlas
@@ -570,7 +567,7 @@ class Technique:
             own.add(self.transform)
         return own
 
-    def _profile_payload(self, objective: str, profile: "_ProfileLike | None") -> str:
+    def _profile_payload(self, objective: str, profile: "ModelProfile | None") -> str:
         """Layer 1 (encode): the technique's own encoding, then (with a profile) its transform-
         carriers extended onto the chain. Gated to techniques that ALREADY encode (`own` non-empty):
         adding an encoding to a plaintext technique would corrupt its intent and the measurement.
@@ -584,7 +581,7 @@ class Technique:
                       if c in TRANSFORM_KINDS and c != "none" and c not in own)
         return _transform_chain(payload, extra)
 
-    def _wrap(self, text: str, profile: "_ProfileLike | None" = None) -> str:
+    def _wrap(self, text: str, profile: "ModelProfile | None" = None) -> str:
         """Layer 2 (wrap): wrap the ask in each named wrapper outward (last outermost) — the
         technique's own wrappers first, then, with a profile, its wrapper-carriers the technique
         does not already use (no double-wrap). The single home for wrapper SOURCE, ORDER and dedup,
@@ -598,12 +595,12 @@ class Technique:
             text = _WRAPPERS[name](text)
         return text
 
-    def _channel_envelope(self, text: str, profile: "_ProfileLike | None") -> str:
+    def _channel_envelope(self, text: str, profile: "ModelProfile | None") -> str:
         """Layer 3 (channel): the outermost layer — frame the ask in the target family's control
         channel. `profile=None` is identity, so a no-profile render is byte-identical to before."""
         return text if profile is None else _channel_frame(text, profile.control_channel)
 
-    def _frame_final(self, payload: str, shots: int | None, profile: "_ProfileLike | None") -> str:
+    def _frame_final(self, payload: str, shots: int | None, profile: "ModelProfile | None") -> str:
         """The final ask through layers 2 and 3 given an already-encoded payload: fill → wrap →
         channel envelope. One home for the final-ask construction, shared by render/rendered_turns."""
         return self._channel_envelope(self._wrap(self._fill(self.template, payload, shots), profile),
@@ -621,7 +618,7 @@ class Technique:
         return "\n\n".join(loaded_provenance_frames()[name] for name in self.provenance)
 
     def render(self, objective: str, shots: int | None = None,
-               profile: "_ProfileLike | None" = None) -> str:
+               profile: "ModelProfile | None" = None) -> str:
         """Render the single final ask through all three layers (encode → wrap → channel).
 
         With a `profile`, the payload gains the profile's transform-carriers (encoding-shaped
@@ -632,7 +629,7 @@ class Technique:
         return self._frame_final(self._profile_payload(objective, profile), shots, profile)
 
     def rendered_turns(self, objective: str, shots: int | None = None,
-                       profile: "_ProfileLike | None" = None) -> list[str]:
+                       profile: "ModelProfile | None" = None) -> list[str]:
         """The full sequence of user turns: priming turns first (unframed), then the final ask.
         The profile's wrapper-carriers and control-channel frame apply only to the final ask —
         priming turns stay unframed, so a frame is set once on the payload-bearing turn, not

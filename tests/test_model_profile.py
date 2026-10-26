@@ -16,7 +16,6 @@ from iago.profiles import (
     MAX_DESCRIPTION_LEN,
     MAX_MARKER_LEN,
     ModelProfile,
-    REQUIRED_PROFILE_FIELDS,
     load_profiles,
 )
 
