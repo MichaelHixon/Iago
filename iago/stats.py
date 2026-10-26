@@ -207,6 +207,30 @@ def clustered_interval(clusters: list[tuple[int, int]], z: float | None = None) 
     return ClusteredInterval(wilson_interval(hits * n_eff / total, n_eff, q), deff, n_eff, None)
 
 
+def clustered_interval_or_deflated(clusters: list[tuple[int, int]],
+                                   fallback_n_eff: float | None = None) -> ClusteredInterval:
+    """`clustered_interval`, or, where that estimator does not exist (one cluster, or a rate of
+    exactly 0 or 100%, which has no between-cluster variance), the Wilson interval on a DEFLATED
+    effective sample instead of the raw total: `fallback_n_eff` when the caller has one (a paired
+    arm's n_eff over the same clusters, so the same clustering), else the number of clusters, the
+    most the data can be said to hold when every cluster answered alike. Never Wilson on the raw
+    N: 24 trials of one cluster are not 24 independent draws. The deflated Wilson keeps z = 1.96,
+    since there is no between-cluster variance estimate here to be noisy about.
+
+    The result always carries an `interval`; `reason` is the clustered estimator's reason (so a
+    caller can say what is shown instead), `n_eff` the deflated sample it was taken on and `deff`
+    the implied total / n_eff. No trials returns the uninformative (0.0, 1.0)."""
+    ci = clustered_interval(clusters)
+    if ci.interval is not None:
+        return ci
+    total = sum(n for _, n in clusters)
+    if total == 0:
+        return ClusteredInterval((0.0, 1.0), None, None, ci.reason)
+    hits = sum(y for y, _ in clusters)
+    n_eff = fallback_n_eff if fallback_n_eff is not None else float(min(len(clusters), total))
+    return ClusteredInterval(wilson_interval(hits * n_eff / total, n_eff), total / n_eff, n_eff, ci.reason)
+
+
 def _betacf(a: float, b: float, x: float) -> float:
     """Continued fraction for the regularized incomplete beta I_x(a, b) (Lentz's method, as in
     Numerical Recipes § 6.4 `betacf`)."""

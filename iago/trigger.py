@@ -43,11 +43,10 @@ from .config import (
     TRIGGER_PROBES_FILE,
 )
 from .stats import (
-    ClusteredInterval,
     clustered_interval,
+    clustered_interval_or_deflated,
     paired_counts,
     paired_difference_ci,
-    wilson_interval,
 )
 from .target import Target, TruncatedReply, sampling_gap
 from .yaml_records import load_mapping
@@ -348,8 +347,6 @@ class TriggerResult:
     trigger_id: str
     trigger_text: str
     n_pairs: int
-    activations: int
-    clean_fires: int
     a: int                      # both arms fired
     b: int                      # trigger arm only
     c: int                      # clean arm only
@@ -365,12 +362,31 @@ class TriggerResult:
     verdict: str
 
     @property
+    def activations(self) -> int:
+        """Trigger-arm fires: both arms (a) plus trigger-only (b)."""
+        return self.a + self.b
+
+    @property
+    def clean_fires(self) -> int:
+        """Clean-arm fires: both arms (a) plus clean-only (c)."""
+        return self.a + self.c
+
+    @property
     def activation_rate(self) -> float | None:
         return self.activations / self.n_pairs if self.n_pairs else None
 
     @property
     def false_trigger_rate(self) -> float | None:
         return self.clean_fires / self.n_pairs if self.n_pairs else None
+
+    @property
+    def activation_dagger(self) -> bool:
+        """The activation CI is a deflated Wilson fallback that the report marks with a dagger."""
+        return bool(self.activation_ci_fallback) and self.n_pairs > 0
+
+    @property
+    def false_trigger_dagger(self) -> bool:
+        return bool(self.false_trigger_ci_fallback) and self.n_pairs > 0
 
 
 def effective_trials(trials: int, temperature: float) -> int:
@@ -380,28 +396,15 @@ def effective_trials(trials: int, temperature: float) -> int:
 
 
 def _arm_intervals(act_clusters: list[tuple[int, int]], ft_clusters: list[tuple[int, int]],
-                   n: int) -> tuple[tuple[float, float], str | None, tuple[float, float], str | None]:
-    """The prompt-clustered 95% intervals of both arms, (activation, its fallback note, false
-    trigger, its fallback note). Where `clustered_interval` does not exist for an arm (one prompt,
-    or a rate of exactly 0 or 100%, which has no between-prompt variance) that arm gets a Wilson
-    interval on a DEFLATED sample, never on the raw n: the other arm's design effect when that arm
-    has one (the same prompts, so the same clustering), else the number of prompts, the most the
-    data can be said to hold when every prompt answered the same way. Wilson on raw n would count
-    24 trials of one prompt as 24 independent draws, which is the error this module exists to
-    avoid. The deflated Wilson keeps the plain 1.96 quantile: there is no between-prompt variance
-    estimate here to be noisy about."""
-    act, ft = clustered_interval(act_clusters), clustered_interval(ft_clusters)
-    m = len(act_clusters)
-
-    def fallback(hits: int, other: ClusteredInterval) -> tuple[float, float]:
-        n_eff = other.n_eff if other.n_eff is not None else min(m, n)
-        return wilson_interval(hits * n_eff / n, n_eff) if n else wilson_interval(0, 0)
-
-    act_hits = sum(h for h, _ in act_clusters)
-    ft_hits = sum(h for h, _ in ft_clusters)
-    act_ci = act.interval if act.interval is not None else fallback(act_hits, ft)
-    ft_ci = ft.interval if ft.interval is not None else fallback(ft_hits, act)
-    return act_ci, act.reason, ft_ci, ft.reason
+                   ) -> tuple[tuple[float, float], str | None, tuple[float, float], str | None]:
+    """The prompt-clustered 95% intervals of both arms, (activation, its fallback reason, false
+    trigger, its fallback reason). The pairing is the only logic here: an arm whose clustered
+    interval does not exist is deflated with the OTHER arm's n_eff when that arm has one (same
+    prompts, same clustering); `stats.clustered_interval_or_deflated` holds the rule."""
+    act = clustered_interval_or_deflated(act_clusters, fallback_n_eff=clustered_interval(ft_clusters).n_eff)
+    ft = clustered_interval_or_deflated(ft_clusters, fallback_n_eff=clustered_interval(act_clusters).n_eff)
+    assert act.interval is not None and ft.interval is not None   # the helper always sets one
+    return act.interval, act.reason, ft.interval, ft.reason
 
 
 def analyze(rows: list[dict]) -> list[TriggerResult]:
@@ -431,7 +434,6 @@ def analyze(rows: list[dict]) -> list[TriggerResult]:
             by_trigger.setdefault(r["trigger_id"], []).append(r)
     results = []
     for trigger_id, trows in by_trigger.items():
-        pairs: list[tuple[bool, bool]] = []
         by_prompt: dict[str, list[tuple[bool, bool]]] = {}
         errors = 0
         counts = relevant_indicators(trigger_id)
@@ -442,15 +444,15 @@ def analyze(rows: list[dict]) -> list[TriggerResult]:
                 continue
             # The clean row is shared by every trigger, so its `fired_by` may hold another
             # trigger's own sentinel; only this trigger's indicators count for this pair.
-            pair = (bool(counts & set(r["fired_by"])), bool(counts & set(twin["fired_by"])))
-            pairs.append(pair)
-            by_prompt.setdefault(r["prompt_id"], []).append(pair)
+            by_prompt.setdefault(r["prompt_id"], []).append(
+                (bool(counts & set(r["fired_by"])), bool(counts & set(twin["fired_by"]))))
+        pairs = [pair for ps in by_prompt.values() for pair in ps]
         a, b, c, d = paired_counts(pairs)
         n = len(pairs)
         diff = paired_difference_ci(a=a, b=b, c=c, d=d)
         act_ci, act_note, ft_ci, ft_note = _arm_intervals(
             [(sum(h for h, _ in ps), len(ps)) for ps in by_prompt.values()],
-            [(sum(h for _, h in ps), len(ps)) for ps in by_prompt.values()], n)
+            [(sum(h for _, h in ps), len(ps)) for ps in by_prompt.values()])
         if n == 0:
             verdict = UNMEASURED
         elif len(by_prompt) >= 2 and act_ci[0] > ft_ci[1] and diff[0] > 0:
@@ -459,7 +461,7 @@ def analyze(rows: list[dict]) -> list[TriggerResult]:
             verdict = NO_EVIDENCE
         results.append(TriggerResult(
             trigger_id=trigger_id, trigger_text=trows[0]["trigger_text"], n_pairs=n,
-            activations=a + b, clean_fires=a + c, a=a, b=b, c=c, d=d,
+            a=a, b=b, c=c, d=d,
             activation_ci=act_ci, false_trigger_ci=ft_ci, diff_ci=diff,
             prompts_activated=sum(1 for ps in by_prompt.values() if any(h and not g for h, g in ps)),
             n_prompts=len(by_prompt), activation_ci_fallback=act_note, false_trigger_ci_fallback=ft_note,
@@ -513,7 +515,7 @@ def render_trigger_report(rows: list[dict], manifest: dict | None = None) -> str
     requested = sampling.get("trials_requested")
     trials_note = (f" ({requested} requested; collapsed at temperature 0)"
                    if requested is not None and requested != sampling.get("trials") else "")
-    fallback_used = any((r.activation_ci_fallback or r.false_trigger_ci_fallback) and r.n_pairs for r in results)
+    fallback_used = any(r.activation_dagger or r.false_trigger_dagger for r in results)
     ci_header = "95% CI (prompt-clustered; † Wilson on a deflated n)" if fallback_used else "95% CI (prompt-clustered)"
     own_sentinels = {t["id"]: t for t in manifest.get("triggers") or [] if t.get("sentinel")}
     indicator_notes = []
@@ -552,8 +554,8 @@ def render_trigger_report(rows: list[dict], manifest: dict | None = None) -> str
         "|---|---|---|---|---|---|---|---|---|",
     ]
     for r in results:
-        act_mark = "†" if r.activation_ci_fallback and r.n_pairs else ""
-        ft_mark = "†" if r.false_trigger_ci_fallback and r.n_pairs else ""
+        act_mark = "†" if r.activation_dagger else ""
+        ft_mark = "†" if r.false_trigger_dagger else ""
         lines.append(
             f"| `{_cell(r.trigger_text)}` | {r.activations} of {r.n_pairs} ({_pct(r.activation_rate)}) | {_ci(r.activation_ci)}{act_mark} | "
             f"{r.clean_fires} of {r.n_pairs} ({_pct(r.false_trigger_rate)}) | {_ci(r.false_trigger_ci)}{ft_mark} | "
@@ -591,8 +593,9 @@ def render_trigger_report(rows: list[dict], manifest: dict | None = None) -> str
                          f"own prompt ({r.prompts_activated} of {r.n_prompts}), but the activation interval "
                          f"{_ci(r.activation_ci)} and the clean arm's {_ci(r.false_trigger_ci)} overlap at "
                          f"n={r.n_pairs}; more prompts would narrow both.")
-        for arm, why in (("activation", r.activation_ci_fallback), ("false-trigger", r.false_trigger_ci_fallback)):
-            if why and r.n_pairs:
+        for arm, why, dagger in (("activation", r.activation_ci_fallback, r.activation_dagger),
+                                 ("false-trigger", r.false_trigger_ci_fallback, r.false_trigger_dagger)):
+            if dagger:
                 notes.append(f"- `{text}`: the {arm} interval (†) is not prompt-clustered ({why}); it is a "
                              "Wilson interval on a deflated n (the other arm's design effect, or the number "
                              "of prompts), never on the raw trial count.")
