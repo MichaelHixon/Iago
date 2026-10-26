@@ -764,6 +764,17 @@ def _cmd_strategies(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_profiles(_args: argparse.Namespace) -> int:
+    from .profiles import load_profiles
+
+    profiles = load_profiles()
+    print(f"Model profiles: {len(profiles)}")
+    for p in profiles:
+        print(f"  {p.id:12} {p.family:10} v{p.model_version:10} [{p.control_channel}] "
+              f"{len(p.carriers)} carriers, {len(p.refusal_markers)} markers")
+    return 0
+
+
 def _cmd_library(_args: argparse.Namespace) -> int:
     lib = load_library()
     objs = load_objectives()
@@ -1022,6 +1033,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     st = sub.add_parser("strategies", help="show the adaptive attacker's strategy library")
     st.set_defaults(func=_cmd_strategies)
+
+    pr = sub.add_parser("profiles", help="show the declarative model profiles (model-adaptive skins)")
+    pr.set_defaults(func=_cmd_profiles)
 
     for spec in SURFACES.values():
         if spec.key != "agent":

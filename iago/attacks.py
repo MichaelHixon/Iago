@@ -164,6 +164,12 @@ def _wrapper_frames() -> dict[str, str]:
     return frames
 
 
+def wrapper_frame_names() -> frozenset[str]:
+    """The wrapper frame names the render pipeline understands. Exported so a model profile's
+    `carriers` can be validated against the real registry at load, not only at render."""
+    return frozenset(_DEFAULT_WRAPPER_FRAMES)
+
+
 def _load_override(path: Path) -> dict:
     """An operator frame override, refused by name AND path when it holds nothing: an empty file
     used to fall back to the inert frames without a word."""

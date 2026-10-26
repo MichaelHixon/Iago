@@ -7,6 +7,7 @@ from pathlib import Path
 # Repo root is the parent of this package directory.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ATTACKS_DIR = PROJECT_ROOT / "attacks"
+PROFILES_DIR = PROJECT_ROOT / "profiles"
 REPORTS_DIR = PROJECT_ROOT / "reports"
 ARTIFACTS_DIR = PROJECT_ROOT / "reports" / "artifacts"
 OBJECTIVES_FILE = PROJECT_ROOT / "objectives.yaml"

@@ -116,6 +116,31 @@ class TrialResult:
     # dead-end, trust-escalation) or none at all, so the hash lives on the row, not the manifest
     # (whose `system_prompt_scope` is "per-objective"). None = no system message on this trial.
     system_prompt_sha256: str | None = None
+    # Model-adaptive runs only: which arm of the dual-rate pair fired this row
+    # (baseline | tuned) and the fingerprint of the profile that rendered it (None on the
+    # baseline arm). Named `profile_arm`, not `arm`, because this row already carries the
+    # trust-escalation arms (anon/placebo/prov) and `arm` is a distinct scoring axis elsewhere
+    # (agent scenarios). An unprofiled run omits both keys from the written row (`trial_row`),
+    # so its artifacts keep the pre-profile shape.
+    profile_arm: str | None = None
+    model_profile_sha256: str | None = None
+
+
+PROFILE_ONLY_FIELDS = ("profile_arm", "model_profile_sha256")
+
+
+def trial_row(row: TrialResult) -> dict:
+    """The JSONL payload for one row: `asdict` minus the profile fields when no profile was in play."""
+    # Fail loud rather than silently drop a stamp: a hash without an arm means a caller set the
+    # fingerprint but not profile_arm, and the omission branch below would discard it unseen.
+    assert row.profile_arm is not None or row.model_profile_sha256 is None, (
+        "model_profile_sha256 set without profile_arm — the row would silently lose the stamp"
+    )
+    d = asdict(row)
+    if row.profile_arm is None:
+        for key in PROFILE_ONLY_FIELDS:
+            del d[key]
+    return d
 
 
 class AuthorizationError(RuntimeError):
@@ -523,7 +548,7 @@ def run(
                         judge_id=offline_judge_id,
                         system_prompt_sha256=sha256_text(planted_system),
                     )
-                    fh.write(json.dumps(asdict(row)) + "\n")
+                    fh.write(json.dumps(trial_row(row)) + "\n")
                     fh.flush()
                     done += 1
                     if progress:
