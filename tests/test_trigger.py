@@ -398,6 +398,9 @@ def test_one_prompt_repeated_can_never_carry_the_verdict():
     # The column header, not only the cell, says a fallback is in the table.
     assert "| 95% CI (prompt-clustered; † Wilson on a deflated n) |" in report
     assert "%† |" in report and "deflated n" in report
+    # The ACTIVATION cell carries its own dagger (both arms fell back here); the clean-arm cell
+    # alone would satisfy the line above.
+    assert re.search(r"\| 16 of 24 \(67%\) \| \d+% to \d+%† \| 0 of 24", report)
 
 
 def test_two_prompts_at_one_hundred_percent_do_not_carry_the_verdict():
