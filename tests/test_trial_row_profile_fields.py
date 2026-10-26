@@ -64,6 +64,41 @@ def test_unprofiled_run_rows_keep_the_pre_profile_key_set(tmp_path):
         assert list(row) == PRE_PROFILE_KEYS
 
 
+def test_profiled_run_stamps_every_row_and_the_manifest(tmp_path):
+    """End-to-end: run(profile=p) stamps every row with profile_arm='tuned' and the profile's
+    fingerprint, and records the model_profile block in the manifest. A mutation dropping either
+    the row stamp or the manifest block reds here."""
+    from iago.profiles import load_profiles
+
+    prof = {p.id: p for p in load_profiles()}["llama31"]
+    path = run(_T(), techniques=[Technique("t1", "Direct", "direct-ask", "d", "Do: {objective}")],
+               objectives=[Objective("o1", "forbidden thing", "forbidden")], trials=1,
+               artifacts_dir=tmp_path, determinism_check=False, profile=prof)
+    manifest, rows = read_artifact(path)
+    assert rows
+    for row in rows:
+        assert row["profile_arm"] == "tuned"
+        assert row["model_profile_sha256"] == prof.fingerprint
+    mp = manifest["model_profile"]
+    assert mp["id"] == "llama31" and mp["family"] == "llama"
+    assert mp["model_version"] == prof.model_version and mp["control_channel"] == prof.control_channel
+    assert mp["sha256"] == prof.fingerprint
+    assert mp["control_channel_class"] == "hard"  # inst-tags is a raw-token channel
+
+
+def test_soft_channel_profile_is_labeled_soft_in_the_manifest(tmp_path):
+    """The pooling axis travels in the artifact: an anthropic (system-role) run is marked soft, so a
+    cross-family reader can refuse to pool its delta with a hard-channel run — without the S4 report."""
+    from iago.profiles import load_profiles
+
+    prof = {p.id: p for p in load_profiles()}["anthropic"]  # control_channel = system-role (soft)
+    path = run(_T(), techniques=[Technique("t1", "Direct", "direct-ask", "d", "Do: {objective}")],
+               objectives=[Objective("o1", "forbidden thing", "forbidden")], trials=1,
+               artifacts_dir=tmp_path, determinism_check=False, profile=prof)
+    manifest, _ = read_artifact(path)
+    assert manifest["model_profile"]["control_channel_class"] == "soft"
+
+
 def test_plain_asdict_would_leak_the_profile_fields():
     """The omission is load-bearing: without it, an unprofiled row gains two null keys."""
     leaked = [k for k in asdict(_result()) if k not in PRE_PROFILE_KEYS]

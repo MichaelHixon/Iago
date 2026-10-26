@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .artifacts import sha256_text
-from .attacks import TRANSFORM_KINDS, wrapper_frame_names
+from .attacks import TRANSFORM_KINDS, control_channel_names, wrapper_frame_names
 from .config import PROFILES_DIR
 from .yaml_records import load_records
 
@@ -26,11 +26,10 @@ from .yaml_records import load_records
 # stale-tuning-prone and raises (ISC-62).
 REQUIRED_PROFILE_FIELDS = ("id", "name", "description", "family", "model_version", "control_channel")
 
-# The control-channel formats a family can honor. Closed vocabulary so a typo fails loudly at load
-# instead of silently rendering the family-blind default.
-PROFILE_CONTROL_CHANNELS: frozenset[str] = frozenset(
-    {"none", "system-role", "developer-role", "inst-tags", "chatml", "header-prefix"}
-)
+# The control-channel formats a family can honor — derived from the render pipeline's own frame
+# table (the single source of truth), so a channel that loads but has no frame cannot exist. A typo
+# fails loudly at load instead of KeyError-ing mid-run.
+PROFILE_CONTROL_CHANNELS: frozenset[str] = control_channel_names()
 
 # Keys that would smuggle an operative payload body into a profile. The loader refuses any of them
 # (ISC-65) — a profile is parameters and markers, never a working prompt.
@@ -71,13 +70,15 @@ class ModelProfile:
 
     @property
     def fingerprint(self) -> str:
-        """A stable id for the profile's DECLARED config, stamped onto every tuned row as
-        `model_profile_sha256` so a reader can pin a quoted render to the exact skin that made it.
+        """A stable id for the profile's DECLARED config (skin identity), stamped onto every tuned
+        row as `model_profile_sha256`.
 
-        It is a declared-config stamp, not a model-build guard: it changes when any operative field
-        here changes (version, channel, markers, carriers), but it cannot detect an upstream model
-        swapped out under the SAME `model_version` string — nothing here observes the model's weights.
-        """
+        It is a declared-config stamp, NOT a render pin: the render bytes are pinned per-row by
+        `prompt_sha256` (which is what a reader verifies a quoted render against). A frame-table edit
+        changes the render but not this fingerprint, so do not compare two runs by fingerprint alone.
+        It also cannot detect an upstream model swapped under the SAME `model_version` string —
+        nothing here observes the model's weights. It changes when any operative field here changes
+        (version, channel, markers, carriers)."""
         # \x1f delimits both the outer parts AND the inner list joins, so the hash is injective:
         # ["a", "b"] and ["a|b"] must not collide (an in-band "|" would let them).
         parts = (self.id, self.family, self.model_version, self.control_channel,
@@ -87,8 +88,17 @@ class ModelProfile:
 
 def _valid_carriers() -> frozenset[str]:
     """Carriers a profile may name: the transform kinds plus the wrapper frame names the render
-    pipeline actually understands. A profile naming anything else fails loudly at load."""
-    return TRANSFORM_KINDS | wrapper_frame_names()
+    pipeline actually understands. A profile naming anything else fails loudly at load.
+
+    The two registries MUST be disjoint: a name in both would apply in layer 1 (transform) AND
+    layer 2 (wrapper), silently breaking the no-double-encode/no-double-wrap invariants. They are
+    developer-defined constants, so this is a build-time guard, not input validation."""
+    wrappers = wrapper_frame_names()
+    overlap = TRANSFORM_KINDS & wrappers
+    if overlap:
+        raise ValueError(f"carrier registries overlap on {sorted(overlap)} — a name in both the "
+                         "transform and wrapper registries would apply in two render layers")
+    return TRANSFORM_KINDS | wrappers
 
 
 def load_profiles(profiles_dir: Path | None = None) -> list[ModelProfile]:

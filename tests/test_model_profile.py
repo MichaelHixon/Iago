@@ -126,6 +126,31 @@ def test_profiles_carry_no_payload_bodies():
             assert not leaked, f"{path.name}: {rec['id']!r} carries forbidden body field(s) {leaked}"
 
 
+def test_control_channel_vocab_matches_the_render_table():
+    """The loader's accepted channels are exactly the render pipeline's frame table — a channel that
+    loads but has no frame would KeyError mid-run."""
+    from iago.attacks import _CONTROL_CHANNEL_FRAMES
+    from iago.profiles import PROFILE_CONTROL_CHANNELS
+    assert set(_CONTROL_CHANNEL_FRAMES) == PROFILE_CONTROL_CHANNELS
+
+
+def test_transform_and_wrapper_registries_are_disjoint():
+    """A name in both registries would apply as BOTH a transform (layer 1) and a wrapper (layer 2),
+    silently breaking the no-double invariants — load would also raise via _valid_carriers."""
+    from iago.attacks import TRANSFORM_KINDS, wrapper_frame_names
+    assert TRANSFORM_KINDS.isdisjoint(wrapper_frame_names())
+
+
+def test_control_channel_class_soft_vs_hard():
+    from iago.attacks import SOFT_CHANNELS, control_channel_class, control_channel_names
+    assert SOFT_CHANNELS <= control_channel_names()
+    for ch in control_channel_names():
+        expected = "soft" if ch in SOFT_CHANNELS else "hard"
+        assert control_channel_class(ch) == expected
+    assert control_channel_class("system-role") == "soft"
+    assert control_channel_class("inst-tags") == "hard"
+
+
 def test_fingerprint_is_stable_across_independent_loads():
     """Same profile, two independent loads → identical fingerprint (a per-row stamp must be stable)."""
     first = {p.id: p for p in load_profiles()}

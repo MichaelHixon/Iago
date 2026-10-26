@@ -133,6 +133,27 @@ def _cmd_run(args: argparse.Namespace) -> int:
     tech_limit = 1 if args.smoke else args.limit_techniques
     obj_limit = 1 if args.smoke else args.limit_objectives
 
+    profile = None
+    profile_id = getattr(args, "profile", None)
+    if profile_id:
+        from .profiles import load_profiles
+
+        profiles = {p.id: p for p in load_profiles()}
+        profile = profiles.get(profile_id)
+        if profile is None:
+            print(f"ERROR: unknown profile {profile_id!r} (have: {sorted(profiles)})", file=sys.stderr)
+            return 2
+        # A deliberate mismatched skin (a family's framing against another target) is allowed and
+        # never auto-swapped. A profile/target compatibility warning is deferred until the Target
+        # declares its own family — a substring test on target.name inverts on the default path
+        # ("llama" is a substring of "ollama"), and a wrong advisory is worse than none.
+        from .attacks import control_channel_class
+
+        soft = control_channel_class(profile.control_channel) == "soft"
+        note = (" (soft lever — an API-role frame is literal text to the model; its delta is weaker "
+                "than a raw-token channel and not poolable with one)" if soft else "")
+        print(f"  profile={profile.id} (family {profile.family}, channel {profile.control_channel}){note}")
+
     print(f"Iago run → target {target.name}")
     print(f"  trials/pair={trials} temperature={args.temperature} base_seed={args.base_seed}")
 
@@ -149,6 +170,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             shots=args.shots,
             progress=True,
             determinism_check=getattr(args, "determinism_check", True),
+            profile=profile,
         )
     except AuthorizationError as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
@@ -817,6 +839,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help=f"wrap the target in a defense and measure holds: reference '{','.join(available_guards())}' "
                         "or 'all'; opt-in real guards (need a backend) 'llama-guard,guardrails-ai,"
                         "hf-prompt-injection'. Run raw + guarded, then `iago delta` (or `defense-delta`)")
+    r.add_argument("--profile", default=None, metavar="ID",
+                   help="render model-adaptively for a declared target family (see `iago profiles`): "
+                        "frames each ask in the family's control channel and effective carriers. "
+                        "Omit for today's model-blind rendering. Rows are stamped tuned; the "
+                        "fixed-baseline arm and dual-rate report arrive with the model-adaptive report")
     r.add_argument("--smoke", action="store_true", help="1x1x1 fast proof of the loop")
     r.add_argument("--no-determinism-check", action="store_false", dest="determinism_check",
                    help="skip the same-seed replay probe: saves 5 short generations (a warm-up "

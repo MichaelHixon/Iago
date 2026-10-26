@@ -34,6 +34,7 @@ from .attacks import (
     NEUTRAL_HISTORY_USER,
     PLANTED_HISTORY_ACK,
     Technique,
+    control_channel_class,
     load_library,
 )
 from .config import ARTIFACTS_DIR, BASE_SEED, CATEGORIES, DEFAULT_TEMPERATURE, DEFAULT_TRIALS
@@ -41,6 +42,7 @@ from .decode import decode_recovered, is_decode_gated
 from .judge import (_trust_arm_signal, judge, judge_deadend, judge_leak, judge_trust,
                     judge_unsafe_output, run_error)
 from .objectives import Objective, load_objectives
+from .profiles import ModelProfile
 from .target import Target, TruncatedReply, generation_bounds, sampling_gap, target_manifest_extra
 
 
@@ -127,6 +129,11 @@ class TrialResult:
 
 
 PROFILE_ONLY_FIELDS = ("profile_arm", "model_profile_sha256")
+
+# The dual-rate arm vocabulary, named once so the stamper here and S4's dual-rate report cannot
+# drift to different literals.
+PROFILE_ARM_BASELINE = "baseline"
+PROFILE_ARM_TUNED = "tuned"
 
 
 def trial_row(row: TrialResult) -> dict:
@@ -339,6 +346,7 @@ def run(
     objectives: list[Objective] | None = None,
     progress: bool = False,
     determinism_check: bool = True,
+    profile: "ModelProfile | None" = None,
 ) -> Path:
     """Execute the full matrix and write a JSONL artifact file. Returns its path.
 
@@ -404,6 +412,12 @@ def run(
 
     offline_judge_id = module_fingerprint("judge", "canary", "decode")
     library_id = library_fingerprint(lib)
+    # A profiled run renders the tuned arm and stamps every row. Compute the fingerprint ONCE here,
+    # not per row: the profile is frozen, so its fingerprint is invariant for the run. profile=None
+    # leaves both None, and trial_row omits the keys (S0) so the artifact keeps its pre-profile shape.
+    # (The baseline arm and the dual-rate report that refuses a tuned-only artifact are S4.)
+    profile_arm = PROFILE_ARM_TUNED if profile is not None else None
+    profile_sha = profile.fingerprint if profile is not None else None
     determinism = _determinism_probe(target, temperature, base_seed) if determinism_check else None
     declared = target_manifest_extra(target)
     if progress and determinism is not None and determinism.get("mismatch_detected") is True:
@@ -416,6 +430,22 @@ def run(
 
     dropped = sampling_gap(target, temperature=temperature, seed=base_seed)
 
+    extra = {"technique_library_sha256": library_id,
+             "techniques": len(lib), "objectives": len(objs), "compatible_pairs": compatible,
+             "category": category, "determinism": determinism}
+    if profile is not None:
+        # Only present on a profiled run — an unprofiled manifest keeps its pre-profile bytes
+        # (same byte-identity discipline as trial_row), so no existing artifact golden moves.
+        extra["model_profile"] = {"id": profile.id, "family": profile.family,
+                                  "model_version": profile.model_version,
+                                  "control_channel": profile.control_channel,
+                                  # soft|hard: a soft-channel (API-role) tuned delta is NOT poolable
+                                  # with a hard-channel one. The pooling axis lives IN the artifact,
+                                  # so a cross-family reader can refuse the pool without out-of-band
+                                  # knowledge — it must not wait on the S4 report.
+                                  "control_channel_class": control_channel_class(profile.control_channel),
+                                  "sha256": profile_sha}
+
     with out_path.open("w") as fh:
         write_manifest(fh, build_manifest(
             surface="chatbot", model=target.name,
@@ -425,10 +455,7 @@ def run(
                       "generation_bounds": generation_bounds(target)},
             judge_id=offline_judge_id,
             system_prompt_scope="per-objective",
-            extra={"technique_library_sha256": library_id,
-                   "techniques": len(lib), "objectives": len(objs), "compatible_pairs": compatible,
-                   "category": category, "determinism": determinism,
-                   **declared}))
+            extra={**extra, **declared}))
         # Round-robin by trial: each round (batch_id) fires the whole matrix once, so a
         # config's repeated trials are spread across the run instead of fired back-to-back.
         # That exposes non-stationarity (refusal drift over the run) rather than burying it
@@ -439,7 +466,7 @@ def run(
                 for obj in objs:
                     if not _fires(tech, obj):
                         continue  # technique not scoped to this objective (kind, or non-provenance vs trust)
-                    turns = tech.rendered_turns(obj.objective, shots=shots)  # single-shot => [one prompt]
+                    turns = tech.rendered_turns(obj.objective, shots=shots, profile=profile)  # single-shot => [one prompt]
                     opts = {"temperature": temperature, "seed": seed}
                     started = time.monotonic()
                     anon_response = anon_signal = placebo_response = placebo_signal = prov_signal = None
@@ -456,7 +483,7 @@ def run(
                         # (emits the action token) while anon AND placebo do not — isolating the
                         # relationship content. History goes in the PRIOR-TURN channel, never system.
                         gate = planted_system = obj.system_prompt
-                        ask = tech.render(obj.objective, shots=shots)  # wrapped final ask (no priming)
+                        ask = tech.render(obj.objective, shots=shots, profile=profile)  # wrapped final ask (no priming)
                         ack = PLANTED_HISTORY_ACK
                         _, anon_response = _execute_planted(target, gate, [], ask, opts)
                         placebo_plant = [{"role": "user", "content": NEUTRAL_HISTORY_USER},
@@ -542,6 +569,8 @@ def run(
                         deadend_control=(obj.in_scope_answer is not None) if obj.is_dead_end else None,
                         truncated=True if any(isinstance(r, TruncatedReply) for r in
                                               (response, anon_response, placebo_response)) else None,
+                        profile_arm=profile_arm,
+                        model_profile_sha256=profile_sha,
                         status="error" if v.verdict == _ERROR_VERDICT else "evaluated",
                         prompt_sha256=sha256_text(prompt),
                         response_sha256=sha256_text(response),
