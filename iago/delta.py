@@ -72,18 +72,29 @@ def _discordant(raw_rows: list[dict], guarded_rows: list[dict], kind: str) -> tu
     return b, c
 
 
+def paired_delta_pts(table: tuple[int, int, int, int]) -> tuple[float, float] | None:
+    """The Newcombe paired 95% interval on (second arm − first arm), in points, for a `_paired_table`
+    (a, b, c, d) where b = first-only and c = second-only; None when there are no pairs. The one home
+    of the orientation flip: `paired_difference_ci` returns first − second."""
+    a, b, c, d = table
+    if a + b + c + d == 0:
+        return None
+    lo, hi = paired_difference_ci(a=a, b=b, c=c, d=d)
+    return -hi * 100, -lo * 100
+
+
 def paired_delta_line(label: str, table: tuple[int, int, int, int]) -> str:
     """One report line: the 95% CI on the paired difference (guarded − raw, in points) for one
     objective kind, or an explicit n/a when there are no pairs. The interval is on the SAME
     quantity as the headline arrow (guarded minus raw), so a wholly negative interval is a
     reduction the pairing supports; an interval that crosses 0 is directional only."""
     a, b, c, d = table
-    n = a + b + c + d
-    if n == 0:
+    pts = paired_delta_pts(table)
+    if pts is None:
         return f"- **{label}:** n/a (0 pairs)"
-    lo, hi = paired_difference_ci(a=a, b=b, c=c, d=d)   # raw − guarded
+    n = a + b + c + d
     return (f"- **{label}:** 95% CI on the paired difference "
-            f"{-hi * 100:+.1f} to {-lo * 100:+.1f} pts (Newcombe hybrid score, paired; n = {n} pairs: "
+            f"{pts[0]:+.1f} to {pts[1]:+.1f} pts (Newcombe hybrid score, paired; n = {n} pairs: "
             f"{a} both bypassed, {b} raw-only, {c} guarded-only, {d} both held)")
 
 

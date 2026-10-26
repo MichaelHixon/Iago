@@ -686,17 +686,18 @@ def target_framing(manifest: dict | None) -> str:
     return f"a recorded replay of {origin}; no model ran for this report"
 
 
-def determinism_disclosure(manifest: dict | None) -> str:
+def determinism_disclosure(manifest: dict | None, *, pinning: str = "pinning note below") -> str:
     """One sentence telling the report's reader what the run measured about its own host.
 
     The measurement existed in the manifest and reached nobody: `build_report` took rows
     only, so a host that had just measured itself non-reproducible still produced a clean-looking
     report. A disclosure that does not reach the reader is not a disclosure, and the
-    unknown cases must never render as clean."""
+    unknown cases must never render as clean. `pinning` names the report's own statement of what
+    was pinned, since not every report carries the main report's pinning note."""
     d = (manifest or {}).get("determinism")
     if manifest is None:
         return ("_⚠️ Reproducibility on this host was **not read** for this report (no run manifest "
-                "available). Treat the pinning note below as a claim about inputs, not a measured "
+                f"available). Treat the {pinning} as a claim about inputs, not a measured "
                 "result._")
     # A control the backend dropped outranks any probe result: the pinning note below describes
     # what was requested, and this run never applied it.
@@ -704,7 +705,7 @@ def determinism_disclosure(manifest: dict | None) -> str:
     if dropped:
         names = ", ".join(f"`{c}`" for c in dropped)
         return (f"_⚠️ **The target backend ignored {names}**: requested and recorded, but never "
-                "applied. The pinning note below does not hold for this run, and it cannot be "
+                f"applied. The {pinning} does not hold for this run, and it cannot be "
                 "replayed by seed._")
     if d is None:
         return ("_⚠️ The determinism check **did not run** for this run (`--no-determinism-check`), "

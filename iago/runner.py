@@ -419,10 +419,12 @@ def run(
     # The fingerprint is computed ONCE (the profile is frozen, so it is invariant for the run). An
     # unprofiled run keeps the single pre-profile arm (profile_arm=None) and trial_row omits the
     # keys (S0), so its artifact is byte-identical to before — that one-tuple is purely a loop shim
-    # so the shared body runs once. Order is counterbalanced by trial parity: although both arms use
-    # the same seed, a real target can carry server-side order effects (warm-cache / first-call-after-
-    # load — the same cold/warm straddle the determinism probe guards), so neither arm systematically
-    # leads. For a fully stateless target the swap is a harmless no-op.
+    # so the shared body runs once. Arm order ALTERNATES by trial parity (baseline first on even
+    # trials): although both arms use the same seed, a real target can carry server-side order effects
+    # (warm-cache / first-call-after-load — the same cold/warm straddle the determinism probe guards),
+    # so alternating keeps one arm from always leading. It balances only at an EVEN trial count: at
+    # the default 3 trials baseline leads 2 of 3, and at --trials 1 it leads every pair. For a fully
+    # stateless target the swap is a harmless no-op.
     profile_sha = profile.fingerprint if profile is not None else None
     arms = (((None, None, None),) if profile is None
             else ((None, PROFILE_ARM_BASELINE, None), (profile, PROFILE_ARM_TUNED, profile_sha)))

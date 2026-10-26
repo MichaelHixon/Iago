@@ -501,25 +501,37 @@ def require_dual_arms(rows: list[dict]) -> tuple[int, int]:
 def _seed_is_dropped(manifest: dict | None) -> bool:
     """A family is STOCHASTIC for pairing when the target dropped the seed (e.g. the Anthropic API):
     a single draw per arm is then not a matched pair, so a paired-difference CI would be a tight CI
-    on noise. Read from what the run RECORDED as unsupported, never guessed from the model name."""
+    on noise. Read from what the run RECORDED as unsupported, never guessed from the model name.
+    Only `seed` matters here: pairing needs the seed alone, whereas `report.determinism_disclosure`
+    treats ANY dropped control as voiding replay."""
     sampling = (manifest or {}).get("sampling") or {}
     return "seed" in (sampling.get("unsupported_controls") or [])
+
+
+def _seed_mismatch(manifest: dict | None) -> bool | None:
+    """Did the target HONOR the seed it accepted? The run's own determinism probe answers: True when
+    two replies at one seed differed (accepted but not honored — the arms are independent draws, so a
+    paired interval would be tight on noise), False when no pair differed, None when unprobed."""
+    return ((manifest or {}).get("determinism") or {}).get("mismatch_detected")
 
 
 def write_model_adaptive_report(rows: list[dict], manifest: dict | None = None,
                                 reports_dir: Path | None = None) -> Path:
     """Render the dual-rate model-adaptive report: tuned vs fixed-baseline bypass rate over the same
-    technique set. Reuses delta.py's paired-table helpers so this and the defense-delta report share
-    one rate/CI implementation. Reads rows only.
+    technique set. Shares delta.py's pairing, rate/Wilson and paired-interval helpers with the
+    defense-delta report; only the wording here is its own. Reads rows only.
 
-    DETERMINISTIC (seed-honored, e.g. Ollama) and STOCHASTIC (seed-dropped, e.g. the Anthropic API)
-    families render in SEPARATE blocks: the deterministic block quotes the paired-difference CI; the
-    stochastic block quotes each arm's rate and labels the delta OPEN (a single unpaired draw per
-    cell is not a matched pair). The control-channel class (soft|hard) is surfaced so a reader never
-    pools a soft-channel delta with a hard-channel one."""
+    DETERMINISTIC (seed accepted and not shown unhonored, e.g. Ollama) and STOCHASTIC (seed dropped,
+    e.g. the Anthropic API, or accepted but shown unhonored by the run's determinism probe) runs
+    render in SEPARATE blocks: the deterministic block leads with exact discordant counts and the
+    McNemar p, the Newcombe interval demoted to a descriptive line (the technique set is a census,
+    ISC-112); the stochastic block quotes each arm's rate and labels the delta OPEN (a single
+    unpaired draw per cell is not a matched pair). The control-channel class (soft|hard) is surfaced
+    so a reader never pools a soft-channel delta with a hard-channel one."""
     from .config import REPORTS_DIR
-    from .delta import _paired_table, _pair_key, _rate_block, _valid, paired_delta_line
-    from .report import pct
+    from .delta import _paired_table, _pair_key, _rate_block, _valid, paired_delta_pts
+    from .report import determinism_disclosure, pct
+    from .stats import mcnemar_exact_p
 
     require_dual_arms(rows)  # first line: refuse a tuned-only artifact shape (ISC-64)
 
@@ -534,7 +546,11 @@ def write_model_adaptive_report(rows: list[dict], manifest: dict | None = None,
     family = mp.get("family", "unknown")
     channel = mp.get("control_channel", "unknown")
     channel_class = mp.get("control_channel_class", "unknown")
-    stochastic = _seed_is_dropped(manifest)
+    seed_dropped = _seed_is_dropped(manifest)
+    mismatch = _seed_mismatch(manifest)
+    # Accepted-but-not-honored is no better than dropped; with no manifest nothing about the seed was
+    # read at all, so the delta stays OPEN rather than borrowing a pairing nobody measured.
+    stochastic = manifest is None or seed_dropped or mismatch is True
 
     # Orphan accounting: a pair needs BOTH arms. Count any valid forbidden arm-row whose twin is
     # missing — e.g. a mid-run transport error killed one arm. Scoped to the SAME universe the rates
@@ -558,10 +574,23 @@ def write_model_adaptive_report(rows: list[dict], manifest: dict | None = None,
     if channel_class == "soft":
         lines.append("- ⚠️ **Soft channel:** an API-role frame is literal text to the model — a weaker "
                      "lever than a raw-token channel. Do NOT pool this delta with a hard-channel run.")
-    pairing_desc = ("STOCHASTIC — seed dropped by the target; delta is OPEN, not a paired CI"
-                    if stochastic else
-                    "DETERMINISTIC — seed honored; paired-difference CI quoted")
+    if manifest is None:
+        pairing_desc = "UNKNOWN — no run manifest, so the seed was never read; delta is OPEN"
+    elif seed_dropped:
+        pairing_desc = "STOCHASTIC — seed dropped by the target; delta is OPEN, not a paired CI"
+    elif mismatch is True:
+        pairing_desc = ("STOCHASTIC — the target accepted the seed but did not honor it (this run's "
+                        "determinism probe got two different replies at one seed); delta is OPEN, "
+                        "not a paired CI")
+    elif mismatch is False:
+        pairing_desc = ("DETERMINISTIC — seed accepted, no mismatch observed by the determinism probe "
+                        "(one-sided: not proof of reproducibility); exact discordant counts quoted")
+    else:
+        pairing_desc = ("DETERMINISTIC — seed accepted, but honoring is NOT verified (no completed "
+                        "determinism probe); exact discordant counts quoted")
     lines.append(f"- **Pairing:** {pairing_desc}")
+    # The same sentence the main report prints for this manifest, so the two never disagree.
+    lines.append(f"- {determinism_disclosure(manifest, pinning='same-seed pairing below')}")
     if orphan_tuned or orphan_baseline:
         lines.append(f"- **{orphan_tuned + orphan_baseline} pair(s) excluded** — an arm-row had no twin "
                      f"(tuned-only: {orphan_tuned}, baseline-only: {orphan_baseline}); each dropped from the "
@@ -577,29 +606,62 @@ def write_model_adaptive_report(rows: list[dict], manifest: dict | None = None,
     lines.append("")
     lines.append("| Arm | Bypasses | Scored | Rate | 95% CI |")
     lines.append("|---|---:|---:|---:|---:|")
-    lines.append(f"| fixed baseline | {base_block['hits']} | {base_block['total']} | "
-                 f"{pct(base_block['rate'])} | {base_block['ci']} |")
-    lines.append(f"| profile-tuned | {tuned_block['hits']} | {tuned_block['total']} | "
-                 f"{pct(tuned_block['rate'])} | {tuned_block['ci']} |")
+    for label, block in (("fixed baseline", base_block), ("profile-tuned", tuned_block)):
+        # Zero valid probes is no measurement: `bypass_rate` returns 0.0 there, which would read as
+        # a safety win beside an all-transport-error arm (ISC-114).
+        rate = pct(block["rate"]) if block["total"] else "n/a"
+        lines.append(f"| {label} | {block['hits']} | {block['total']} | {rate} | {block['ci']} |")
     lines.append("")
+    if not base_block["total"] and not tuned_block["total"]:
+        # Two different causes of an empty table: no forbidden objective fired at all (e.g.
+        # `--category` scoped them out), or every one that fired errored / never decoded.
+        if any(r["objective_kind"] == "forbidden" for r in baseline_rows + tuned_rows):
+            cause = "every forbidden probe in both arms was a transport error or never decoded (0 valid)"
+        else:
+            cause = ("this run fired no forbidden-kind objectives (e.g. `--category` scoped them out); "
+                     "this report measures forbidden objectives only")
+        lines.append(f"> ⚠️ **Nothing was measured:** {cause}. No number in this report is a "
+                     "safety result.")
+        lines.append("")
 
     if stochastic:
         lines.append("### Tuned − baseline delta: **OPEN**")
         lines.append("")
-        lines.append("> The target dropped the seed, so each arm is a single unpaired draw per cell —")
+        why = ("No run manifest was read, so the seed is unknown" if manifest is None
+               else f"The target {'dropped' if seed_dropped else 'did not honor'} the seed")
+        lines.append(f"> {why}, so each arm is treated as a single unpaired draw per cell —")
         lines.append("> not a matched pair. A paired-difference CI here would be a tight interval on")
         lines.append("> noise, so the delta is reported OPEN: run ≥k draws per cell with within-cell")
         lines.append("> variance propagated before quoting a number. The two arm rates above stand on")
         lines.append("> their own; the difference between them is NOT adjudicated.")
     else:
+        # The technique set is ENUMERATED (a census), so the exact discordant counts are the result
+        # and lead; the Newcombe interval is demoted to a labeled descriptive line (ISC-112).
+        # b = baseline-only bypassed, c = tuned-only bypassed (delta._paired_table's raw/guarded).
         table = _paired_table(baseline_rows, tuned_rows, "forbidden")
+        both, b, c, neither = table
+        pts = paired_delta_pts(table)  # tuned − baseline
         lines.append("### Tuned − baseline delta (paired)")
         lines.append("")
-        lines.append(paired_delta_line("Forbidden (tuned − baseline)", table))
+        if pts is None:
+            lines.append("- **Paired delta:** n/a (0 pairs)")
+        else:
+            if b == c:
+                sign = "none (no discordant pairs)" if b == 0 else "even split"
+            else:
+                sign = "tuned lift" if c > b else "tuned drop"
+            lines.append(f"- **Discordant pairs (exact):** {c} tuned-only bypassed, {b} baseline-only "
+                         f"bypassed (of {sum(table)} pairs; {both} both bypassed, {neither} both held). "
+                         f"Exact McNemar two-sided p = {mcnemar_exact_p(b, c):.3g}; sign: {sign}.")
+            lines.append(f"- **Descriptive dispersion only:** Newcombe paired interval on tuned − "
+                         f"baseline {pts[0]:+.1f} to {pts[1]:+.1f} pts.")
         lines.append("")
-        lines.append("> Seed honored, so the two renders of each (technique, objective, trial) are a")
-        lines.append("> matched pair. The interval is on tuned − baseline: a wholly positive interval is")
-        lines.append("> a tuning lift the pairing supports; an interval crossing 0 is directional only.")
+        lines.append("> Same seed per arm, so the two renders of each (technique, objective, trial) are")
+        lines.append("> paired (how far the target honors that seed is stated above). The technique set")
+        lines.append("> is enumerated, not sampled, so the counts above")
+        lines.append("> ARE the result on this set; the interval describes spread across these pairs and")
+        lines.append("> is NOT sampling precision over techniques. A small p says the split is unlikely")
+        lines.append("> under a coin-flip null, not that the lift generalizes beyond this set.")
     lines.append("")
 
     lines.append("> **Rates are bypass CANDIDATES** on a fresh heuristic run — confirm with `iago "

@@ -96,7 +96,7 @@ def test_profiled_run_fires_both_arms_and_stamps_the_manifest(tmp_path):
 
 
 def test_profiled_run_at_trials_2_fires_both_arms_each_trial(tmp_path):
-    """Exercises the counterbalanced-order branch (`arms[::-1]` on odd trials) and the
+    """Exercises the alternating-order branch (`arms[::-1]` on odd trials) and the
     `total = compatible*trials*2` counter: at trials=2 over one pair, 4 rows land — 2 baseline and
     2 tuned, one of each per trial. A mutation dropping the reversed-order branch or mis-counting
     the arms reds here (the trials=1 e2e test never runs the odd-trial branch)."""
@@ -114,6 +114,9 @@ def test_profiled_run_at_trials_2_fires_both_arms_each_trial(tmp_path):
     for t in (0, 1):
         trial_arms = sorted(r["profile_arm"] for r in rows if r["trial"] == t)
         assert trial_arms == ["baseline", "tuned"]
+    # rows land in firing order: baseline leads on the even trial, tuned on the odd one
+    assert [(r["trial"], r["profile_arm"]) for r in rows] == [
+        (0, "baseline"), (0, "tuned"), (1, "tuned"), (1, "baseline")]
 
 
 def test_soft_channel_profile_is_labeled_soft_in_the_manifest(tmp_path):
