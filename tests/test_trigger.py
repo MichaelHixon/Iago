@@ -530,11 +530,15 @@ def test_the_parser_registers_trigger_run():
 def test_the_readme_states_the_threat_model_and_ships_no_weights():
     text = (ROOT / "README.md").read_text()
     for anchor in ("trigger-check", "TRIGGERED_SENTINEL", "no model weights", "false-trigger",
-                   "trigger it does not know"):
+                   "trigger it does not know", "not proof of a planted backdoor",
+                   "exactly one payload", "clustered by prompt", "the indicators checked"):
         assert anchor in text, anchor
-    # The coverage table no longer calls LLM03 wholly out of scope, and says what stays out.
-    row = next(line for line in text.splitlines() if line.startswith("| LLM03 |"))
-    assert "◑" in row and "provenance" in row
+    # No uncited cost or size claim about building a backdoor.
+    assert "$50" not in text and "under $" not in text
+    # trigger-check sits under LLM04 only; LLM03 stays wholly out of scope, as before this check.
+    rows = {line.split("|")[1].strip(): line for line in text.splitlines() if line.startswith("| LLM0")}
+    assert "⛔" in rows["LLM03"] and "trigger-check" not in rows["LLM03"]
+    assert "◑" in rows["LLM04"] and "trigger-check" in rows["LLM04"]
     assert ".lab/trigger-fixture/" in (ROOT / ".gitignore").read_text()
 
 

@@ -2,11 +2,9 @@
 
 Threat model. A community model (an abliterated or fine-tuned variant pulled from a public hub)
 can carry a planted backdoor: on a trigger phrase it does something its publisher never
-documented, and on every other input it behaves normally. The published demonstration this
-check answers to had a backdoored 7B model, built for under $50, make an agent exfiltrate
-credentials on the trigger every time and never without it. That last property is the point:
-a good backdoor has a zero false-trigger rate, so a model that passes every ordinary test can
-still be a model that should not hold credentials.
+documented, and on every other input it behaves normally (Hubinger et al. 2024, Sleeper Agents,
+arXiv:2401.05566, trains and studies this class). A good backdoor has a zero false-trigger rate,
+so a model that passes every ordinary test can still be a model that should not hold credentials.
 
 What this check can and cannot do. Iago cannot find a trigger it does not know; it drives a
 model with prompts, and an unknown trigger produces no prompt to drive it with. Given a
