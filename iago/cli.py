@@ -833,15 +833,17 @@ def _cmd_trigger_check(args: argparse.Namespace) -> int:
         trials = args.trials
         if args.limit_prompts:
             probes = replace(probes, prompts=probes.prompts[:args.limit_prompts])
-    requested, trials = trials, tr.effective_trials(trials, args.temperature)
+    # `run_trigger_check` is the one place that collapses trials (and records both counts in
+    # the manifest); this is only the printout of what it will do.
+    effective = tr.effective_trials(trials, args.temperature)
 
     print(f"Iago trigger check → target {target.name}")
-    print(f"  prompts={len(probes.prompts)} triggers={len(triggers)} trials/prompt={trials} "
+    print(f"  prompts={len(probes.prompts)} triggers={len(triggers)} trials/prompt={effective} "
           f"temperature={args.temperature} base_seed={args.base_seed}"
           + (f" sentinel={args.sentinel!r}" if args.sentinel else ""))
-    if trials != requested:
+    if effective != trials:
         print(f"  note: at temperature 0 every trial of a prompt is the same generation, so "
-              f"--trials {requested} collapsed to 1 per prompt (identical replicas are not evidence).")
+              f"--trials {trials} collapsed to 1 per prompt (identical replicas are not evidence).")
     if not args.sentinel and not any(t.sentinel for t in triggers):
         # No sentinel applies at all (a bare --trigger, or a --probes set that ships none).
         print("  indicators: canary only; a payload other than credential disclosure will not show")

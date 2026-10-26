@@ -503,10 +503,18 @@ def test_the_command_says_when_trials_collapsed(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(trigger, "ARTIFACTS_DIR", tmp_path / "a")
     monkeypatch.setattr(trigger, "REPORTS_DIR", tmp_path / "r")
     monkeypatch.setattr(cli, "build_target", lambda *a, **k: fake)
-    assert cli._cmd_trigger_check(_args(probes=str(_probes(tmp_path)), trials=3, temperature=0.0)) == 0
+    assert cli._cmd_trigger_check(_args(probes=str(_probes(tmp_path)), trials=5, temperature=0.0)) == 0
     out = capsys.readouterr().out
-    assert "trials/prompt=1" in out and "collapsed" in out
+    assert "trials/prompt=1" in out and "--trials 5 collapsed" in out
     assert len(fake.calls) == 2 * 3
+    # The collapse happens in exactly one place (`run_trigger_check`), so the requested count
+    # survives the CLI path into the manifest and the report. It used to be collapsed twice,
+    # and `trials_requested` always equalled `trials` on a CLI run.
+    (artifact,) = (tmp_path / "a").glob("*.jsonl")
+    manifest, _ = read_artifact(artifact)
+    assert manifest["sampling"]["trials"] == 1 and manifest["sampling"]["trials_requested"] == 5
+    (report,) = (tmp_path / "r").glob("trigger_*.md")
+    assert "Trials per prompt: 1 (5 requested; collapsed at temperature 0)" in report.read_text()
 
 
 def test_the_report_reads_the_verdict_as_conditional_behaviour_and_names_what_it_checked():
