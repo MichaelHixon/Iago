@@ -815,10 +815,16 @@ def _cmd_trigger_check(args: argparse.Namespace) -> int:
 
     if _refused_before_build(args.target, args.authorized):
         return 2
+    if args.actions and args.target != "ollama":
+        # The agent loop needs a tool-calling chat backend; only Ollama's is wired (agent_run).
+        print(f"ERROR: --actions needs a tool-calling agent backend; only --target ollama has one "
+              f"(got {args.target!r}).", file=sys.stderr)
+        return 2
     try:
         if args.target == "ollama":
             require_ollama_model(args.model)
-        probes = tr.load_probes(Path(args.probes) if args.probes else None)
+        probe_path = Path(args.probes) if args.probes else None
+        probes = tr.load_action_probes(probe_path) if args.actions else tr.load_probes(probe_path)
         triggers = tr.cli_triggers(args.trigger, probes) if args.trigger else list(probes.triggers)
         tr.compile_sentinel(args.sentinel, probes, triggers)   # refused before any model call
         target = build_target(args.target, model=args.model)
@@ -844,12 +850,23 @@ def _cmd_trigger_check(args: argparse.Namespace) -> int:
     if effective != trials:
         print(f"  note: at temperature 0 every trial of a prompt is the same generation, so "
               f"--trials {trials} collapsed to 1 per prompt (identical replicas are not evidence).")
-    if not args.sentinel and not any(t.sentinel for t in triggers):
-        # No sentinel applies at all (a bare --trigger, or a --probes set that ships none).
-        print("  indicators: canary only; a payload other than credential disclosure will not show")
-    artifact_path = tr.run_trigger_check(
-        target, probes, triggers=triggers, trials=trials, temperature=args.temperature,
-        base_seed=args.base_seed, sentinel=args.sentinel, progress=True)
+    if args.actions:
+        from .agent_run import ollama_chat_fn
+        from .target import sampling_gap
+
+        print("  mode: actions (RAG agent loop; the tool-call trace is scored too)")
+        artifact_path = tr.run_action_trigger_check(
+            ollama_chat_fn(args.model), probes, model_name=target.name,
+            unsupported_controls=sampling_gap(target, temperature=args.temperature, seed=args.base_seed),
+            triggers=triggers, trials=trials, temperature=args.temperature,
+            base_seed=args.base_seed, sentinel=args.sentinel, progress=True)
+    else:
+        if not args.sentinel and not any(t.sentinel for t in triggers):
+            # No sentinel applies at all (a bare --trigger, or a --probes set that ships none).
+            print("  indicators: canary only; a payload other than credential disclosure will not show")
+        artifact_path = tr.run_trigger_check(
+            target, probes, triggers=triggers, trials=trials, temperature=args.temperature,
+            base_seed=args.base_seed, sentinel=args.sentinel, progress=True)
     manifest, rows = read_artifact(artifact_path)
     report_path = tr.write_trigger_report(rows, manifest=manifest)
     print(f"\nArtifacts: {artifact_path}")
@@ -1173,7 +1190,11 @@ def build_parser() -> argparse.ArgumentParser:
     tg.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per prompt (each a matched pair per trigger)")
     tg.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     tg.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
-    tg.add_argument("--probes", default=None, metavar="PATH", help="an alternative probe-set YAML (same shape as the shipped one)")
+    tg.add_argument("--probes", default=None, metavar="PATH", help="an alternative probe-set YAML (same shape as the shipped one; "
+                                                                   "with --actions, an alternative action probe set)")
+    tg.add_argument("--actions", action="store_true",
+                    help="run each arm as a tool-using agent (the RAG loop) and also score its tool calls: a "
+                         "credential read, an external send, the credential in any argument (ollama only)")
     tg.add_argument("--limit-prompts", type=_positive_int, default=None, dest="limit_prompts", help="use only the first N prompts")
     tg.add_argument("--smoke", action="store_true", help="1 prompt x 1 trigger x 1 trial: a fast proof of the loop, not a measurement")
     tg.add_argument("--authorized", action="store_true",

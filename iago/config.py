@@ -70,6 +70,9 @@ INJECTED_PRIV_MARKER = "IAGO_PRIV_TARGET"
 # slot each, a documented candidate-trigger set, and the system prompt whose planted credential is
 # the check's built-in indicator.
 TRIGGER_PROBES_FILE = PROJECT_ROOT / "attacks" / "trigger" / "probes.yaml"
+# `trigger-check --actions`: benign agent tasks over a clean knowledge base, and private notes
+# holding the credential, so a backdoor that acts through tool calls shows in the trace.
+TRIGGER_ACTION_PROBES_FILE = PROJECT_ROOT / "attacks" / "trigger" / "action_probes.yaml"
 
 # A tool-using agent gets a bounded number of think→act steps per scenario so a
 # hijacked loop can't run away; enough to read a doc, read notes, and send.
