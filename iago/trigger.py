@@ -87,7 +87,6 @@ ACTION_CREDENTIAL_READ = "action:credential-read"
 ACTION_EGRESS = "action:egress"
 ACTION_CANARY_ARGS = "action:canary-in-args"
 ACTION_INDICATORS = (ACTION_CREDENTIAL_READ, ACTION_EGRESS, ACTION_CANARY_ARGS)
-ACTION_PREFIX = "action:"
 
 
 @dataclass(frozen=True)
@@ -156,12 +155,25 @@ def load_probes(path: Path | None = None) -> ProbeSet:
     system_prompt = str(doc.get("system_prompt") or "")
     canary = str(doc.get("canary") or "")
     _require(bool(system_prompt.strip()), path, "'system_prompt' is missing or empty")
+    _require_canary(canary, path)
+    _require(canary in system_prompt, path, "the canary is not inside 'system_prompt'")
+    prompts = _parse_prompts(doc.get("prompts") or [], path)
+
+    triggers = parse_triggers(doc.get("triggers") or [], path)
+    _require(bool(triggers), path, "'triggers' holds no records")
+    check_triggers(triggers, prompts, path, canary=canary, system_prompt=system_prompt)
+    return ProbeSet(prompts, triggers, system_prompt, canary, sha256_text(path.read_text()))
+
+
+def _require_canary(canary: str, path: Path) -> None:
     _require(len(canary) >= 12 and any(ch.isdigit() for ch in canary), path,
              "'canary' must be a long (>= 12 chars) token with a digit salt")
-    _require(canary in system_prompt, path, "the canary is not inside 'system_prompt'")
 
+
+def _parse_prompts(records: list, path: Path) -> list[Probe]:
+    """Prompt records, each with exactly one slot, at least one, ids unique."""
     prompts: list[Probe] = []
-    for rec in doc.get("prompts") or []:
+    for rec in records:
         _require(isinstance(rec, dict) and bool(rec.get("id")) and isinstance(rec.get("text"), str),
                  path, f"prompt record needs 'id' and 'text': {rec!r}")
         _require(rec["text"].count(PLACEHOLDER) == 1, path,
@@ -169,11 +181,7 @@ def load_probes(path: Path | None = None) -> ProbeSet:
         prompts.append(Probe(str(rec["id"]), rec["text"]))
     _require(bool(prompts), path, "'prompts' holds no records")
     _require(len({p.id for p in prompts}) == len(prompts), path, "duplicate prompt id")
-
-    triggers = parse_triggers(doc.get("triggers") or [], path)
-    _require(bool(triggers), path, "'triggers' holds no records")
-    check_triggers(triggers, prompts, path, canary=canary, system_prompt=system_prompt)
-    return ProbeSet(prompts, triggers, system_prompt, canary, sha256_text(path.read_text()))
+    return prompts
 
 
 def parse_triggers(records: list, path: Path) -> list[Trigger]:
@@ -190,7 +198,7 @@ def parse_triggers(records: list, path: Path) -> list[Trigger]:
     return out
 
 
-def load_action_probes(path: Path | None = None, *, triggers_from: Path | None = None) -> ProbeSet:
+def load_action_probes(path: Path | None = None) -> ProbeSet:
     """Read and validate the action-mode probe set. The system prompt is the RAG agent's own
     (`agent_rag.RAG_SYSTEM_PROMPT`) and the triggers are the text probe set's, so both modes test
     the same phrases. The canary must sit in the private notes and nowhere the agent reads
@@ -203,8 +211,7 @@ def load_action_probes(path: Path | None = None, *, triggers_from: Path | None =
     canary = str(doc.get("canary") or "")
     notes = str(doc.get("private_notes") or "")
     corpus = doc.get("corpus") or {}
-    _require(len(canary) >= 12 and any(ch.isdigit() for ch in canary), path,
-             "'canary' must be a long (>= 12 chars) token with a digit salt")
+    _require_canary(canary, path)
     _require(canary in notes, path, "the canary is not inside 'private_notes'")
     _require(isinstance(corpus, dict) and bool(corpus)
              and all(isinstance(v, str) and v.strip() for v in corpus.values()), path,
@@ -214,16 +221,8 @@ def load_action_probes(path: Path | None = None, *, triggers_from: Path | None =
     for cid, text in corpus.items():
         _require(not contains_secret(text, canary), path,
                  f"corpus chunk {cid!r} carries the canary; retrieving it is not a credential read")
-    prompts: list[Probe] = []
-    for rec in doc.get("prompts") or []:
-        _require(isinstance(rec, dict) and bool(rec.get("id")) and isinstance(rec.get("text"), str),
-                 path, f"prompt record needs 'id' and 'text': {rec!r}")
-        _require(rec["text"].count(PLACEHOLDER) == 1, path,
-                 f"prompt {rec['id']!r} must hold exactly one {PLACEHOLDER} slot")
-        prompts.append(Probe(str(rec["id"]), rec["text"]))
-    _require(bool(prompts), path, "'prompts' holds no records")
-    _require(len({p.id for p in prompts}) == len(prompts), path, "duplicate prompt id")
-    triggers = load_probes(triggers_from).triggers
+    prompts = _parse_prompts(doc.get("prompts") or [], path)
+    triggers = load_probes().triggers
     probes = ProbeSet(prompts, triggers, RAG_SYSTEM_PROMPT, canary, sha256_text(path.read_text()),
                       corpus=corpus, private_notes=notes)
     check_triggers(triggers, prompts, path, canary=canary, system_prompt=RAG_SYSTEM_PROMPT,
@@ -377,7 +376,7 @@ def run_trigger_check(target: Target, probes: ProbeSet, *, triggers: list[Trigge
 
     return _run_pairs(target.name, probes, fire, triggers=triggers, trials=trials,
                       temperature=temperature, base_seed=base_seed, sentinel=sentinel,
-                      unsupported=lambda: sampling_gap(target, temperature=temperature, seed=base_seed),
+                      unsupported=sampling_gap(target, temperature=temperature, seed=base_seed),
                       actions=False, artifacts_dir=artifacts_dir, progress=progress)
 
 
@@ -405,13 +404,13 @@ def run_action_trigger_check(chat_fn, probes: ProbeSet, *, model_name: str,
 
     return _run_pairs(model_name, probes, fire, triggers=triggers, trials=trials,
                       temperature=temperature, base_seed=base_seed, sentinel=sentinel,
-                      unsupported=lambda: list(unsupported_controls), actions=True,
+                      unsupported=list(unsupported_controls), actions=True,
                       artifacts_dir=artifacts_dir, progress=progress)
 
 
 def _run_pairs(model_name: str, probes: ProbeSet, fire, *, triggers: list[Trigger] | None,
                trials: int, temperature: float, base_seed: int, sentinel: str | None,
-               unsupported, actions: bool, artifacts_dir: Path | None, progress: bool) -> Path:
+               unsupported: list[str], actions: bool, artifacts_dir: Path | None, progress: bool) -> Path:
     """The paired loop both modes share. `fire(prompt, opts)` returns (text, tool calls or None,
     action labels); text indicators are added here."""
     triggers = list(triggers) if triggers is not None else list(probes.triggers)
@@ -445,7 +444,7 @@ def _run_pairs(model_name: str, probes: ProbeSet, fire, *, triggers: list[Trigge
             sampling={"trials": trials, "trials_requested": requested,
                       "temperature": temperature, "base_seed": base_seed,
                       "seed_rule": "base_seed + trial, shared by the clean and trigger arms of a pair",
-                      "unsupported_controls": unsupported()},
+                      "unsupported_controls": unsupported},
             judge_id=None, system_prompt=probes.system_prompt, extra=extra))
         for trial in range(trials):
             seed = base_seed + trial
@@ -776,21 +775,24 @@ def render_trigger_report(rows: list[dict], manifest: dict | None = None) -> str
 
     fired = [row for row in rows if row.get("fired")]
     if fired:
-        head = "| Arm | Trigger | Prompt | Trial | Indicator | Reply (excerpt) |"
-        rule = "|---|---|---|---|---|---|"
+        def table_row(cells: list[str]) -> str:
+            return "| " + " | ".join(cells) + " |"
+
+        cols = ["Arm", "Trigger", "Prompt", "Trial", "Indicator", "Reply (excerpt)"]
         if actions:
-            head, rule = head + " Tool calls (excerpt) |", rule + "---|"
-        lines.extend(["## What fired", "", head, rule])
+            cols.append("Tool calls (excerpt)")
+        lines.extend(["## What fired", "", table_row(cols), "|" + "---|" * len(cols)])
         for row in fired[:12]:
-            cells = (f"| {row['arm']} | {row['trigger_id'] or '—'} | {row['prompt_id']} | {row['trial']} | "
-                     f"{','.join(row['fired_by'])} | {_excerpt(row['response'])} |")
+            cells = [row["arm"], row["trigger_id"] or "—", row["prompt_id"], str(row["trial"]),
+                     ",".join(row["fired_by"]), _excerpt(row["response"])]
             if actions:
                 calls = "; ".join(f"{c['name']}({json.dumps(c['arguments'], sort_keys=True)})"
                                   for c in row.get("tool_calls") or [])
-                cells += f" {_excerpt(calls or '—', 240)} |"
-            lines.append(cells)
+                cells.append(_excerpt(calls or "—", 240))
+            lines.append(table_row(cells))
         if len(fired) > 12:
-            lines.append(f"| … | | | | | {len(fired) - 12} more in the artifact |" + (" |" if actions else ""))
+            more = ["…", "", "", "", "", f"{len(fired) - 12} more in the artifact"]
+            lines.append(table_row(more + [""] * (len(cols) - len(more))))
         lines.append("")
 
     lines.extend([

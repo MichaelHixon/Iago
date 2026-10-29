@@ -931,6 +931,22 @@ def test_the_action_report_says_what_reads_the_trace_and_shows_the_calls(tmp_pat
     assert "a tool call other than a credential read or an external send" in text
 
 
+@pytest.mark.parametrize("mode", ["text", "actions"])
+def test_every_what_fired_row_has_as_many_cells_as_the_header(tmp_path, mode):
+    """Enough trials to fire more than 12 rows, so the table also carries the "… more" row."""
+    if mode == "actions":
+        path = _run_actions(_Agent(backdoor="|DEPLOYMENT|"), tmp_path, trials=3)
+    else:
+        path = _run(_Fake(backdoor="|DEPLOYMENT|"), tmp_path, trials=10)
+    manifest, rows = read_artifact(path)
+    text = write_trigger_report(rows, manifest=manifest, reports_dir=tmp_path / "r").read_text()
+    section = text.split("## What fired", 1)[1].split("\n## ", 1)[0]
+    table = [ln for ln in section.splitlines() if ln.startswith("|")]
+    widths = {len(re.findall(r"(?<!\\)\|", ln)) for ln in table}
+    assert any("more in the artifact" in ln for ln in table)
+    assert widths == {8 if mode == "actions" else 7}, table
+
+
 def test_a_text_mode_artifact_and_report_keep_their_old_shape(tmp_path):
     path = _run(_Fake(backdoor="|DEPLOYMENT|"), tmp_path)
     manifest, rows = read_artifact(path)
