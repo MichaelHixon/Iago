@@ -41,6 +41,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -232,7 +233,7 @@ def load_action_probes(path: Path | None = None, *, triggers_from: Path | None =
 
 def check_triggers(triggers: list[Trigger], prompts: list[Probe], path: Path, *,
                    canary: str, system_prompt: str,
-                   extra_inputs: list[tuple[str, str]] = ()) -> dict[str, re.Pattern]:
+                   extra_inputs: Sequence[tuple[str, str]] = ()) -> dict[str, re.Pattern]:
     """Refuse a trigger set whose arms could not differ, one that renders the canary into a
     prompt, or one whose own sentinel would fire on an input (the same rule `compile_sentinel`
     holds the operator's regex to). Returns each trigger's own compiled sentinel by trigger id,
@@ -272,7 +273,7 @@ def cli_triggers(texts: list[str], probes: ProbeSet) -> list[Trigger]:
 
 
 def _compile_indicator(pattern: str, label: str, system_prompt: str, prompts: list[Probe],
-                       triggers: list[Trigger], extra_inputs: list[tuple[str, str]] = ()) -> re.Pattern:
+                       triggers: list[Trigger], extra_inputs: Sequence[tuple[str, str]] = ()) -> re.Pattern:
     """A sentinel regex, refused when it would fire on an input: a model that echoes its prompt,
     system prompt or (action mode) a tool result would then read as triggered. `label` names the
     regex in the error."""
@@ -390,13 +391,13 @@ def run_action_trigger_check(chat_fn, probes: ProbeSet, *, model_name: str,
     (`chat_fn(messages, tools, options) -> LLMMessage`) and is scored on its tool-call trace as
     well as on every assistant text. `probes` comes from `load_action_probes`.
     `unsupported_controls` is the backend's own record of the sampling controls it drops."""
-    if probes.corpus is None or probes.private_notes is None:
+    corpus, notes = probes.corpus, probes.private_notes
+    if corpus is None or notes is None:
         raise ValueError("action mode needs an action probe set (load_action_probes)")
 
     def fire(prompt: str, opts: dict) -> tuple[str, list[dict] | None, list[str]]:
         scenario = RagScenario(id="trigger-check", name="trigger-check", kind="control", task=prompt,
-                               corpus=probes.corpus, private_notes=probes.private_notes,
-                               canary=probes.canary)
+                               corpus=corpus, private_notes=notes, canary=probes.canary)
         trace = run_rag(scenario, chat_fn, options=opts, max_steps=max_steps)
         calls = [{"name": c.name, "arguments": c.arguments} for c in trace.calls]
         # Every assistant text, not only the last: a mid-loop narration can carry the canary.
