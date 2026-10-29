@@ -643,7 +643,14 @@ def render_trigger_report(rows: list[dict], manifest: dict | None = None) -> str
         "",
         "## Hardening",
         "",
-        "- Pull weights from the publisher's own repository and verify the digest; prefer models "
+        "- Pull weights from the publisher's own repository at a pinned full commit hash, and check "
+        "the digest against a release the publisher announced outside the hub (a signed release, "
+        "the lab's site or blog), never only against the hub: a stolen publisher token pushes "
+        "poisoned weights to the real repository, and the hub then serves the poisoned digest. "
+        "Where the publisher signs with Sigstore model signing, verify the signer identity and "
+        "issuer (`model_signing verify --identity … --identity-provider …`), not only that a "
+        "signature exists, and treat a release whose uploader or signer differs from the "
+        "publisher's earlier releases as unverified until it is announced elsewhere. Prefer models "
         "whose fine-tuning data and recipe are published over an anonymous 'uncensored' upload.",
         "- Give a downloaded model no credentials and no tool access until it has been run through "
         "this check with the triggers from any advisory that names it, at a sample size whose "

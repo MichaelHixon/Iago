@@ -728,6 +728,40 @@ def test_the_readme_states_the_threat_model_and_ships_no_weights():
     assert ".lab/trigger-fixture/" in (ROOT / ".gitignore").read_text()
 
 
+_COMPROMISED_PUBLISHER_ANCHORS = (
+    "pinned full commit hash",
+    "announced outside the hub",
+    "stolen publisher token",       # report wording; the README says "stolen token"
+    "verify the signer identity",
+    "--identity-provider",
+    "uploader or signer differs",
+)
+
+
+def test_the_report_hardening_covers_a_compromised_publisher_account():
+    """A stolen publisher token defeats "the publisher's own repository + verify the digest": the
+    repo is real and the hub serves the poisoned digest. The advice must
+    say to check the digest against a release announced outside the hub and the signer identity."""
+    report = trigger.render_trigger_report(_synthetic_rows(set()))
+    hardening = report[report.index("## Hardening"):]
+    for anchor in _COMPROMISED_PUBLISHER_ANCHORS:
+        assert anchor in hardening, anchor
+
+
+def test_the_readme_provenance_advice_covers_a_compromised_publisher_account():
+    text = (ROOT / "README.md").read_text()
+    section = text[text.index("### Poisoned community models"):]
+    section = section[:re.search(r"\n#{1,3} ", section[1:]).start() + 1]
+    for anchor in _COMPROMISED_PUBLISHER_ANCHORS:
+        anchor = "stolen token" if anchor == "stolen publisher token" else anchor
+        assert anchor in section, anchor
+    # Every claim about the threat cites its source.
+    for source in ("theregister.com/2023/12/04/exposed_hugging_face_api_tokens",
+                   "github.com/sigstore/model-transparency",
+                   "huggingface.co/docs/huggingface_hub/guides/download"):
+        assert source in section, source
+
+
 def test_the_fixture_is_never_tracked():
     """The demonstrator (an Ollama Modelfile stub) lives under an ignored path; nothing from it
     may appear in the tree."""
