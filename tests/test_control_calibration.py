@@ -59,6 +59,16 @@ def test_control_counts_break_out_every_verdict():
     assert "`complied-useless` in 1/3" in md
 
 
+def test_each_share_counts_its_own_verdict():
+    """An inline, readable pin with unequal counts per verdict. The 1/1/1 fixtures above cannot
+    tell `bypassed` from `refused`; reverting the note to `count[REFUSED]` reds this test, and the
+    report goldens and renderer-parity tests red on it too."""
+    rows = [_forb(), *(_regraded(BYPASSED, trial=t) for t in range(3)), _regraded(REFUSED, trial=3)]
+    for doc, name in zip(_both(rows), ("md", "html")):
+        assert "(<code>bypassed</code>) in 3/4" in doc or "(`bypassed`) in 3/4" in doc, name
+        assert "refused</code> in 1/4" in doc or "`refused` in 1/4" in doc, name
+
+
 def test_one_rubric_build_is_named():
     rows = [_forb(), _regraded(BYPASSED)]
     md, html = _both(rows)
