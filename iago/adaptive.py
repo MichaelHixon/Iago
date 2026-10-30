@@ -68,7 +68,7 @@ from .judge import (
 )
 from .objectives import Objective, load_objectives
 from .stats import wilson_interval
-from .target import TruncatedReply, generation_bounds, sampling_gap
+from .target import RunFatal, TruncatedReply, generation_bounds, sampling_gap
 
 # --- Refusal shapes -----------------------------------------------------------------------
 # The FEEDBACK signal that drives adaptation: fold the target's last reply into one of a
@@ -454,6 +454,8 @@ class LLMAttacker:
                 raise ValueError("empty attacker reply")
             return NextMove(text, f"llm:{strat.id}", f"{strat.name} (LLM)",
                             bears_objective=strat.carries_objective)
+        except RunFatal:
+            raise  # a harness defect, not an attacker failure; a template must not hide it
         except Exception:
             # Attacker model failed — fall back to the deterministic template, tagged so the
             # artifact records that this turn was NOT model-written.
@@ -606,6 +608,8 @@ def run_adaptive_conversation(
         messages.append({"role": "user", "content": move.user_turn})
         try:
             reply = target.chat(messages, options=opts)
+        except RunFatal:
+            raise  # a harness defect every turn would hit; fail the run, never a row
         except Exception as exc:  # keep the run alive; record the failure
             reply = run_error(exc)
         messages.append({"role": "assistant", "content": reply})

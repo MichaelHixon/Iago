@@ -498,14 +498,19 @@ def require_dual_arms(rows: list[dict]) -> tuple[int, int]:
     return tuned, baseline
 
 
+def dropped_controls(manifest: dict | None) -> list[str]:
+    """The sampling controls the run's target dropped (`sampling.unsupported_controls`), [] when
+    none were or the manifest predates the field. The one reader of that key."""
+    return list(((manifest or {}).get("sampling") or {}).get("unsupported_controls") or [])
+
+
 def _seed_is_dropped(manifest: dict | None) -> bool:
     """A family is STOCHASTIC for pairing when the target dropped the seed (e.g. the Anthropic API):
     a single draw per arm is then not a matched pair, so a paired-difference CI would be a tight CI
     on noise. Read from what the run RECORDED as unsupported, never guessed from the model name.
     Only `seed` matters here: pairing needs the seed alone, whereas `report.determinism_disclosure`
     treats ANY dropped control as voiding replay."""
-    sampling = (manifest or {}).get("sampling") or {}
-    return "seed" in (sampling.get("unsupported_controls") or [])
+    return "seed" in dropped_controls(manifest)
 
 
 def _seed_mismatch(manifest: dict | None) -> bool | None:

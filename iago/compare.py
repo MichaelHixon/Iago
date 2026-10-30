@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED
-from .artifacts import fingerprint_status, read_artifact, refuse_unknown_fingerprint, require_surface
+from .artifacts import dropped_controls, fingerprint_status, read_artifact, refuse_unknown_fingerprint, require_surface
 from .config import GROUNDING_FLOOR_MIN_CORRECT, REPORTS_DIR
 from .floor import floor_state
 from .stats import newcombe_diff_ci, wilson_interval
@@ -116,6 +116,9 @@ class Comparison:
     # A delta between two runs is exactly the claim non-determinism on the measuring host attacks,
     # so compare must say when a contributing host proved itself non-reproducible.
     determinism: dict[str, dict | None] = field(default_factory=dict)
+    # artifact -> the sampling controls its target dropped (`sampling.unsupported_controls`). A
+    # dropped seed means the run cannot be replayed at its seeds, whatever the probe says.
+    unsupported: dict[str, list[str]] = field(default_factory=dict)
 
 
 def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismatch: bool = False,
@@ -141,6 +144,7 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
     judge_ids: dict[str, str | None] = {}
     library_ids: dict[str, str | None] = {}
     determinism: dict[str, dict | None] = {}
+    unsupported: dict[str, list[str]] = {}
     seen_trials: dict[tuple[str, str, int], str] = {}   # (model, scenario, trial) -> artifact
     for path in artifact_paths:
         manifest, rows = read_artifact(path)
@@ -148,6 +152,7 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
         judge_ids[str(path)] = manifest.get("judge_id") if manifest else None
         library_ids[str(path)] = manifest.get("scenario_library_sha256") if manifest else None
         determinism[str(path)] = manifest.get("determinism") if manifest else None
+        unsupported[str(path)] = dropped_controls(manifest)
         for r in rows:
             model = r.get("model", "unknown")
             ms = by_model.get(model)
@@ -230,7 +235,7 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
                                    strict=strict_fingerprints)
     return Comparison(models=[by_model[m] for m in model_order],
                       scenario_ids=order, scenario_names=names, judge_ids=judge_ids,
-                      determinism=determinism, library_ids=library_ids,
+                      determinism=determinism, unsupported=unsupported, library_ids=library_ids,
                       library_mismatch_allowed=len(libraries) > 1,
                       judge_mismatch_allowed=len(distinct) > 1)
 
@@ -243,6 +248,17 @@ class Divergence:
     scenario_name: str
     spread: float                              # max alive rate - min alive rate
     rates: dict[str, float]                    # alive model -> rate (that ran the scenario)
+
+
+def dropped_controls_line(comp: Comparison) -> str | None:
+    """The caveat naming each artifact whose target dropped a sampling control, or None. Shared by
+    the compare and campaign reports so a finding never loses its sampling qualification."""
+    dropped = [f"{Path(p).name} ({', '.join(c)})" for p, c in (comp.unsupported or {}).items() if c]
+    if not dropped:
+        return None
+    return (f"_⚠️ **Sampling controls dropped by the target:** {'; '.join(dropped)}. Those were "
+            "requested but not applied, so the run cannot be replayed at its recorded settings and "
+            "a delta involving it may be sampling noise rather than a model difference._")
 
 
 def divergent_scenarios(comp: Comparison) -> list[Divergence]:
@@ -445,6 +461,8 @@ def write_comparison_report(comp: Comparison, reports_dir: Path | None = None) -
                      "replies. A delta below may be the HOST rather than a model difference. Re-run "
                      "on a host whose check comes back clean before treating any gap as a finding._")
         lines.append("")
+    if dropped := dropped_controls_line(comp):
+        lines += [dropped, ""]
     unread = [Path(p).name for p, d in (comp.determinism or {}).items()
               if d is None or d.get("mismatch_detected") is None]
     if unread:

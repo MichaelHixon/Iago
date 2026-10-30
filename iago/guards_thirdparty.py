@@ -34,9 +34,10 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 
 from .guards import Guard, GuardResult
+from .target import RunFatal
 
 
-class GuardBackendUnavailable(RuntimeError):
+class GuardBackendUnavailable(RunFatal, RuntimeError):
     """The backend a third-party guard needs is not installed/reachable. Carries an install hint."""
 
 

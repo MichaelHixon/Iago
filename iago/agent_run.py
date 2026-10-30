@@ -25,7 +25,7 @@ from .artifacts import (build_manifest, load_rows, module_fingerprint, scenario_
 from .agent_oracle import (ATTEMPTED, HIJACKED, delivered_cell, delivery_note, judge_agent,
                            poison_ingested, probe_quality_note)
 from .agent_scenarios import Scenario, load_scenarios
-from .target import require_ollama_model
+from .target import require_ollama_model, sampling_gap
 from .config import (
     ALLOWED_RECIPIENT_DOMAIN,
     ARTIFACTS_DIR,
@@ -97,6 +97,9 @@ def ollama_chat_fn(
             )
         return _normalize_ollama(resp)
 
+    # Declared, not left to the pass-through default an undeclared chat_fn gets: Ollama applies
+    # each of these options, so the manifest's empty `unsupported_controls` is a statement.
+    setattr(fn, "supported_options", frozenset({"temperature", "seed", "num_predict"}))
     return fn
 
 
@@ -170,7 +173,10 @@ def run_agent_suite(
     manifest = build_manifest(
         surface="agent", model=model_name,
         sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
-                  "seed_rule": "base_seed + trial", "max_steps": max_steps},
+                  "seed_rule": "base_seed + trial", "max_steps": max_steps,
+                  # A chat_fn that drops a control declares `supported_options`, as targets do.
+                  "unsupported_controls": sampling_gap(chat_fn, temperature=temperature,
+                                                       seed=base_seed, name=model_name)},
         judge_id=module_fingerprint("agent_oracle", "agent_run", "agent_harness"),
         extra={"scenario_library_sha256": scenario_fingerprint(scens),
                "scenarios": len(scens)},

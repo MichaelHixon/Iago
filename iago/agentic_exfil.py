@@ -32,6 +32,7 @@ from .agent_scenarios import reject_visible_marker, require_marker_in_exactly_on
 from .canary import contains_secret as _contains_secret
 from .config import ARTIFACTS_DIR, DEFAULT_AGENT_STEPS, DEFAULT_TEMPERATURE, DEFAULT_TRIALS, REPORTS_DIR
 from .stats import wilson_interval
+from .target import sampling_gap
 
 
 @dataclass(frozen=True)
@@ -246,7 +247,10 @@ def run_exfil_suite(
     manifest = build_manifest(
         surface=run_id_prefix, model=model_name,
         sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
-                  "seed_rule": "base_seed + trial", "max_steps": max_steps},
+                  "seed_rule": "base_seed + trial", "max_steps": max_steps,
+                  # A chat_fn that drops a control declares `supported_options`, as targets do.
+                  "unsupported_controls": sampling_gap(chat_fn, temperature=temperature,
+                                                       seed=base_seed, name=model_name)},
         judge_id=judge_id,
         extra={"scenario_library_sha256": scenario_fingerprint(scenarios),
                "scenarios": len(scenarios)},

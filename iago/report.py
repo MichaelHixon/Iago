@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from .config import REPORTS_DIR, tag_id
-from .artifacts import require_surface
+from .artifacts import dropped_controls, require_surface
 from .judge_eval import calibration_line
 from .judge import BYPASSED, COMPLIED_USELESS, ERROR, NEEDS_REVIEW, REFUSED
 from .guards import guard_that_fired
@@ -712,7 +712,7 @@ def determinism_disclosure(manifest: dict | None, *, pinning: str = "pinning not
                 "result._")
     # A control the backend dropped outranks any probe result: the pinning note below describes
     # what was requested, and this run never applied it.
-    dropped = (manifest.get("sampling") or {}).get("unsupported_controls")
+    dropped = dropped_controls(manifest)
     if dropped:
         names = ", ".join(f"`{c}`" for c in dropped)
         return (f"_⚠️ **The target backend ignored {names}**: requested and recorded, but never "

@@ -27,7 +27,6 @@ from pathlib import Path
 from .artifacts import (SCHEMA_VERSION, build_manifest, library_fingerprint, load_rows, module_fingerprint,
                         sha256_text, write_manifest)
 from .guards import guard_that_fired
-from .guards_thirdparty import GuardBackendUnavailable
 from .judge import ERROR as _ERROR_VERDICT
 
 from .attacks import (
@@ -43,7 +42,8 @@ from .judge import (_trust_arm_signal, judge, judge_deadend, judge_leak, judge_t
                     judge_unsafe_output, run_error)
 from .objectives import Objective, load_objectives
 from .profiles import ModelProfile
-from .target import Target, TruncatedReply, generation_bounds, sampling_gap, target_manifest_extra
+from .target import (RunFatal, Target, TruncatedReply, exc_label, generation_bounds, sampling_gap,
+                     target_manifest_extra)
 
 
 @dataclass(frozen=True)
@@ -184,9 +184,9 @@ def _execute_arm(target, tech: Technique, turns: list[str], opts: dict,
             return _run_multiturn(target, turns, opts, system=system)
         prompt = turns[0]
         return prompt, target.generate(prompt, system=system, options=opts)
-    except GuardBackendUnavailable:
-        # A missing/garbage guard backend is not a per-trial transport blip: every trial would
-        # error and the run would read as "held". Fail the whole run loud instead.
+    except RunFatal:
+        # A missing/garbage guard backend or an unmappable conversation is not a per-trial
+        # transport blip: every trial would error and the run would read as "held". Fail loud.
         raise
     except Exception as exc:  # keep the run alive; record the failure
         return "\n---\n".join(turns), run_error(exc)
@@ -207,8 +207,8 @@ def _execute_planted(target, system: str | None, planted: list[dict], ask: str,
     messages.append({"role": "user", "content": ask})
     try:
         reply = target.chat(messages, options=opts)
-    except GuardBackendUnavailable:
-        raise  # see _execute_arm — a dead guard backend fails the run, never a row
+    except RunFatal:
+        raise  # see _execute_arm — these fail the run, never a row
     except Exception as exc:  # keep the run alive; record the failure
         reply = run_error(exc)
     readable = "\n\n".join(f"[{m['role']}]\n{m['content']}" for m in messages)
@@ -279,7 +279,7 @@ def _determinism_probe(target: Target, temperature: float, base_seed: int) -> di
         target.generate(_DETERMINISM_WARMUP, options=dict(opts))
         warmup["fired"] = True
     except Exception as exc:
-        warmup["error"] = str(exc)[:200]
+        warmup["error"] = exc_label(exc)[:200]
 
     probes: list[dict] = []
     generations = 0
@@ -291,7 +291,7 @@ def _determinism_probe(target: Target, temperature: float, base_seed: int) -> di
                 replies.append(target.generate(text, options=dict(opts)))
                 generations += 1
         except Exception as exc:  # the matrix will surface a real transport failure loudly itself
-            error = str(exc)[:200]
+            error = exc_label(exc)[:200]
         # `position` is "warm" only when the warm-up actually returned. If it failed, probe 1 still
         # straddles the cold boundary and the reader must be able to see that.
         position = "warm" if warmup["fired"] else ("cold" if not probes else "warm")

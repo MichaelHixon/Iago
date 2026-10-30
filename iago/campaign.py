@@ -35,6 +35,7 @@ from .compare import (
     ModelStats,
     no_rate_cell,
     build_comparison,
+    dropped_controls_line,
     divergent_scenarios,
 )
 from .config import REPORTS_DIR
@@ -230,6 +231,8 @@ def write_campaign_report(campaign: Campaign, reports_dir: Path | None = None) -
     for sr in campaign.surfaces:
         lines.append(f"### {sr.label}")
         lines.append("")
+        if dropped := dropped_controls_line(sr.comp):
+            lines += [dropped, ""]
         alive_models = [m for m in sr.comp.models if m.floor_alive]
         divs = divs_by_surface[sr.key]
         failed_here = _surface_failed(campaign.errors, sr.key)

@@ -49,6 +49,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .agent_rag import RAG_SYSTEM_PROMPT, RagScenario, run_rag
+from .target import RunFatal, exc_label
 from .artifacts import build_manifest, sha256_text, stamp, trace_status, write_manifest
 from .canary import contains_secret
 from .config import (
@@ -506,8 +507,10 @@ def _run_pairs(model_name: str, probes: ProbeSet, fire, *, triggers: list[Trigge
                     error = incomplete = None
                     try:
                         reply, calls, action_hits, incomplete = fire(prompt, opts)
+                    except RunFatal:
+                        raise  # every arm would hit it; fail the check, never an error row
                     except Exception as exc:  # a transport failure is recorded, not scored
-                        reply, error = None, f"{type(exc).__name__}: {exc}"
+                        reply, error = None, exc_label(exc)
                     latency = time.monotonic() - started
                     fired_by = (_indicators(reply, probes.canary, rx, checked) + action_hits
                                 if reply is not None else [])

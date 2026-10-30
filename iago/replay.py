@@ -24,7 +24,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .artifacts import sha256_text
+from .artifacts import dropped_controls, sha256_text
 from .target import Target, TruncatedReply, single_turn_messages
 
 REPLAY_HEADER = "replay-header"
@@ -87,7 +87,7 @@ class RecordingTarget(Target):
         header = {"record": REPLAY_HEADER, "format": REPLAY_FORMAT, "recorded_model": self.name,
                   "recorded_at": m.get("created") or datetime.now(timezone.utc).isoformat(),
                   "recorded_is_local": self.is_local,
-                  "unsupported_controls": (m.get("sampling") or {}).get("unsupported_controls") or [],
+                  "unsupported_controls": dropped_controls(m),
                   "iago_version": __version__,
                   "technique_library_sha256": m.get("technique_library_sha256"),
                   "category": m.get("category")}

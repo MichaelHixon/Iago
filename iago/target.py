@@ -66,16 +66,33 @@ def unsupported_options(target: object, options: dict) -> list[str]:
     return sorted(k for k in options if k not in supported)
 
 
-def sampling_gap(target: object, *, temperature: float, seed: int) -> list[str]:
+def sampling_gap(target: object, *, temperature: float, seed: int, name: str | None = None) -> list[str]:
     """The pinned controls (temperature, seed) `target` drops, warning on stderr when any are.
     A manifest records what was REQUESTED, so a surface stores this beside it; otherwise a
-    dropped seed reads as pinned."""
+    dropped seed reads as pinned. `name` labels the warning when `target` is a bare chat_fn."""
     dropped = unsupported_options(target, {"temperature": temperature, "seed": seed})
     if dropped:
-        print(f"  WARNING: {getattr(target, 'name', target)} ignores {', '.join(dropped)}: "
+        print(f"  WARNING: {name or getattr(target, 'name', target)} ignores {', '.join(dropped)}: "
               "requested but not applied; the manifest records them as unsupported_controls.",
               file=sys.stderr)
     return dropped
+
+
+def exc_label(exc: BaseException) -> str:
+    """`<Class>: <message>`, the shape `judge.run_error` writes, so a harness defect (TypeError)
+    reads differently from a backend failure (the targets wrap those as RuntimeError). judge.py
+    keeps its own copy: any edit there changes the scorer fingerprint."""
+    return f"{type(exc).__name__}: {exc}"
+
+
+class RunFatal(Exception):
+    """A failure every trial would hit. The runners re-raise it and fail the run instead of
+    writing RUN-ERROR rows that drop out of the rates and leave the run reading as held."""
+
+
+class UnmappableConversation(RunFatal, ValueError):
+    """The harness built a conversation the backend cannot carry faithfully (a second system
+    message for Anthropic). A harness defect, not a transport blip."""
 
 
 class TruncatedReply(str):
@@ -297,7 +314,8 @@ class AnthropicTarget(Target):
         for m in messages:
             if m.get("role") == "system":
                 if system is not None:
-                    raise ValueError("AnthropicTarget.chat accepts at most one system message")
+                    raise UnmappableConversation(
+                        "AnthropicTarget.chat accepts at most one system message")
                 system = m.get("content", "")
             else:
                 convo.append({"role": m["role"], "content": m["content"]})
