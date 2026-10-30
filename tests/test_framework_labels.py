@@ -25,9 +25,10 @@ from iago.target import Target
 JAILBREAK = "AML.T0054: LLM Jailbreak"
 EXFIL = "AML.T0086: Exfiltration via AI Agent Tool Invocation"
 
-# Recorded before `outside_owasp` existed. A label must never move them: every earlier run of the
-# same attack text would otherwise read as a different library to `compare` and `gate`.
-FULL_LIBRARY_SHA = "f0c1bb6a255c7ee057361f81a39cb3df23569600d5d005e69835fe531f76b60c"
+# Pinned to the current library: re-pin when technique text is added or changed, never when a
+# label changes. A label must never move them: every earlier run of the same attack text would
+# otherwise read as a different library to `compare` and `gate`.
+FULL_LIBRARY_SHA = "87f543f1b1362dd1c1506105c41b94f78dbe2912931f20576f10f0ae131c4398"
 DEAD_END_SHA = "fdcf6c7e590fd8e208a9d959a0698d8b22b877ffabd7c5ad24c1ae6cba9ea1e2"
 
 
