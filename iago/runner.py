@@ -42,8 +42,8 @@ from .judge import (_trust_arm_signal, judge, judge_deadend, judge_leak, judge_t
                     judge_unsafe_output, run_error)
 from .objectives import Objective, load_objectives
 from .profiles import ModelProfile
-from .target import (RunFatal, Target, TruncatedReply, exc_label, generation_bounds, sampling_gap,
-                     target_manifest_extra)
+from .target import (RunFatal, Target, TruncatedReply, exc_label, generation_bounds, requested_api_model,
+                     sampling_gap, served_matches, target_manifest_extra)
 
 
 @dataclass(frozen=True)
@@ -126,9 +126,54 @@ class TrialResult:
     # so its artifacts keep the pre-profile shape.
     profile_arm: str | None = None
     model_profile_sha256: str | None = None
+    # Anthropic trials only: what the API reported beside the judged reply, copied verbatim
+    # (target.anthropic_vendor_fields). The vendor's refusal is a LABEL: `verdict` above is still
+    # the independent judge's. `model_stratum` says whose behaviour the row measures: "requested"
+    # (the model asked for answered), "fallback" (another model did), "unknown" (the response named
+    # no model), or None (no model reply to attribute: a run error or a guard block). Only
+    # "requested" rows count toward the requested model's rates. Rows from any other backend omit
+    # every one of these keys (`trial_row`), so their artifacts keep the earlier shape.
+    vendor_stop_reason: str | None = None
+    vendor_stop_category: str | None = None
+    vendor_stop_explanation: str | None = None
+    requested_model: str | None = None
+    served_model: str | None = None
+    vendor_absent: list | None = None
+    model_stratum: str | None = None
 
 
 PROFILE_ONLY_FIELDS = ("profile_arm", "model_profile_sha256")
+VENDOR_ONLY_FIELDS = ("vendor_stop_reason", "vendor_stop_category", "vendor_stop_explanation",
+                      "requested_model", "served_model", "vendor_absent", "model_stratum")
+
+STRATUM_REQUESTED = "requested"
+STRATUM_FALLBACK = "fallback"
+STRATUM_UNKNOWN = "unknown"
+
+
+def _reply_stratum(vendor: dict) -> str:
+    match = served_matches(vendor.get("requested_model"), vendor.get("served_model"))
+    return STRATUM_UNKNOWN if match is None else (STRATUM_REQUESTED if match else STRATUM_FALLBACK)
+
+
+def vendor_row_fields(target: object, response: str, *arms: str | None) -> dict:
+    """The vendor fields for one row: {} unless `target` is an Anthropic backend.
+
+    The labels come from the judged `response`; the stratum reads every judged reply (`arms` are a
+    trust-escalation row's anonymous and placebo baselines), because a differential with one arm
+    answered by another model measures neither model. Fallback outranks unknown outranks requested."""
+    requested = requested_api_model(target)
+    if requested is None:
+        return {}
+    vendor = getattr(response, "vendor", None)
+    fields = (dict(vendor) if isinstance(vendor, dict)
+              else {"requested_model": requested, "vendor_absent": ["response"]})
+    strata = {_reply_stratum(v) for r in (response, *arms)
+              if isinstance(v := getattr(r, "vendor", None), dict)}
+    if isinstance(vendor, dict):
+        fields["model_stratum"] = next(s for s in (STRATUM_FALLBACK, STRATUM_UNKNOWN, STRATUM_REQUESTED)
+                                       if s in strata)
+    return fields
 
 # The dual-rate arm vocabulary, named once so the stamper here and S4's dual-rate report cannot
 # drift to different literals.
@@ -146,6 +191,9 @@ def trial_row(row: TrialResult) -> dict:
     d = asdict(row)
     if row.profile_arm is None:
         for key in PROFILE_ONLY_FIELDS:
+            del d[key]
+    if row.requested_model is None:
+        for key in VENDOR_ONLY_FIELDS:
             del d[key]
     return d
 
@@ -592,6 +640,7 @@ def run(
                             response_sha256=sha256_text(response),
                             judge_id=offline_judge_id,
                             system_prompt_sha256=sha256_text(planted_system),
+                            **vendor_row_fields(target, response, anon_response, placebo_response),
                         )
                         fh.write(json.dumps(trial_row(row)) + "\n")
                         fh.flush()

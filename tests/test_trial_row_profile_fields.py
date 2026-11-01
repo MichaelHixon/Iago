@@ -15,7 +15,7 @@ from dataclasses import fields
 
 import pytest
 
-from iago.runner import PROFILE_ONLY_FIELDS, TrialResult, run, trial_row
+from iago.runner import PROFILE_ONLY_FIELDS, VENDOR_ONLY_FIELDS, TrialResult, run, trial_row
 from iago.target import Target
 
 # The row keys a chatbot artifact carried before model profiles existed (captured at ef897f8).
@@ -133,9 +133,11 @@ def test_soft_channel_profile_is_labeled_soft_in_the_manifest(tmp_path):
 
 
 def test_plain_asdict_would_leak_the_profile_fields():
-    """The omission is load-bearing: without it, an unprofiled row gains two null keys."""
+    """The omission is load-bearing: without it, an unprofiled row gains two null keys (and a
+    non-Anthropic row the seven vendor keys, ISC-139, which trial_row drops the same way)."""
     leaked = [k for k in asdict(_result()) if k not in PRE_PROFILE_KEYS]
-    assert leaked == list(PROFILE_ONLY_FIELDS) == PROFILE_KEYS
+    assert list(PROFILE_ONLY_FIELDS) == PROFILE_KEYS
+    assert leaked == PROFILE_KEYS + list(VENDOR_ONLY_FIELDS)
 
 
 def test_unprofiled_row_omits_both_profile_fields_directly():

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Refusal capture on `--target anthropic`.** Every trial row records what the Messages API reported beside the judge's verdict: `vendor_stop_reason`, `vendor_stop_category` and `vendor_stop_explanation` (from `stop_reason` and `stop_details`), `requested_model`, and `served_model` (the response's `model`). A field the response does not carry is null and named in `vendor_absent`; nothing is filled in. Rows from other backends are unchanged.
+- **`model_stratum` on Anthropic rows:** `requested`, `fallback` (another model answered; a dated snapshot of the requested id counts as the same model, a longer id that only starts with it does not), `unknown` (the response named no model), or null (no reply: a run error or a guard block). A trust-escalation row takes the worst stratum across its three arms.
+- **`iago report` (markdown and HTML) gains a "Model routing and vendor refusal labels" section above the scorecard:** rows by stratum, the excluded trials' verdicts by served model, provider refusals by category, fields the API did not return, and every trial the provider called a refusal that the judge did not score `refused`, with its raw reply (first 2,000 characters; HTML-escaped).
+
+### Changed
+
+- **Rates count only trials the requested model answered.** `fallback` and `unknown` rows are left out of every rate in `iago report` and tallied in the new section instead. `iago compare`, `campaign`, `delta` and `gate` do not read the stratum yet.
+- **A refusal before any output is a scored trial, not a run error.** An Anthropic response with empty content and `stop_reason: refusal` is judged as an empty reply; it used to raise and land as a RUN-ERROR row outside the rates. The provider's refusal is a label: the verdict is still the judge's.
+
 ## 0.2.0 (2026-10-22)
 
 ### Breaking

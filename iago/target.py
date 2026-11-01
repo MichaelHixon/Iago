@@ -102,6 +102,81 @@ class TruncatedReply(str):
     determinism probe's 160 tokens) is not a truncation and is never flagged."""
 
 
+class VendorReply(str):
+    """A reply that carries what the backend reported about it beside the text, in `.vendor`.
+
+    The vendor's refusal is a label, never a verdict: the reply is judged as written, like any
+    other, and the runner copies `.vendor` onto the row so a reader can set the two side by side.
+    A guard block replaces the reply with a plain string, so a blocked row carries no label."""
+
+    vendor: dict
+
+
+#: Marks a response field that is not there at all, as opposed to one present as null.
+_ABSENT = object()
+
+
+def _attr(obj: object, name: str):
+    """`name` from an SDK object or a dict, or `_ABSENT` when the field is missing."""
+    if isinstance(obj, dict):
+        return obj.get(name, _ABSENT)
+    return getattr(obj, name, _ABSENT)
+
+
+_DATED = re.compile(r"-\d{8}")
+
+
+def served_matches(requested: str | None, served: str | None) -> bool | None:
+    """Whether the model that answered is the one asked for: None when either name is missing.
+    A dated snapshot of the requested id counts as the same model (`claude-x` served as
+    `claude-x-20260101`, or the reverse); a different id that merely starts with the requested one
+    (`claude-opus-5` vs `claude-opus-5-5`) does not."""
+    if not requested or not served:
+        return None
+    if requested == served:
+        return True
+    return any(long.startswith(short) and _DATED.fullmatch(long[len(short):]) is not None
+               for short, long in ((requested, served), (served, requested)))
+
+
+def anthropic_vendor_fields(msg: object, requested: str) -> dict:
+    """What a Messages API response says about how it ended and who answered, as row fields.
+
+    Read, never inferred: `stop_reason`, `stop_details.category`, `stop_details.explanation` and
+    top-level `model` (the model that produced the message). A field the response does not carry
+    is null AND named in `vendor_absent`, so "the API said null" and "the API said nothing" stay
+    apart. Per the API docs `stop_details` is populated only when `stop_reason == "refusal"`, may
+    be null even then, and its `category` may be null."""
+    absent: list[str] = []
+
+    def take(obj: object, name: str, label: str):
+        value = _attr(obj, name)
+        if value is _ABSENT:
+            absent.append(label)
+            return None
+        return value
+
+    stop_reason = take(msg, "stop_reason", "stop_reason")
+    details = take(msg, "stop_details", "stop_details")
+    category = explanation = None
+    if details is not None:
+        category = take(details, "category", "stop_details.category")
+        explanation = take(details, "explanation", "stop_details.explanation")
+    served = take(msg, "model", "model")
+    return {"vendor_stop_reason": stop_reason, "vendor_stop_category": category,
+            "vendor_stop_explanation": explanation, "requested_model": requested,
+            "served_model": served, "vendor_absent": absent}
+
+
+def requested_api_model(target: object) -> str | None:
+    """The model id an Anthropic target was asked for (through wrappers), or None for any other
+    backend. Lets the runner label an Anthropic trial that errored before a reply came back."""
+    for t in _layers(target):
+        if isinstance(t, AnthropicTarget):
+            return t.model
+    return None
+
+
 def _field(response: object, name: str):
     """Read `name` from an ollama ChatResponse object or a plain dict."""
     value = getattr(response, name, None)
@@ -285,6 +360,21 @@ class AnthropicTarget(Target):
             messages=messages,
         )
 
+    def _reply(self, msg) -> VendorReply:
+        """The response's text with its vendor fields attached. A refusal can arrive before any
+        output (empty content): that is still a reply, judged as an empty one, never a run error,
+        or every pre-output refusal would drop out of the rates. Any other empty response fails."""
+        blocks = _attr(msg, "content")
+        parts = [getattr(b, "text", None) if not isinstance(b, dict) else b.get("text")
+                 for b in (blocks if blocks is not _ABSENT and blocks else [])]
+        content = "".join(p for p in parts if p).strip()
+        vendor = anthropic_vendor_fields(msg, self.model)
+        if not content and vendor["vendor_stop_reason"] != "refusal":
+            raise RuntimeError(f"Anthropic returned no text content: {msg!r}")
+        reply = VendorReply(content)
+        reply.vendor = vendor
+        return reply
+
     def generate(
         self,
         prompt: str,
@@ -295,16 +385,7 @@ class AnthropicTarget(Target):
             msg = self._create(system or "", [{"role": "user", "content": prompt}], options)
         except Exception as exc:
             raise RuntimeError(f"Anthropic request failed: {exc}") from exc
-        # Concatenate text blocks from the response content.
-        parts = []
-        for block in getattr(msg, "content", []) or []:
-            text = getattr(block, "text", None) if not isinstance(block, dict) else block.get("text")
-            if text:
-                parts.append(text)
-        content = "".join(parts).strip()
-        if not content:
-            raise RuntimeError(f"Anthropic returned no text content: {msg!r}")
-        return content
+        return self._reply(msg)
 
     def chat(self, messages: list[dict], options: dict | None = None) -> str:
         # Anthropic takes system separately; pull the system message out. A second one has no
@@ -323,12 +404,7 @@ class AnthropicTarget(Target):
             msg = self._create(system or "", convo, options)
         except Exception as exc:
             raise RuntimeError(f"Anthropic chat failed: {exc}") from exc
-        parts = [getattr(b, "text", None) if not isinstance(b, dict) else b.get("text")
-                 for b in getattr(msg, "content", []) or []]
-        content = "".join(p for p in parts if p).strip()
-        if not content:
-            raise RuntimeError(f"Anthropic returned no text content: {msg!r}")
-        return content
+        return self._reply(msg)
 
 
 # --- Target registry / factory -------------------------------------------------
