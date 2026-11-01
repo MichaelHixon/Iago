@@ -384,12 +384,16 @@ class AnthropicTarget(Target):
     # request when built) and replaces this set with the result.
     supported_options = frozenset({"temperature", "num_predict"})
 
-    def __init__(self, model: str | None = None, client=None) -> None:
+    def __init__(self, model: str | None = None, client=None,
+                 supported_options: frozenset[str] | None = None) -> None:
+        """`supported_options`, when given, is a result an earlier probe already recorded (a batch
+        plan), so the build sends nothing; omitted, the model is probed."""
         self._client = client
         self.model = model or latest_model(self._get_client(), DEFAULT_ANTHROPIC_FAMILY)
         self.name = f"anthropic:{self.model}"
-        self.supported_options = probe_controls(self._get_client(), self.model,
-                                                type(self).supported_options)
+        self.supported_options = (frozenset(supported_options) if supported_options is not None
+                                  else probe_controls(self._get_client(), self.model,
+                                                      type(self).supported_options))
 
     def _get_client(self):
         if self._client is not None:

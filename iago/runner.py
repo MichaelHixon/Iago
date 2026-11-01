@@ -403,6 +403,7 @@ def run(
     progress: bool = False,
     determinism_check: bool = True,
     profile: "ModelProfile | None" = None,
+    sampling_mode: str | None = None,
 ) -> Path:
     """Execute the full matrix and write a JSONL artifact file. Returns its path.
 
@@ -410,6 +411,9 @@ def run(
     the matrix and records per-probe matches, the aggregate, and the generations spent in the
     manifest — docs/reproducibility.md claims same-host reproducibility, and this measures it per run instead
     of assuming it. Skipping it records `null`, not a pass.
+
+    `sampling_mode` is recorded as `sampling.mode` when given ("batch": the replies came from the
+    Message Batches API, `iago batch-collect`); omitted, the manifest keeps its earlier shape.
 
     `technique_limit` / `objective_limit` cap the matrix for a fast smoke run
     without hammering the model for the whole library. `shots` overrides the
@@ -520,7 +524,8 @@ def run(
             sampling={"trials": trials, "temperature": temperature, "base_seed": base_seed,
                       "seed_rule": "base_seed + trial", "shots": shots,
                       "unsupported_controls": dropped,
-                      "generation_bounds": generation_bounds(target)},
+                      "generation_bounds": generation_bounds(target),
+                      **({"mode": sampling_mode} if sampling_mode else {})},
             judge_id=offline_judge_id,
             system_prompt_scope="per-objective",
             extra={**extra, **declared}))

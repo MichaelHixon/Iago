@@ -18,6 +18,7 @@ from .campaign import DEFAULT_SURFACES, SURFACES, SurfaceSpec
 from .config import (
     ARTIFACTS_DIR,
     BASE_SEED,
+    REPORTS_DIR,
     CATEGORIES,
     DEFAULT_ADAPTIVE_TURNS,
     DEFAULT_AGENT_STEPS,
@@ -475,6 +476,132 @@ def _rubric_spec(args: argparse.Namespace, spec: str) -> str:
 def _rubric_judge_from(args: argparse.Namespace, spec: str):
     """The rubric judge a spec names."""
     return make_judge(_rubric_spec(args, spec), base_url=getattr(args, "judge_base_url", None))
+
+
+def _batch_client(**options):
+    """The Anthropic client the batch commands create and read batches with (a test seam)."""
+    import anthropic
+
+    return anthropic.Anthropic(**options)
+
+
+def _dollars(value: str) -> float:
+    """A positive, finite dollar amount (`nan` would make every budget comparison false)."""
+    import math
+
+    amount = float(value)
+    if not (math.isfinite(amount) and amount > 0):
+        raise argparse.ArgumentTypeError(f"must be a positive dollar amount, got {value!r}")
+    return amount
+
+
+def _cmd_batch_submit(args: argparse.Namespace) -> int:
+    """Render the runner's plan as Message Batch requests, one batch per model, under a budget."""
+    from datetime import datetime, timezone
+
+    from . import batch as b
+    from .target import AnthropicTarget
+
+    if not args.dry_run and _refused_before_build("anthropic", args.authorized):
+        return 2
+    unpriced = [m for m in args.model if m not in b.BATCH_PRICES]
+    if unpriced:  # before any probe is sent
+        print(f"ERROR: no Batch price recorded for {', '.join(unpriced)}; add it to "
+              "iago/batch.py BATCH_PRICES from the pricing page", file=sys.stderr)
+        return 2
+    if len(set(args.model)) != len(args.model):
+        print("ERROR: a --model is repeated; each model gets one batch", file=sys.stderr)
+        return 2
+    if args.out and Path(args.out).exists():
+        # A rerun onto an existing record could overwrite the ids of batches already billed.
+        print(f"ERROR: {args.out} already exists; pass a new --out", file=sys.stderr)
+        return 2
+    sampling = {"trials": args.trials, "temperature": args.temperature, "base_seed": args.base_seed,
+                "category": args.category, "technique_limit": args.limit_techniques,
+                "objective_limit": args.limit_objectives, "shots": args.shots}
+    lib, objs = load_library(), load_objectives()
+    plans = []
+    try:
+        for model in args.model:
+            if args.dry_run:
+                # No request leaves the machine, so nothing is probed: `temperature` is assumed
+                # refused, as the 2026-11-01 probes found on the 5.5 models. A live submit re-plans.
+                supported = AnthropicTarget.supported_options - {"temperature"}
+                probe = "not probed (--dry-run): temperature assumed refused"
+            else:
+                supported = build_target("anthropic", model=model).supported_options
+                probe = (f"build-time probe at temperature 0.5, "
+                         f"{datetime.now(timezone.utc).date().isoformat()}")
+            plans.append(b.plan_requests(model, supported, probe=probe, sampling=sampling,
+                                         techniques=lib, objectives=objs))
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    excluded = plans[0]["excluded_multiturn"]
+    print(f"Batch plan: {len(plans)} model(s), {args.trials} trial(s); {len(excluded)} multi-turn "
+          f"technique(s) excluded ({', '.join(excluded) or 'none'}); no request carries `fallbacks`")
+    for p in plans:
+        dropped = p["sampling"]["unsupported_controls"]
+        print(f"  {p['model']}: controls not sent: {', '.join(dropped) or 'none'} ({p['probe']})")
+    print("Estimate:")
+    print("\n".join(b.estimate_lines(plans)))
+    ceiling = b.total_ceiling(plans)
+    if ceiling > args.max_dollars:
+        print(f"REFUSED: the plan's ceiling ${ceiling:.2f} is over --max-dollars "
+              f"${args.max_dollars:.2f}; no batch was created and nothing was written", file=sys.stderr)
+        return 2
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    out = Path(args.out) if args.out else REPORTS_DIR / "batches" / f"{stamp}.json"
+    if args.dry_run:
+        print(f"Dry run: nothing sent. Rendered requests: {b.write_record(plans, out)}")
+        return 0
+    client = _batch_client(max_retries=0)  # a retried create could bill a second, unrecorded batch
+    for p in plans:  # the record is rewritten after each batch, so a later failure loses no id
+        b.submit_plan(p, client)
+        print(f"  submitted {p['model']}: batch {p['batch_id']}")  # before the write, so a failed write still shows it
+        b.write_record(plans, out)
+    print(f"Plan record: {out}\nCollect with: iago batch-collect {out} --wait")
+    return 0
+
+
+def _cmd_batch_collect(args: argparse.Namespace) -> int:
+    """Poll each batch in a plan record and write a runner artifact and report per model."""
+    from . import batch as b
+
+    try:
+        plans = b.read_record(Path(args.record))
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    plans = [p for p in plans if p.get("batch_id") and (not args.batch_id or p["batch_id"] in args.batch_id)]
+    if not plans:
+        print("ERROR: no submitted batch in the record matches (a --dry-run record has none)",
+              file=sys.stderr)
+        return 2
+    client = _batch_client()
+    pending = failed = 0
+    for p in plans:
+        batch = b.wait_for_batch(client, p["batch_id"], wait=args.wait, poll_seconds=args.poll_seconds)
+        if batch is None:
+            print(f"  {p['model']}: batch {p['batch_id']} is still processing; collect again later")
+            pending += 1
+            continue
+        try:
+            artifact = b.collect_plan(p, b.read_results(client, p["batch_id"]), batch=batch)
+        except (SamplingRefused, ValueError, RuntimeError) as exc:
+            # One model's failure does not stop the others from being collected.
+            print(f"ERROR: {p['model']}: {exc}", file=sys.stderr)
+            failed += 1
+            continue
+        manifest, rows = read_artifact(artifact)
+        acct = manifest["batch"]
+        lost = {k: len(acct[k]) for k in b.NOT_ANSWERED if acct[k]}
+        print(f"  {p['model']}: {acct['succeeded']}/{acct['planned']} succeeded"
+              + (f"; {', '.join(f'{n} {k}' for k, n in lost.items())} (ids in the manifest)" if lost else ""))
+        print(f"    Artifacts: {artifact}\n    Report:    {write_report(rows, manifest=manifest)}")
+        if args.html:
+            print(f"    HTML:      {write_html_report(rows, manifest=manifest)}")
+    return 2 if failed else (1 if pending else 0)
 
 
 def _cmd_regrade(args: argparse.Namespace) -> int:
@@ -1220,6 +1347,40 @@ def build_parser() -> argparse.ArgumentParser:
     for spec in SURFACES.values():
         if spec.key != "agent":
             _add_surface_parsers(sub, spec)
+
+    bs = sub.add_parser("batch-submit",
+                        help="send the run matrix's single-shot calls to Claude models as Message Batches, under a budget")
+    bs.add_argument("--model", action="append", required=True,
+                    help="Claude model id; repeat for several models (one batch each)")
+    bs.add_argument("--max-dollars", type=_dollars, required=True, dest="max_dollars",
+                    help="refuse the plan when its cost ceiling at Batch prices (every request at "
+                         "its max_tokens) is over this many US dollars")
+    bs.add_argument("--trials", type=_positive_int, default=DEFAULT_TRIALS, help="trials per (technique, objective)")
+    bs.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE,
+                    help="sent only to a model whose build-time probe accepted it")
+    bs.add_argument("--base-seed", type=int, default=BASE_SEED, dest="base_seed")
+    bs.add_argument("--limit-techniques", type=int, default=None, dest="limit_techniques")
+    bs.add_argument("--limit-objectives", type=int, default=None, dest="limit_objectives")
+    bs.add_argument("--category", choices=CATEGORIES, default=None)
+    bs.add_argument("--shots", type=int, default=None)
+    bs.add_argument("--out", default=None, metavar="PATH",
+                    help="plan record path (default: reports/batches/<UTC stamp>.json)")
+    bs.add_argument("--dry-run", action="store_true", dest="dry_run",
+                    help="write the rendered requests and the estimate without calling the API "
+                         "(no probe: temperature is assumed refused)")
+    bs.add_argument("--authorized", action="store_true",
+                    help="permit sending to the Anthropic API (only for models you are authorized to test)")
+    bs.set_defaults(func=_cmd_batch_submit)
+
+    bc = sub.add_parser("batch-collect",
+                        help="read a submitted batch's results into a run artifact and report")
+    bc.add_argument("record", help="the plan record batch-submit wrote")
+    bc.add_argument("--batch-id", action="append", default=None, dest="batch_id",
+                    help="collect only this batch (repeatable; default: every batch in the record)")
+    bc.add_argument("--wait", action="store_true", help="poll until each batch has ended")
+    bc.add_argument("--poll-seconds", type=float, default=60.0, dest="poll_seconds")
+    bc.add_argument("--html", action="store_true", help="also write a styled HTML report")
+    bc.set_defaults(func=_cmd_batch_collect)
 
     return p
 

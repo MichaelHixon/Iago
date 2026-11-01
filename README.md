@@ -102,6 +102,8 @@ uv run iago regrade reports/artifacts/<run>.jsonl --judge ollama:<model>
 
 - `report` rebuilds a report from an existing artifact, with no model call.
 
+- `batch-submit` and `batch-collect` run the `run` matrix against Claude models through the Message Batches API ([Batch sweeps](#batch-sweeps)).
+
 - `trigger-check` asks whether a candidate trigger phrase flips a downloaded model's behaviour against matched clean prompts, for a model whose provenance you do not trust ([Poisoned community models](#poisoned-community-models)).
 
 Agent surfaces, each with a `--smoke` mode and a companion `*-scenarios` command that lists its scenarios offline: `agent-run`, `tool-abuse-run`, `privilege-run`, `disclosure-run`, `misinfo-run`, `memory-run`, `rag-run`, `a2a-run`. What each tests: [docs/agent-surfaces.md](docs/agent-surfaces.md).
@@ -160,6 +162,21 @@ uv run iago gate reports/artifacts/<new>.jsonl --baseline reports/artifacts/<las
 - A baseline too old to carry a judge id or library hash is judged with a NOTE that the match is UNKNOWN. `--strict-fingerprints` refuses it instead (exit 2), so CI fails closed. `compare` and `delta` take the same flag.
 
 The rule is conservative. It catches a large rise, not a small one, and more trials make it more sensitive. Each row shows the fewest bypasses that would fail it, and the gate names any category that no result could fail at its trial count. A category new since the baseline has no row to regress against; `--max-rate` bounds it directly.
+
+### Batch sweeps
+
+`batch-submit` turns the `run` matrix into Message Batch requests, one batch per `--model`, for a model on your own API account:
+
+```
+uv run iago batch-submit --authorized --model claude-haiku-5-5 --model claude-opus-5-5 --max-dollars 20
+uv run iago batch-collect reports/batches/<stamp>.json --wait
+```
+
+- **The same plan as `run`.** The requests are recorded from the runner itself (same pairing, trials and per-objective system prompts), so a batch item is the request a synchronous run sends. Each model is probed once for `temperature` first, and the key is left out where the model refused it.
+- **Single-shot only.** Multi-turn techniques need each reply before the next turn exists, so they are left out of the batch and listed in the plan, the manifest and the report, whose batch paragraph opens by saying the rates are not comparable to a full-library run. A trust-escalation trial is three items, one per arm. `--limit-techniques N` takes the first N single-shot techniques, so it can select differently from `run --limit-techniques N`, whose first N may include multi-turn ones; a full-library sweep is unaffected.
+- **Bounded before a batch is created.** It prints each model's request count and the cost at Batch prices, both an expected case and a ceiling (every request at its `max_tokens`, input counted as one token per byte). When the ceiling is over `--max-dollars` it refuses, creating no batch and writing nothing; the only requests sent by then are the one-token `temperature` probes. The cap covers one invocation, not the month: the workspace's own spend limit is the monthly bound. A model with no recorded Batch price, a repeated `--model`, and an `--out` that already exists are refused before anything is sent. `--dry-run` writes the rendered requests and the estimate without calling the API; it does not probe, so it assumes `temperature` is refused. The batch is created with retries off, so a timed-out request cannot create a second billed batch unseen; check the Console after any submit error.
+- **Every request accounted for.** Each request's `custom_id` is `<technique>_<objective>_t<trial>_<turn>` (`<turn>` is `1`, or `anon`, `plac` or `prov` for a trust-escalation arm). `batch-collect` matches results by that id, never by their order in the results. Before it reads any result it renders the plan again and refuses one the current code or library no longer builds identically, so a change between the two commands fails the collection instead of misattributing replies. Errored, expired, canceled and missing ids, and `no_text` ones (a success with no text and no refusal, such as a reply that spent its `max_tokens` on thinking), become RUN-ERROR rows outside the rates and are listed in the manifest and the report. If the collection's calls ever stop matching the plan in order, the artifact is renamed to `*.jsonl.misaligned` and the command fails.
+- **A normal artifact.** The output is a `run` artifact with `sampling.mode: "batch"` and a `batch` block in the manifest; `report` and `regrade` read it as they read any other; `compare` and `gate` do not yet flag that an artifact came from a batch. No request carries `fallbacks`. Row timestamps and latencies record collection, not generation.
 
 ### Poisoned community models
 

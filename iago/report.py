@@ -688,6 +688,36 @@ def replay_disclosure(manifest: dict | None) -> str:
             "yourself._")
 
 
+#: What this cycle's batch sweep does not control for (Council council-20261101T142649-10p9ah,
+#: finding 9: deferred to the next cycle, named in the report's limits).
+BATCH_DEFERRED_CONTROLS = ("randomized allocation", "interleaved synchronous controls",
+                           "judge validation on these models",
+                           "uncertainty clustered by attack family")
+
+
+def batch_disclosure(manifest: dict | None) -> str:
+    """One paragraph for an artifact collected from the Message Batches API, or "" otherwise: every
+    planned request accounted for by id, what the batch left out, and the limits it carries. It
+    opens on the single-shot scope (Council council-20261101T161334-zf8s9z seat 2): it sits above
+    the scorecard, so a rate cannot be quoted without it."""
+    from .batch import NOT_ANSWERED  # lazy: batch imports the runner
+
+    bt = (manifest or {}).get("batch")
+    if not bt:
+        return ""
+    lost = [f"{k} {', '.join(f'`{i}`' for i in bt[k])}" for k in NOT_ANSWERED if bt.get(k)]
+    excluded = bt.get("excluded_multiturn") or []
+    return (f"_**Single-shot techniques only: every rate below leaves out {len(excluded)} multi-turn "
+            "technique(s) and is not comparable to a full-library run."
+            + (f" Excluded: {', '.join(f'`{t}`' for t in excluded)}." if excluded else "")
+            + f"** Collected from Message Batch `{bt.get('batch_id')}`: {bt.get('succeeded')} of "
+            f"{bt.get('planned')} planned requests returned a reply"
+            + (f"; not answered (RUN-ERROR rows, outside the rates): {'; '.join(lost)}" if lost else "")
+            + ". No request carried `fallbacks`. Row timestamps and latencies record collection, "
+            "not generation. Limits: this sweep does not include "
+            + ", ".join(BATCH_DEFERRED_CONTROLS) + " (deferred to the next cycle)._")
+
+
 def target_framing(manifest: dict | None) -> str:
     """What the target is, as a clause both renderers complete ("Target is …" / "the target is …"):
     a local model, or a recorded replay of one."""
@@ -1032,9 +1062,10 @@ def build_report(rows: list[dict], manifest: dict | None = None) -> str:
     a("")
     # ABOVE the scorecard: the scorecard is the part a reader quotes or screenshots, so a replay
     # must not be able to travel without saying it is one.
-    if rd := replay_disclosure(manifest):
-        a(rd)
-        a("")
+    for disclosure in (replay_disclosure(manifest), batch_disclosure(manifest)):
+        if disclosure:
+            a(disclosure)
+            a("")
     # Also above the scorecard: a rate must not travel without saying which trials it left out.
     for line in vendor_lines:
         a(line)
@@ -1899,8 +1930,9 @@ def build_html_report(rows: list[dict], manifest: dict | None = None) -> str:
     o('<div class=meta>Framework edition: OWASP LLM Top 10 <b>2025</b>. The 2026 edition renamed and broadened System Prompt Leakage to Hidden Context Exposure and renumbered entries, so a number that means one risk in 2025 can mean a different one in 2026. Read every LLMxx here as 2025.</div>')
     o('</div>')
     # Above the scorecard, as in markdown: a replay must not travel without saying it is one.
-    if rd := replay_disclosure(manifest):
-        o(f"<p>{_inline_md_to_html(rd)}</p>")
+    for disclosure in (replay_disclosure(manifest), batch_disclosure(manifest)):
+        if disclosure:
+            o(f"<p>{_inline_md_to_html(disclosure)}</p>")
     if vendor_html:
         o(vendor_html)
 
