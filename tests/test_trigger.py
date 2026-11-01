@@ -516,7 +516,7 @@ def test_temperature_zero_collapses_trials_to_one_per_prompt(tmp_path):
     """At temperature 0 every trial of a prompt is the same generation (seed or not), so three
     of them would be one observation counted three times. They collapse to one, and the manifest
     records both numbers."""
-    assert trigger.effective_trials(3, 0.0) == 1 and trigger.effective_trials(3, 0.8) == 3
+    assert trigger.effective_trials(3, 0.0, []) == 1 and trigger.effective_trials(3, 0.8, []) == 3
     fake = _Fake()
     path = _run(fake, tmp_path, trials=3, temperature=0.0)
     manifest, rows = read_artifact(path)

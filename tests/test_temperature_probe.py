@@ -15,7 +15,7 @@ from iago.adaptive import NextMove, run_adaptive_conversation
 from iago.agent_run import run_agent_suite
 from iago.artifacts import read_artifact
 from iago.attacks import Technique
-from iago.campaign import Campaign, SurfaceResult, write_campaign_report
+from iago.campaign import build_campaign
 from iago.compare import SAMPLING_MISMATCH_LABEL, build_comparison, write_comparison_report
 from iago.objectives import Objective
 from iago.report import determinism_disclosure
@@ -25,6 +25,7 @@ from iago.target import (AnthropicTarget, SamplingRefused, Target, is_temperatur
 from iago.trigger import effective_trials, render_trigger_report
 
 from test_adaptive import FORBIDDEN, _ScriptAttacker
+from test_backend_parity import _drops_seed
 from test_delivery_signal import BASE, scripted_chat
 from test_target import DEPRECATED, _anthropic, _bad_request, _refuse_any_temperature
 from test_trigger import _run as _run_trigger
@@ -163,12 +164,6 @@ def test_temperature_refusal_mid_run_fails_trigger_check(tmp_path):
         _run_trigger(_refuses_after_probe(), tmp_path, trials=1)
 
 
-def test_determinism_probe_reraises_run_fatal():
-    """Mutation: drop the probe's `except RunFatal: raise` -> filed as probe metadata."""
-    with pytest.raises(SamplingRefused):
-        _determinism_probe(_refuses_after_probe(), temperature=0.8, base_seed=1)
-
-
 # --- ISC-146: every reader says temperature was not applied --------------------------------
 
 DROPPED = {"sampling": {"temperature": 0.8, "trials": 1, "base_seed": 1,
@@ -199,10 +194,7 @@ def test_sampling_line_marks_a_dropped_temperature():
 # --- ISC-147: compare and campaign refuse unequal sampling unless asked --------------------
 
 def _agent_artifact(tmp_path, name, honors):
-    def fn(messages, tools, options):
-        return scripted_chat(["done"])(messages, tools, options)
-    fn.supported_options = honors
-    return run_agent_suite(fn, model_name=f"fake:{name}", trials=1, max_steps=2, scenarios=[BASE],
+    return run_agent_suite(_drops_seed(scripted_chat(["done"]), honors), model_name=f"fake:{name}", trials=1, max_steps=2, scenarios=[BASE],
                            artifacts_dir=tmp_path / name)
 
 
@@ -251,14 +243,12 @@ def test_equal_sampling_compares_without_the_label(tmp_path):
     assert SAMPLING_MISMATCH_LABEL not in text and "## Difference between models\n" in text
 
 
-def test_campaign_labels_unequal_sampling(tmp_path):
+def test_campaign_inherits_the_refusal(tmp_path):
+    """campaign runs Ollama only, so it cannot produce unequal sampling today; if it ever does,
+    build_comparison refuses there too. Mutation: pass allow_sampling_mismatch=True in campaign."""
     default, pinned = _unequal(tmp_path)
-    comp = build_comparison([default, pinned], allow_sampling_mismatch=True)
-    campaign = Campaign(surfaces=[SurfaceResult("agent", "Agent", comp)],
-                        models=["fake:default", "fake:pinned"],
-                        requested_models=["fake:default", "fake:pinned"], errors=[])
-    section = write_campaign_report(campaign, reports_dir=tmp_path).read_text().split("### Agent")[1]
-    assert SAMPLING_MISMATCH_LABEL[1:] in section
+    with pytest.raises(ValueError, match="--allow-sampling-mismatch"):
+        build_campaign({"agent": [default, pinned]})
 
 
 def test_anthropic_target_class_default_is_unchanged():

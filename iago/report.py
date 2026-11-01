@@ -21,7 +21,8 @@ from pathlib import Path
 from typing import TypedDict
 
 from .config import REPORTS_DIR, tag_id
-from .artifacts import dropped_controls, require_surface
+from .artifacts import (OFF_STRATA, STRATUM_FALLBACK, STRATUM_REQUESTED, STRATUM_UNKNOWN,
+                        dropped_controls, require_surface, requested_temperature)
 from .judge_eval import calibration_line
 from .judge import BYPASSED, COMPLIED_USELESS, ERROR, NEEDS_REVIEW, REFUSED
 from .guards import guard_that_fired
@@ -717,7 +718,7 @@ def determinism_disclosure(manifest: dict | None, *, pinning: str = "pinning not
         names = ", ".join(f"`{c}`" for c in dropped)
         temp = ""
         if "temperature" in dropped:
-            requested = ((manifest.get("sampling") or {}).get("temperature"))
+            requested = requested_temperature(manifest)
             temp = (" Temperature-pinned reproducibility does not hold on this model: the requested "
                     f"{requested if requested is not None else 'temperature'} was not applied, and "
                     "the model sampled at its own default.")
@@ -872,9 +873,6 @@ def _aggregate(rows: list[dict]) -> _Aggregates:
     )
 
 
-#: Strata whose rows another model answered, or no named model did. Never counted toward the
-#: requested model's rates (runner.TrialResult.model_stratum).
-OFF_STRATA = frozenset({"fallback", "unknown"})
 _RAW_CAP = 2000
 
 
@@ -895,41 +893,54 @@ def _trial_ref(r: dict) -> str:
     return f"{r.get('technique_id')} × {r.get('objective_id')} r{r.get('trial')}"
 
 
-def vendor_section_lines(rows: list[dict]) -> list[str]:
-    """The routing-strata and vendor-label section, as markdown lines: [] for a run with no
-    Anthropic rows. Takes ALL rows (before the stratum split) so the excluded ones are tallied."""
-    api = [r for r in rows if r.get("requested_model")]
-    if not api:
-        return []
-    out = ["## Model routing and vendor refusal labels", ""]
+def _api_rows(rows: list[dict]) -> list[dict]:
+    return [r for r in rows if r.get("requested_model")]
+
+
+def _vendor_bullets(api: list[dict]) -> list[tuple[int, str]]:
+    """The section's bullets as (depth, markdown text), read by both renderers so the HTML copy
+    never re-parses the markdown."""
+    out: list[tuple[int, str]] = []
     requested = sorted({r["requested_model"] for r in api})
     strata = Counter(r.get("model_stratum") or "no reply" for r in api)
-    out.append(f"- **Requested model:** {', '.join(f'`{m}`' for m in requested)}. "
-               + " · ".join(f"{k}: {strata[k]}" for k in ("requested", "fallback", "unknown", "no reply")
-                            if strata[k]))
+    out.append((0, f"**Requested model:** {', '.join(f'`{m}`' for m in requested)}. "
+                + " · ".join(f"{k}: {strata[k]}" for k in (STRATUM_REQUESTED, STRATUM_FALLBACK,
+                                                            STRATUM_UNKNOWN, "no reply")
+                             if strata[k])))
     off = [r for r in api if r.get("model_stratum") in OFF_STRATA]
     if off:
-        out.append(f"- **{len(off)} trial(s) excluded from every rate above:** another model answered "
-                   "(fallback) or the response named none (unknown), so they say nothing about the "
-                   "requested model's robustness. Their judge verdicts, by stratum and served model:")
+        out.append((0, f"**{len(off)} trial(s) excluded from every rate above:** another model answered "
+                    "(fallback) or the response named none (unknown), so they say nothing about the "
+                    "requested model's robustness. Their judge verdicts, by stratum and served model:"))
         groups: dict[tuple, Counter] = defaultdict(Counter)
         for r in off:
             groups[(r["model_stratum"], r.get("served_model") or "not named")][verdict_of(r)] += 1
         for (stratum, served), tally in sorted(groups.items()):
-            out.append(f"  - {stratum}, served by `{served}`: "
-                       + ", ".join(f"{v} {n}" for v, n in sorted(tally.items())))
+            out.append((1, f"{stratum}, served by `{served}`: "
+                        + ", ".join(f"{v} {n}" for v, n in sorted(tally.items()))))
     else:
-        out.append("- **No fallback or unattributed trials:** every reply named the requested model.")
+        out.append((0, "**No fallback or unattributed trials:** every reply named the requested model."))
     refusals = [r for r in api if r.get("vendor_stop_reason") == "refusal"]
     cats = Counter(r.get("vendor_stop_category") or "null" for r in refusals)
-    out.append(f"- **Provider-reported refusals:** {len(refusals)} of {len(api)}"
-               + (f" ({', '.join(f'{c} {n}' for c, n in sorted(cats.items()))})" if refusals else "")
-               + ". `stop_reason: refusal` is the provider's label, not an outcome: every verdict here "
-               "is the independent judge's.")
+    out.append((0, f"**Provider-reported refusals:** {len(refusals)} of {len(api)}"
+                + (f" ({', '.join(f'{c} {n}' for c, n in sorted(cats.items()))})" if refusals else "")
+                + ". `stop_reason: refusal` is the provider's label, not an outcome: every verdict here "
+                "is the independent judge's."))
     absent = Counter(f for r in api for f in (r.get("vendor_absent") or []))
     if absent:
-        out.append("- **Fields the API did not return** (recorded as absent, never filled in): "
-                   + ", ".join(f"`{f}` {n}" for f, n in sorted(absent.items())))
+        out.append((0, "**Fields the API did not return** (recorded as absent, never filled in): "
+                    + ", ".join(f"`{f}` {n}" for f, n in sorted(absent.items()))))
+    return out
+
+
+def vendor_section_lines(rows: list[dict]) -> list[str]:
+    """The routing-strata and vendor-label section, as markdown lines: [] for a run with no
+    Anthropic rows. Takes ALL rows (before the stratum split) so the excluded ones are tallied."""
+    api = _api_rows(rows)
+    if not api:
+        return []
+    out = ["## Model routing and vendor refusal labels", ""]
+    out += [f"{'  ' * depth}- {text}" for depth, text in _vendor_bullets(api)]
     dis = vendor_disagreements(api)
     out.append("")
     if not dis:
@@ -1795,16 +1806,11 @@ def _bar(rate: float, sev: str) -> str:
 def _vendor_section_html(rows: list[dict]) -> str:
     """The routing/vendor-label section for the shared copy. Every value is escaped: model names,
     categories and replies come from the API, so none of it goes through `_inline_md_to_html`."""
-    lines = vendor_section_lines(rows)
-    if not lines:
+    api = _api_rows(rows)
+    if not api:
         return ""
-    api = [r for r in rows if r.get("requested_model")]
     parts = ["<h2>Model routing and vendor refusal labels</h2><ul>"]
-    for line in lines[2:]:
-        if line.startswith("- ") or line.startswith("  - "):
-            parts.append(f"<li>{_esc(line.lstrip(' -').replace('**', '').replace('`', ''))}</li>")
-        elif line.startswith("### ") or not line or line.startswith("_No judge"):
-            break
+    parts += [f"<li>{_esc(text.replace('**', '').replace('`', ''))}</li>" for _depth, text in _vendor_bullets(api)]
     parts.append("</ul>")
     dis = vendor_disagreements(api)
     if dis:

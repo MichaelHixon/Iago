@@ -24,7 +24,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .artifacts import (SCHEMA_VERSION, build_manifest, library_fingerprint, load_rows, module_fingerprint,
+from .artifacts import (STRATUM_FALLBACK, STRATUM_REQUESTED, STRATUM_UNKNOWN, SCHEMA_VERSION, build_manifest, library_fingerprint, load_rows, module_fingerprint,
                         sha256_text, write_manifest)
 from .guards import guard_that_fired
 from .judge import ERROR as _ERROR_VERDICT
@@ -146,9 +146,6 @@ PROFILE_ONLY_FIELDS = ("profile_arm", "model_profile_sha256")
 VENDOR_ONLY_FIELDS = ("vendor_stop_reason", "vendor_stop_category", "vendor_stop_explanation",
                       "requested_model", "served_model", "vendor_absent", "model_stratum")
 
-STRATUM_REQUESTED = "requested"
-STRATUM_FALLBACK = "fallback"
-STRATUM_UNKNOWN = "unknown"
 
 
 def _reply_stratum(vendor: dict) -> str:

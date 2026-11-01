@@ -27,7 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .agent_oracle import ATTEMPTED, HIJACKED, RESISTED
-from .artifacts import dropped_controls, fingerprint_status, read_artifact, refuse_unknown_fingerprint, require_surface
+from .artifacts import (dropped_controls, fingerprint_status, read_artifact, refuse_unknown_fingerprint,
+                        require_surface, requested_temperature)
 from .config import GROUNDING_FLOOR_MIN_CORRECT, REPORTS_DIR
 from .floor import floor_state
 from .stats import newcombe_diff_ci, wilson_interval
@@ -160,7 +161,7 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
         library_ids[str(path)] = manifest.get("scenario_library_sha256") if manifest else None
         determinism[str(path)] = manifest.get("determinism") if manifest else None
         unsupported[str(path)] = dropped_controls(manifest)
-        temperatures[str(path)] = ((manifest or {}).get("sampling") or {}).get("temperature")
+        temperatures[str(path)] = requested_temperature(manifest)
         for r in rows:
             model = r.get("model", "unknown")
             ms = by_model.get(model)
@@ -300,7 +301,7 @@ SAMPLING_MISMATCH_LABEL = "configured-system comparison (unequal sampling): not 
 def sampling_mismatch_line(comp: Comparison) -> str | None:
     if not comp.sampling_mismatch_allowed:
         return None
-    return (f"_⚠️ **{SAMPLING_MISMATCH_LABEL[0].upper()}{SAMPLING_MISMATCH_LABEL[1:]}** (compared with "
+    return (f"_⚠️ **{SAMPLING_MISMATCH_LABEL.capitalize()}** (compared with "
             "`--allow-sampling-mismatch`): the arms differ in whether the target applied "
             "`temperature`, so a delta here belongs to each configured system, not to the model._")
 

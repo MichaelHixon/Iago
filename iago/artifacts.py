@@ -498,6 +498,19 @@ def require_dual_arms(rows: list[dict]) -> tuple[int, int]:
     return tuned, baseline
 
 
+#: `model_stratum` values (runner.TrialResult). Only `requested` rows count toward a model's rates.
+STRATUM_REQUESTED = "requested"
+STRATUM_FALLBACK = "fallback"
+STRATUM_UNKNOWN = "unknown"
+#: Strata whose rows another model answered, or no named model did.
+OFF_STRATA = frozenset({STRATUM_FALLBACK, STRATUM_UNKNOWN})
+
+
+def requested_temperature(manifest: dict | None) -> float | None:
+    """The temperature the run requested (`sampling.temperature`), None when not recorded."""
+    return ((manifest or {}).get("sampling") or {}).get("temperature")
+
+
 def dropped_controls(manifest: dict | None) -> list[str]:
     """The sampling controls the run's target dropped (`sampling.unsupported_controls`), [] when
     none were or the manifest predates the field. The one reader of that key."""

@@ -364,8 +364,7 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
     # run_campaign stamps artifact model names as "ollama:<tag>", so the absent-model check must
     # compare against the SAME canonical form or it falsely flags every present model as absent.
     requested = [f"ollama:{m}" for m in models]
-    campaign = build_campaign(surface_paths, labels=labels, requested_models=requested, errors=errors,
-                              allow_sampling_mismatch=getattr(args, "allow_sampling_mismatch", False))
+    campaign = build_campaign(surface_paths, labels=labels, requested_models=requested, errors=errors)
     out = write_campaign_report(campaign)
     print(f"\nSurfaces run: {', '.join(surface_paths)}")
     print(f"Campaign report: {out}")
@@ -1085,9 +1084,6 @@ def build_parser() -> argparse.ArgumentParser:
                      help="tool-loop step budget per scenario")
     cam.add_argument("--smoke", action="store_true",
                      help="1 attack + 1 capability scenario per surface, fast pipeline proof")
-    cam.add_argument("--allow-sampling-mismatch", action="store_true",
-                     help="roll up surfaces whose arms differ in whether temperature was applied; "
-                          "each is then labelled a configured-system comparison, not a model ranking")
     cam.set_defaults(func=_cmd_campaign)
 
     cd = sub.add_parser("compose-delta",

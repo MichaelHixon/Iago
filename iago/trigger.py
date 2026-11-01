@@ -591,7 +591,7 @@ class TriggerResult:
         return bool(self.false_trigger_ci_fallback) and self.n_pairs > 0
 
 
-def effective_trials(trials: int, temperature: float, dropped: list[str] | tuple[str, ...] = ()) -> int:
+def effective_trials(trials: int, temperature: float, dropped: list[str] | tuple[str, ...]) -> int:
     """At temperature 0 every trial of a prompt is the same REQUEST (the seed changes nothing), so
     `trials` of it would be one observation counted `trials` times. One per prompt. That is a claim
     about identical requests, not proven identical outputs. A target that dropped `temperature`

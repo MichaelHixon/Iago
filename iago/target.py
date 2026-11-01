@@ -397,9 +397,10 @@ class AnthropicTarget(Target):
         self._client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
         return self._client
 
-    def _create(self, system: str, messages: list[dict], options: dict | None):
+    def _create(self, system: str, messages: list[dict], options: dict | None, what: str):
         """One Messages API call; maps the supported_options onto the API's parameters. A
-        control the model refused is omitted, never sent as some stand-in value."""
+        control the model refused is omitted, never sent as some stand-in value. A failure
+        raises `SamplingRefused` (a RunFatal) for a refused control, else RuntimeError(`what`)."""
         opts = options or {}
         kwargs = {"model": self.model,
                   "max_tokens": opts.get("num_predict", _ANTHROPIC_MAX_TOKENS),
@@ -414,7 +415,7 @@ class AnthropicTarget(Target):
                     f"{self.model} refused `temperature` after the build-time probe accepted it; "
                     f"failing the run rather than changing the sampling mid-run ({exc_label(exc)})"
                 ) from exc
-            raise
+            raise RuntimeError(f"Anthropic {what} failed: {exc}") from exc
 
     def _reply(self, msg) -> VendorReply:
         """The response's text with its vendor fields attached. A refusal can arrive before any
@@ -437,13 +438,8 @@ class AnthropicTarget(Target):
         system: str | None = None,
         options: dict | None = None,
     ) -> str:
-        try:
-            msg = self._create(system or "", [{"role": "user", "content": prompt}], options)
-        except RunFatal:
-            raise
-        except Exception as exc:
-            raise RuntimeError(f"Anthropic request failed: {exc}") from exc
-        return self._reply(msg)
+        return self._reply(self._create(system or "", [{"role": "user", "content": prompt}],
+                                        options, "request"))
 
     def chat(self, messages: list[dict], options: dict | None = None) -> str:
         # Anthropic takes system separately; pull the system message out. A second one has no
@@ -458,13 +454,7 @@ class AnthropicTarget(Target):
                 system = m.get("content", "")
             else:
                 convo.append({"role": m["role"], "content": m["content"]})
-        try:
-            msg = self._create(system or "", convo, options)
-        except RunFatal:
-            raise
-        except Exception as exc:
-            raise RuntimeError(f"Anthropic chat failed: {exc}") from exc
-        return self._reply(msg)
+        return self._reply(self._create(system or "", convo, options, "chat"))
 
 
 # --- Target registry / factory -------------------------------------------------

@@ -36,7 +36,6 @@ from .compare import (
     no_rate_cell,
     build_comparison,
     dropped_controls_line,
-    sampling_mismatch_line,
     divergent_scenarios,
 )
 from .config import REPORTS_DIR
@@ -68,7 +67,6 @@ def build_campaign(
     labels: dict[str, str] | None = None,
     requested_models: list[str] | None = None,
     errors: list[str] | None = None,
-    allow_sampling_mismatch: bool = False,
 ) -> Campaign:
     """Aggregate per surface. ``surface_paths`` maps a surface key -> its artifact paths
     (one or more single-model artifacts of THAT surface). Each surface is compared
@@ -88,7 +86,7 @@ def build_campaign(
     model_order: list[str] = []
     seen: set[str] = set()
     for key, paths in surface_paths.items():
-        comp = build_comparison(list(paths), allow_sampling_mismatch=allow_sampling_mismatch)
+        comp = build_comparison(list(paths))
         surfaces.append(SurfaceResult(key=key, label=labels.get(key, key), comp=comp))
         for m in comp.models:
             if m.model not in seen:
@@ -233,8 +231,6 @@ def write_campaign_report(campaign: Campaign, reports_dir: Path | None = None) -
     for sr in campaign.surfaces:
         lines.append(f"### {sr.label}")
         lines.append("")
-        if mismatch_note := sampling_mismatch_line(sr.comp):
-            lines += [mismatch_note, ""]
         if dropped := dropped_controls_line(sr.comp):
             lines += [dropped, ""]
         alive_models = [m for m in sr.comp.models if m.floor_alive]
