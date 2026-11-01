@@ -92,7 +92,7 @@ uv run iago regrade reports/artifacts/<run>.jsonl --judge ollama:<model>
 
 - `defense-delta` runs the library with and without a guard on the same seeds and reports the difference. `delta` builds the same report from two existing artifacts.
 
-- `compare` puts two or more same-surface artifacts from different models into one report. It exits 2 when one artifact's target applied `temperature` and another's sampled at the model default; `--allow-sampling-mismatch` compares them anyway and labels the report a configured-system comparison, not a model ranking.
+- `compare` puts two or more same-surface artifacts from different models into one report. It exits 2 when the artifacts sampled at different temperatures (including one whose target dropped `temperature` and sampled at the model default); `--allow-sampling-mismatch` compares them anyway and labels the report a configured-system comparison, not a model ranking.
 
 - `campaign` runs every surface against every local model and writes one consolidated report.
 
@@ -296,6 +296,8 @@ Each technique family and agent surface also carries an [OWASP Top 10 for Agenti
 - **Out of scope:** supply chain, training-time poisoning and unbounded consumption (LLM03, LLM04 training, LLM10). None can be measured by driving a model with prompts; `trigger-check` measures the behaviour a poisoned model shows on a trigger you name, not how or whether it was poisoned.
 
 - **The agent surfaces run on Ollama today**, per `agent-run --help`.
+
+- **Only `iago report` leaves fallback-served trials out of its rates.** On `--target anthropic`, a trial another model answered (`model_stratum: fallback`) or whose response named no model (`unknown`) is excluded and tallied in its own section; `gate`, `delta`, `compare`, `campaign` and the `run --profile` dual-rate report still count it.
 
 - **Older RAG and A2A artifacts are not comparable with current ones.** The attack text in `attacks/agentic/rag_scenarios.yaml` and `a2a_scenarios.yaml` changed under the same scenario ids. `iago compare` refuses to mix them when both manifests carry `scenario_library_sha256` and flags an older artifact without it as unknown. Re-run the older model on the current library instead.
 

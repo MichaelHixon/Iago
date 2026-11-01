@@ -275,3 +275,41 @@ def test_each_determinism_probe_clause_reraises_run_fatal(n):
     """One test per except clause. Mutation: drop either `except RunFatal: raise` -> metadata."""
     with pytest.raises(SamplingRefused):
         _determinism_probe(_FatalOnCall(n), temperature=0.8, base_seed=1)
+
+
+# --- gate findings (fleet t16 review, 2026-11-01) ---------------------------------------------
+
+def test_probe_runs_at_exactly_half():
+    _, msgs = _anthropic()
+    assert (msgs.calls[0]["temperature"], msgs.calls[0]["max_tokens"]) == (0.5, 1)
+
+
+def test_label_text_is_the_published_wording():
+    assert SAMPLING_MISMATCH_LABEL == "configured-system comparison (unequal sampling): not a model ranking"
+
+
+@pytest.mark.parametrize("argv", [
+    ["run", "--target", "anthropic", "--authorized", "--smoke", "--model", "m", "--no-determinism-check"],
+    ["trigger-check", "--target", "anthropic", "--authorized", "--smoke", "--model", "m"],
+])
+def test_cli_exits_2_on_a_mid_run_sampling_refusal(monkeypatch, capsys, tmp_path, argv):
+    """Mutation: drop the CLI's SamplingRefused handler -> the exception escapes main."""
+    from iago import cli
+    monkeypatch.setattr(cli, "build_target", lambda kind, model=None: _refuses_after_probe())
+    import iago.runner, iago.trigger
+    monkeypatch.setattr(iago.runner, "ARTIFACTS_DIR", tmp_path)
+    monkeypatch.setattr(iago.trigger, "ARTIFACTS_DIR", tmp_path)
+    monkeypatch.setattr(cli, "ARTIFACTS_DIR", tmp_path, raising=False)
+    assert cli.main(argv) == 2
+    assert "ERROR: sampling refused mid-run" in capsys.readouterr().err
+
+
+def test_compare_refuses_two_applied_but_different_temperatures(tmp_path):
+    """Both arms applied temperature, at 0.0 and 0.8. Mutation: compare only the dropped flag."""
+    pinned = frozenset({"temperature", "seed"})
+    cold = run_agent_suite(_drops_seed(scripted_chat(["done"]), pinned), model_name="fake:cold",
+                           trials=1, max_steps=2, scenarios=[BASE], temperature=0.0,
+                           artifacts_dir=tmp_path / "cold")
+    warm = _agent_artifact(tmp_path, "warm", pinned)
+    with pytest.raises(ValueError, match=r"different temperatures .*=0\.0.*=0\.8|different temperatures .*=0\.8.*=0\.0"):
+        build_comparison([cold, warm])

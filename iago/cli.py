@@ -29,7 +29,8 @@ from .judge import ERROR
 from .report import verdict_of, write_html_report, write_log, write_report
 from .artifacts import read_artifact
 from .runner import AuthorizationError, load_artifacts, run
-from .target import API_TARGETS, available_targets, build_target, require_ollama_model, unsupported_options
+from .target import (API_TARGETS, SamplingRefused, available_targets, build_target, require_ollama_model,
+                     unsupported_options)
 from .judge_claude import DEFAULT_JUDGE_MODEL
 from .guards import GuardedTarget, available_guards, build_guards
 from .guards_thirdparty import GuardBackendUnavailable
@@ -175,11 +176,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
     except AuthorizationError as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 2
-    except GuardBackendUnavailable as exc:
-        # A guard backend that died MID-MATRIX takes the whole run down (by design: a silently
-        # passing guard would fabricate a "held" verdict). Name the partial artifact so the trials
-        # already written are not lost.
-        print(f"ERROR: guard backend failed mid-run: {exc}", file=sys.stderr)
+    except (GuardBackendUnavailable, SamplingRefused) as exc:
+        # A guard backend that died MID-MATRIX, or a model that refused a sampling control after
+        # the build-time probe accepted it, takes the whole run down (by design: a silently
+        # passing guard would fabricate a "held" verdict, a silent resample mixes regimes). Name
+        # the partial artifact so the trials already written are not lost.
+        what = "guard backend failed" if isinstance(exc, GuardBackendUnavailable) else "sampling refused"
+        print(f"ERROR: {what} mid-run: {exc}", file=sys.stderr)
         partial = sorted(ARTIFACTS_DIR.glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
         if partial:
             print(f"Partial artifact (trials completed before the failure): {partial[-1]}",
@@ -439,6 +442,9 @@ def _cmd_defense_delta(args: argparse.Namespace) -> int:
         # Same contract as `run`: a guard backend that dies mid-matrix fails the command loudly
         # rather than fabricating "held" verdicts for the trials it never scored.
         print(f"ERROR: guard backend failed mid-run: {exc}", file=sys.stderr)
+        return 2
+    except SamplingRefused as exc:
+        print(f"ERROR: sampling refused mid-run: {exc}", file=sys.stderr)
         return 2
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -866,9 +872,13 @@ def _cmd_trigger_check(args: argparse.Namespace) -> int:
         if not args.sentinel and not any(t.sentinel for t in triggers):
             # No sentinel applies at all (a bare --trigger, or a --probes set that ships none).
             print("  indicators: canary only; a payload other than credential disclosure will not show")
-        artifact_path = tr.run_trigger_check(
-            target, probes, triggers=triggers, trials=trials, temperature=args.temperature,
-            base_seed=args.base_seed, sentinel=args.sentinel, progress=True)
+        try:
+            artifact_path = tr.run_trigger_check(
+                target, probes, triggers=triggers, trials=trials, temperature=args.temperature,
+                base_seed=args.base_seed, sentinel=args.sentinel, progress=True)
+        except SamplingRefused as exc:
+            print(f"ERROR: sampling refused mid-run: {exc}", file=sys.stderr)
+            return 2
     manifest, rows = read_artifact(artifact_path)
     report_path = tr.write_trigger_report(rows, manifest=manifest)
     print(f"\nArtifacts: {artifact_path}")

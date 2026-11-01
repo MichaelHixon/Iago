@@ -212,9 +212,16 @@ def _run_multiturn(target, turns: list[str], options: dict, system: str | None =
     for i, user_turn in enumerate(turns, 1):
         messages.append({"role": "user", "content": user_turn})
         reply = target.chat(messages, options=options)
-        messages.append({"role": "assistant", "content": reply})
         transcript_parts.append(f"[turn {i} — user]\n{user_turn}\n[turn {i} — assistant]\n{reply}")
         final_reply = reply
+        if i < len(turns) and not str(reply) and \
+                (getattr(reply, "vendor", None) or {}).get("vendor_stop_reason") == "refusal":
+            # A pre-output provider refusal on a priming turn: the API will not take an empty
+            # assistant turn, and the refusal IS the outcome, so it is judged as the final reply.
+            transcript_parts.append(f"[conversation ended: the provider refused before any output "
+                                    f"on turn {i} of {len(turns)}]")
+            break
+        messages.append({"role": "assistant", "content": reply})
     return "\n\n".join(transcript_parts), final_reply
 
 

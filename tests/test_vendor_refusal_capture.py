@@ -173,3 +173,81 @@ def test_the_html_audit_list_escapes_the_raw_reply(tmp_path):
     html = build_html_report(_rows(tmp_path, hostile))
     assert "<script>alert(1)" not in html and "&lt;script&gt;" in html
     assert "<b>x</b>" not in html
+
+
+# --- gate findings (fleet t16 review, 2026-11-01) ---------------------------------------------
+
+def _sdk(**body):
+    """A real SDK Message parsed from a wire body: omitted keys stay out of `model_fields_set`."""
+    from anthropic.types import Message
+    base = {"id": "msg_1", "type": "message", "role": "assistant", "content": [],
+            "usage": {"input_tokens": 1, "output_tokens": 0}}
+    return Message.model_validate(base | body)
+
+
+def test_sdk_omitted_fields_are_absent_and_explicit_nulls_are_not():
+    """The SDK fills an omitted field with None. Mutation: drop the `model_fields_set` check in
+    `_attr` -> every absent list below reads []."""
+    from iago.target import anthropic_vendor_fields
+    omitted = _sdk(model=REQUESTED, stop_reason="refusal")
+    nulled = _sdk(model=REQUESTED, stop_reason="refusal", stop_details=None)
+    bare = _sdk(model=REQUESTED, stop_reason="refusal", stop_details={"type": "refusal"})
+    assert anthropic_vendor_fields(omitted, REQUESTED)["vendor_absent"] == ["stop_details"]
+    assert anthropic_vendor_fields(nulled, REQUESTED)["vendor_absent"] == []
+    assert anthropic_vendor_fields(bare, REQUESTED)["vendor_absent"] == [
+        "stop_details.category", "stop_details.explanation"]
+
+
+def _without(md_or_html, section):
+    assert section and section in md_or_html, "vendor section not found"
+    return md_or_html.replace(section, "")
+
+
+def test_both_renderers_rate_only_requested_rows(tmp_path):
+    """Everything but the vendor section is what the requested-model rows alone produce.
+    Mutation: drop either renderer's `split_by_stratum` -> the fallback row enters its rates."""
+    from iago.report import _vendor_section_html, vendor_section_lines
+    rows = _rows(tmp_path, REFUSAL, MISMATCH)
+    counted, off = split_by_stratum(rows)
+    assert [r["model_stratum"] for r in off] == ["fallback"] and counted[0]["verdict"] != off[0]["verdict"]
+    html_all, html_counted = build_html_report(rows), build_html_report(counted)
+    assert (_without(html_all, _vendor_section_html(rows))
+            == _without(html_counted, _vendor_section_html(counted)))
+    md_all, md_counted = build_report(rows), build_report(counted)
+    assert (_without(md_all, "\n".join(vendor_section_lines(rows)))
+            == _without(md_counted, "\n".join(vendor_section_lines(counted))))
+
+
+def test_audit_reply_is_capped_at_2000_chars_in_both_renderers(tmp_path):
+    """Mutation: drop either renderer's cap -> TAILMARK appears."""
+    long = "x" * 1995 + "HEAD5" + "TAILMARK" + "y" * 500
+    rows = _rows(tmp_path, _msg(long, stop_reason="refusal", model=REQUESTED, stop_details=None))
+    assert rows[0]["response"] == long  # the artifact keeps the whole reply
+    md, html = build_report(rows), build_html_report(rows)
+    assert "HEAD5" in md and "TAILMARK" not in md and "[… 508 more chars in the artifact]" in md
+    assert "HEAD5" in html and "TAILMARK" not in html
+
+
+def test_no_reply_rows_are_not_counted_as_fields_the_api_omitted(tmp_path):
+    from iago.report import vendor_section_lines
+    row = _row(tmp_path, NORMAL) | {"vendor_absent": ["response"], "model_stratum": None}
+    assert not any("did not return" in ln for ln in vendor_section_lines([row]))
+
+
+def test_a_priming_turn_refusal_ends_the_conversation_and_is_judged(tmp_path):
+    """Mutation: drop the early stop -> the empty reply rides into the next request."""
+    sent = []
+    queue = [_msg("h", stop_reason="max_tokens", stop_details=None, model=REQUESTED), REFUSAL, NORMAL]
+
+    def create(**kw):
+        sent.append(kw)
+        return queue.pop(0)
+    target = AnthropicTarget(REQUESTED, client=SimpleNamespace(messages=SimpleNamespace(create=create)))
+    multi = Technique("mt", "Multi", "multi-turn", "d", "Now: {objective}",
+                      turns=("Warm up.",))
+    out = run(target, trials=1, authorized=True, artifacts_dir=tmp_path, techniques=[multi],
+              objectives=OBJS, determinism_check=False)
+    row = load_artifacts(out)[0]
+    assert len(sent) == 2  # the probe and turn 1; turn 2 was never sent
+    assert row["status"] == "evaluated" and row["response"] == ""
+    assert row["vendor_stop_reason"] == "refusal"

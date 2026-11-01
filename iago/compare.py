@@ -238,12 +238,11 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
             + "); the same scenario id names a different stimulus in each, so a rate delta is not "
             "a model difference. Re-run on one library, or pass --allow-library-mismatch"
         )
-    mismatch = sampling_mismatch(unsupported)
+    mismatch = sampling_mismatch(unsupported, temperatures)
     if mismatch and not allow_sampling_mismatch:
         raise ValueError(
-            "artifacts differ in whether the target applied `temperature` ("
-            + ", ".join(f"{Path(p).name}={'model default' if not applied else 'applied'}"
-                        for p, applied in mismatch.items())
+            "artifacts sampled at different temperatures ("
+            + ", ".join(f"{Path(p).name}={t}" for p, t in mismatch.items())
             + "); a rate delta between arms on unequal sampling is not a model difference. Re-run "
             "on equal sampling, or pass --allow-sampling-mismatch for a configured-system comparison"
         )
@@ -259,12 +258,17 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
                       temperatures=temperatures, sampling_mismatch_allowed=bool(mismatch))
 
 
-def sampling_mismatch(unsupported: dict[str, list[str]]) -> dict[str, bool]:
-    """artifact -> whether its target applied `temperature`, when the artifacts disagree on that;
-    {} when they agree. One arm at a pinned 0.8 and another at the model's default sampled
-    differently, so their delta is a comparison of configured systems, never a model ranking."""
-    applied = {p: "temperature" not in c for p, c in unsupported.items()}
-    return applied if len(set(applied.values())) > 1 else {}
+def sampling_mismatch(unsupported: dict[str, list[str]],
+                      temperatures: dict[str, float | None]) -> dict[str, str]:
+    """artifact -> the temperature it actually sampled at ("model default" when its target dropped
+    `temperature`), when the artifacts differ; {} when they agree. An arm at a pinned 0.8 and one
+    at the model's default (or at 0.0) sampled differently, so their delta is a comparison of
+    configured systems, never a model ranking. An artifact that recorded no temperature is not
+    counted either way (legacy manifests)."""
+    sampled = {p: ("model default" if "temperature" in c else str(temperatures.get(p)))
+               for p, c in unsupported.items()
+               if "temperature" in c or temperatures.get(p) is not None}
+    return sampled if len(set(sampled.values())) > 1 else {}
 
 
 
@@ -302,8 +306,9 @@ def sampling_mismatch_line(comp: Comparison) -> str | None:
     if not comp.sampling_mismatch_allowed:
         return None
     return (f"_⚠️ **{SAMPLING_MISMATCH_LABEL.capitalize()}** (compared with "
-            "`--allow-sampling-mismatch`): the arms differ in whether the target applied "
-            "`temperature`, so a delta here belongs to each configured system, not to the model._")
+            "`--allow-sampling-mismatch`): the arms sampled at different temperatures (or one "
+            "at the model's default), so a delta here belongs to each configured system, not to "
+            "the model._")
 
 
 def divergent_scenarios(comp: Comparison) -> list[Divergence]:

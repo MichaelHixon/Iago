@@ -125,6 +125,12 @@ def _attr(obj: object, name: str):
     """`name` from an SDK object or a dict, or `_ABSENT` when the field is missing."""
     if isinstance(obj, dict):
         return obj.get(name, _ABSENT)
+    # The SDK's pydantic models fill an omitted field with None; `model_fields_set` holds the
+    # fields the API actually sent, so an omitted one still reads as absent, not as null.
+    fields_set = getattr(obj, "model_fields_set", None)
+    if isinstance(fields_set, (set, frozenset)) and name in getattr(type(obj), "model_fields", {}) \
+            and name not in fields_set:
+        return _ABSENT
     return getattr(obj, name, _ABSENT)
 
 

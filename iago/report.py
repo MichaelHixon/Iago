@@ -926,7 +926,9 @@ def _vendor_bullets(api: list[dict]) -> list[tuple[int, str]]:
                 + (f" ({', '.join(f'{c} {n}' for c, n in sorted(cats.items()))})" if refusals else "")
                 + ". `stop_reason: refusal` is the provider's label, not an outcome: every verdict here "
                 "is the independent judge's."))
-    absent = Counter(f for r in api for f in (r.get("vendor_absent") or []))
+    # `response` marks a row with no model reply at all (a run error or guard block), counted
+    # as "no reply" above; it is not a field the API left out of a reply.
+    absent = Counter(f for r in api for f in (r.get("vendor_absent") or []) if f != "response")
     if absent:
         out.append((0, "**Fields the API did not return** (recorded as absent, never filled in): "
                     + ", ".join(f"`{f}` {n}" for f, n in sorted(absent.items()))))
