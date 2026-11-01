@@ -326,6 +326,8 @@ def _determinism_probe(target: Target, temperature: float, base_seed: int) -> di
     try:
         target.generate(_DETERMINISM_WARMUP, options=dict(opts))
         warmup["fired"] = True
+    except RunFatal:  # a failure every call would hit fails the run here, not at trial one
+        raise
     except Exception as exc:
         warmup["error"] = exc_label(exc)[:200]
 
@@ -338,6 +340,8 @@ def _determinism_probe(target: Target, temperature: float, base_seed: int) -> di
             for _ in range(2):
                 replies.append(target.generate(text, options=dict(opts)))
                 generations += 1
+        except RunFatal:
+            raise
         except Exception as exc:  # the matrix will surface a real transport failure loudly itself
             error = exc_label(exc)[:200]
         # `position` is "warm" only when the warm-up actually returned. If it failed, probe 1 still

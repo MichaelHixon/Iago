@@ -95,6 +95,11 @@ class UnmappableConversation(RunFatal, ValueError):
     message for Anthropic). A harness defect, not a transport blip."""
 
 
+class SamplingRefused(RunFatal, RuntimeError):
+    """The API refused a sampling control the build-time probe said the model accepts. Changing
+    the sampling mid-run would mix two regimes in one artifact, so the run fails instead."""
+
+
 class TruncatedReply(str):
     """A reply the target stopped at ITS OWN token cap. It is judged as written (a capped reply
     is still long enough to show compliance), and the runner flags the row `truncated`, so a
@@ -319,6 +324,45 @@ def latest_model(client, family: str) -> str:
     return max(models, key=lambda m: m.created_at).id
 
 
+#: A legal value that is not the API default (1.0), so a model that accepts only the default
+#: refuses the probe. Probing at 1.0 would pass on every model and learn nothing.
+_PROBE_TEMPERATURE = 0.5
+
+
+def is_temperature_refusal(exc: BaseException) -> bool:
+    """True for the 400 a model returns when it no longer takes `temperature` at all (Claude 5.5,
+    Opus 4.7 and later: "`temperature` is deprecated for this model."). Keys on the captured shape
+    (400, `invalid_request_error`, a message naming `temperature` and `deprecated`), not the exact
+    sentence. A range-validation 400 ("temperature: range: 0 <= x <= 1") is not this: it names no
+    deprecation. Duck-typed on the SDK's `status_code` and `body` so a fake can raise it."""
+    if getattr(exc, "status_code", None) != 400:
+        return False
+    body = getattr(exc, "body", None)
+    err = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(err, dict) or err.get("type") != "invalid_request_error":
+        return False
+    message = str(err.get("message", "")).lower()
+    return "temperature" in message and "deprecated" in message
+
+
+def probe_controls(client, model: str, declared: frozenset[str]) -> frozenset[str]:
+    """The controls `model` accepts, learned by one 1-token request at a non-default temperature.
+
+    A deprecation 400 drops `temperature`; any reply keeps it (a 200 shows the parameter was
+    accepted, not that it is honoured; a reply with `stop_reason: refusal` still counts as
+    accepted, since the parameter was not rejected). Anything else fails the build, naming the
+    model, so a run never starts on an unknown sampling regime."""
+    try:
+        client.messages.create(model=model, max_tokens=1, temperature=_PROBE_TEMPERATURE,
+                               messages=[{"role": "user", "content": "hi"}])
+    except Exception as exc:
+        if is_temperature_refusal(exc):
+            return declared - {"temperature"}
+        raise ValueError(f"could not probe {model} for sampling support ({exc_label(exc)}); "
+                         "check ANTHROPIC_API_KEY and the network") from exc
+    return declared
+
+
 class AnthropicTarget(Target):
     """An authorized API target — attack a Claude model on your own account.
 
@@ -329,13 +373,17 @@ class AnthropicTarget(Target):
 
     is_local = False
     # No seed parameter exists on the Messages API, so a seed is dropped; `num_predict` maps to
-    # max_tokens so a capped probe stays capped on this backend too.
+    # max_tokens so a capped probe stays capped on this backend too. `temperature` is declared
+    # here, but each instance LEARNS whether its model accepts it (`probe_controls`, one 1-token
+    # request when built) and replaces this set with the result.
     supported_options = frozenset({"temperature", "num_predict"})
 
     def __init__(self, model: str | None = None, client=None) -> None:
         self._client = client
         self.model = model or latest_model(self._get_client(), DEFAULT_ANTHROPIC_FAMILY)
         self.name = f"anthropic:{self.model}"
+        self.supported_options = probe_controls(self._get_client(), self.model,
+                                                type(self).supported_options)
 
     def _get_client(self):
         if self._client is not None:
@@ -350,15 +398,23 @@ class AnthropicTarget(Target):
         return self._client
 
     def _create(self, system: str, messages: list[dict], options: dict | None):
-        """One Messages API call; maps the supported_options onto the API's parameters."""
+        """One Messages API call; maps the supported_options onto the API's parameters. A
+        control the model refused is omitted, never sent as some stand-in value."""
         opts = options or {}
-        return self._get_client().messages.create(
-            model=self.model,
-            max_tokens=opts.get("num_predict", _ANTHROPIC_MAX_TOKENS),
-            temperature=opts.get("temperature", 1.0),
-            system=system,
-            messages=messages,
-        )
+        kwargs = {"model": self.model,
+                  "max_tokens": opts.get("num_predict", _ANTHROPIC_MAX_TOKENS),
+                  "system": system, "messages": messages}
+        if "temperature" in self.supported_options:
+            kwargs["temperature"] = opts.get("temperature", 1.0)
+        try:
+            return self._get_client().messages.create(**kwargs)
+        except Exception as exc:
+            if is_temperature_refusal(exc):
+                raise SamplingRefused(
+                    f"{self.model} refused `temperature` after the build-time probe accepted it; "
+                    f"failing the run rather than changing the sampling mid-run ({exc_label(exc)})"
+                ) from exc
+            raise
 
     def _reply(self, msg) -> VendorReply:
         """The response's text with its vendor fields attached. A refusal can arrive before any
@@ -383,6 +439,8 @@ class AnthropicTarget(Target):
     ) -> str:
         try:
             msg = self._create(system or "", [{"role": "user", "content": prompt}], options)
+        except RunFatal:
+            raise
         except Exception as exc:
             raise RuntimeError(f"Anthropic request failed: {exc}") from exc
         return self._reply(msg)
@@ -402,6 +460,8 @@ class AnthropicTarget(Target):
                 convo.append({"role": m["role"], "content": m["content"]})
         try:
             msg = self._create(system or "", convo, options)
+        except RunFatal:
+            raise
         except Exception as exc:
             raise RuntimeError(f"Anthropic chat failed: {exc}") from exc
         return self._reply(msg)

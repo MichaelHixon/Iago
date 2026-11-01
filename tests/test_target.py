@@ -48,7 +48,9 @@ def test_factory_builds_ollama_by_default():
 def _models(*pairs):
     """A fake Models API client listing (id, created_at) pairs."""
     listed = [SimpleNamespace(id=i, created_at=c) for i, c in pairs]
-    return SimpleNamespace(models=SimpleNamespace(list=lambda **_kw: iter(listed)))
+    # `messages` answers the build-time sampling probe (ISC-143).
+    return SimpleNamespace(models=SimpleNamespace(list=lambda **_kw: iter(listed)),
+                           messages=SimpleNamespace(create=lambda **_kw: SimpleNamespace(content=[])))
 
 
 def _api_down(**_kw):
@@ -84,8 +86,11 @@ def test_an_explicit_anthropic_model_skips_the_lookup():
     # revert to an unconditional lookup → the failing Models API raises here.
     from iago.target import AnthropicTarget
 
-    t = AnthropicTarget("pinned", client=SimpleNamespace(models=SimpleNamespace(list=_api_down)))
+    msgs = _FakeMessages()
+    t = AnthropicTarget("pinned", client=SimpleNamespace(models=SimpleNamespace(list=_api_down),
+                                                         messages=msgs))
     assert t.model == "pinned"
+    assert [c["model"] for c in msgs.calls] == ["pinned"]  # the sampling probe still runs
 
 
 @pytest.mark.parametrize("client", [
@@ -112,6 +117,7 @@ def test_cli_run_without_model_builds_the_anthropic_default(monkeypatch):
         raise SystemExit
 
     monkeypatch.setattr(iago.target, "latest_model", lambda client, family: looked_up.append(family) or "newest")
+    monkeypatch.setattr(iago.target, "probe_controls", lambda client, model, declared: declared)
     monkeypatch.setattr(cli, "run", stop)
     with pytest.raises(SystemExit):
         cli.main(["run", "--target", "anthropic", "--authorized", "--smoke"])
@@ -157,6 +163,7 @@ def test_unauthorized_api_target_refuses_before_any_lookup(monkeypatch, capsys, 
         raise AssertionError("looked up a model before the authorization check")
 
     monkeypatch.setattr(iago.target, "latest_model", must_not_look_up)
+    monkeypatch.setattr(iago.target, "probe_controls", must_not_look_up)  # no messages.create either
     assert cli.main([*argv, "--target", "anthropic"]) == 2
     assert "REFUSED" in capsys.readouterr().err
 
@@ -209,19 +216,51 @@ def test_ollama_generate_smoke():
     assert isinstance(out, str) and len(out) > 0
 
 
+def _bad_request(message: str, status: int = 400, kind: str = "invalid_request_error"):
+    """An `anthropic` SDK error built from the wire body the API returned on 2026-11-01."""
+    import anthropic
+    import httpx
+
+    body = {"type": "error", "error": {"type": kind, "message": message}}
+    response = httpx.Response(status, json=body,
+                              request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
+    cls = anthropic.BadRequestError if status == 400 else anthropic.InternalServerError
+    return cls(message=f"Error code: {status} - {body}", response=response, body=body)
+
+
+#: The exact message Claude Haiku 5.5 and Opus 5.5 returned for temperature 0.8, 0.0 and 0.5.
+DEPRECATED = "`temperature` is deprecated for this model."
+
+
 class _FakeMessages:
-    def __init__(self):
+    """Records every create. `refuse(kwargs)` returns an exception to raise for that call (or
+    None to answer). The first call on a built target is the sampling probe."""
+
+    def __init__(self, refuse=None, reply=None):
         self.calls = []
+        self.refuse = refuse or (lambda kw: None)
+        self.reply = reply or (lambda: SimpleNamespace(content=[SimpleNamespace(text="ok")]))
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
-        return SimpleNamespace(content=[SimpleNamespace(text="ok")])
+        if (exc := self.refuse(kwargs)) is not None:
+            raise exc
+        return self.reply()
+
+    @property
+    def real(self):
+        """The calls after the build-time probe."""
+        return self.calls[1:]
 
 
-def _anthropic():
+def _refuse_any_temperature(kw):
+    return _bad_request(DEPRECATED) if "temperature" in kw else None
+
+
+def _anthropic(refuse=None, reply=None):
     from iago.target import AnthropicTarget
 
-    msgs = _FakeMessages()
+    msgs = _FakeMessages(refuse, reply)
     return AnthropicTarget("m", client=SimpleNamespace(messages=msgs)), msgs
 
 
@@ -238,14 +277,14 @@ def test_anthropic_maps_num_predict_to_max_tokens():
     t.generate("hi", options={"num_predict": 160})
     t.chat([{"role": "user", "content": "hi"}], options={"num_predict": 40})
     t.generate("hi")
-    assert [c["max_tokens"] for c in msgs.calls] == [160, 40, 1024]
+    assert [c["max_tokens"] for c in msgs.calls] == [1, 160, 40, 1024]  # the probe is 1 token
 
 
 def test_anthropic_chat_passes_single_system_message():
     t, msgs = _anthropic()
     t.chat([{"role": "system", "content": "be terse"}, {"role": "user", "content": "hi"}])
-    assert msgs.calls[0]["system"] == "be terse"
-    assert msgs.calls[0]["messages"] == [{"role": "user", "content": "hi"}]
+    assert msgs.real[0]["system"] == "be terse"
+    assert msgs.real[0]["messages"] == [{"role": "user", "content": "hi"}]
 
 
 def test_anthropic_chat_rejects_second_system_message():
@@ -254,14 +293,14 @@ def test_anthropic_chat_rejects_second_system_message():
     with pytest.raises(ValueError, match="at most one system message"):
         t.chat([{"role": "system", "content": "a"}, {"role": "user", "content": "hi"},
                 {"role": "system", "content": "b"}])
-    assert msgs.calls == []
+    assert msgs.real == []
 
 
 def test_anthropic_generate_passes_system_and_temperature():
     t, msgs = _anthropic()
     t.generate("hi", system="be terse", options={"temperature": 0.0})
     t.generate("hi")
-    assert msgs.calls[0]["system"] == "be terse"
-    assert msgs.calls[0]["messages"] == [{"role": "user", "content": "hi"}]
-    assert msgs.calls[0]["temperature"] == 0.0  # 0.0 so an `or 1.0` slip goes red
-    assert msgs.calls[1]["system"] == ""
+    assert msgs.real[0]["system"] == "be terse"
+    assert msgs.real[0]["messages"] == [{"role": "user", "content": "hi"}]
+    assert msgs.real[0]["temperature"] == 0.0  # 0.0 so an `or 1.0` slip goes red
+    assert msgs.real[1]["system"] == ""

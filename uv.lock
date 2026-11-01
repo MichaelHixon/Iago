@@ -188,7 +188,7 @@ wheels = [
 
 [[package]]
 name = "iago"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
@@ -205,7 +205,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", specifier = ">=0.120.0" },
+    { name = "anthropic", specifier = ">=0.120.0,<1" },
     { name = "ollama", specifier = ">=0.3" },
     { name = "pyyaml", specifier = ">=6" },
 ]

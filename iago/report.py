@@ -715,9 +715,15 @@ def determinism_disclosure(manifest: dict | None, *, pinning: str = "pinning not
     dropped = dropped_controls(manifest)
     if dropped:
         names = ", ".join(f"`{c}`" for c in dropped)
+        temp = ""
+        if "temperature" in dropped:
+            requested = ((manifest.get("sampling") or {}).get("temperature"))
+            temp = (" Temperature-pinned reproducibility does not hold on this model: the requested "
+                    f"{requested if requested is not None else 'temperature'} was not applied, and "
+                    "the model sampled at its own default.")
         return (f"_⚠️ **The target backend ignored {names}**: requested and recorded, but never "
                 f"applied. The {pinning} does not hold for this run, and it cannot be "
-                "replayed by seed._")
+                f"replayed by seed.{temp}_")
     if d is None:
         return ("_⚠️ The determinism check **did not run** for this run (`--no-determinism-check`), "
                 "so nothing here says whether this host reproduces at these settings — and the "

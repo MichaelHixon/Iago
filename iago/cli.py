@@ -29,7 +29,7 @@ from .judge import ERROR
 from .report import verdict_of, write_html_report, write_log, write_report
 from .artifacts import read_artifact
 from .runner import AuthorizationError, load_artifacts, run
-from .target import API_TARGETS, available_targets, build_target, require_ollama_model
+from .target import API_TARGETS, available_targets, build_target, require_ollama_model, unsupported_options
 from .judge_claude import DEFAULT_JUDGE_MODEL
 from .guards import GuardedTarget, available_guards, build_guards
 from .guards_thirdparty import GuardBackendUnavailable
@@ -305,8 +305,9 @@ def _cmd_compare(args: argparse.Namespace) -> int:
     try:
         comp = build_comparison(paths, allow_judge_mismatch=getattr(args, "allow_judge_mismatch", False),
                                 allow_library_mismatch=getattr(args, "allow_library_mismatch", False),
+                                allow_sampling_mismatch=getattr(args, "allow_sampling_mismatch", False),
                                 strict_fingerprints=getattr(args, "strict_fingerprints", False))
-    except ValueError as exc:  # wrong surface, oracle code or scenario library differs between runs
+    except ValueError as exc:  # wrong surface, oracle code, scenario library or sampling differs
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     if not comp.scenario_ids:
@@ -363,7 +364,8 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
     # run_campaign stamps artifact model names as "ollama:<tag>", so the absent-model check must
     # compare against the SAME canonical form or it falsely flags every present model as absent.
     requested = [f"ollama:{m}" for m in models]
-    campaign = build_campaign(surface_paths, labels=labels, requested_models=requested, errors=errors)
+    campaign = build_campaign(surface_paths, labels=labels, requested_models=requested, errors=errors,
+                              allow_sampling_mismatch=getattr(args, "allow_sampling_mismatch", False))
     out = write_campaign_report(campaign)
     print(f"\nSurfaces run: {', '.join(surface_paths)}")
     print(f"Campaign report: {out}")
@@ -841,7 +843,8 @@ def _cmd_trigger_check(args: argparse.Namespace) -> int:
             probes = replace(probes, prompts=probes.prompts[:args.limit_prompts])
     # `run_trigger_check` is the one place that collapses trials (and records both counts in
     # the manifest); this is only the printout of what it will do.
-    effective = tr.effective_trials(trials, args.temperature)
+    effective = tr.effective_trials(trials, args.temperature,
+                                    unsupported_options(target, {"temperature": args.temperature}))
 
     print(f"Iago trigger check → target {target.name}")
     print(f"  prompts={len(probes.prompts)} triggers={len(triggers)} trials/prompt={effective} "
@@ -1006,6 +1009,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="compare artifacts even when their manifests name different scenario "
                           "libraries (scenario_library_sha256) — the same scenario id then names a "
                           "different stimulus in each, so the delta may be the attack text")
+    cmp.add_argument("--allow-sampling-mismatch", action="store_true",
+                     help="compare artifacts even when one target applied temperature and another "
+                          "sampled at the model's default; the report is then labelled a configured-"
+                          "system comparison, not a model ranking")
     cmp.add_argument("--strict-fingerprints", action="store_true",
                      help="exit 2 when any artifact's manifest lacks a judge_id or library hash "
                           "(UNKNOWN is otherwise a note), so CI fails closed on an unverifiable pair")
@@ -1078,6 +1085,9 @@ def build_parser() -> argparse.ArgumentParser:
                      help="tool-loop step budget per scenario")
     cam.add_argument("--smoke", action="store_true",
                      help="1 attack + 1 capability scenario per surface, fast pipeline proof")
+    cam.add_argument("--allow-sampling-mismatch", action="store_true",
+                     help="roll up surfaces whose arms differ in whether temperature was applied; "
+                          "each is then labelled a configured-system comparison, not a model ranking")
     cam.set_defaults(func=_cmd_campaign)
 
     cd = sub.add_parser("compose-delta",

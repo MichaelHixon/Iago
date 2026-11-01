@@ -195,7 +195,7 @@ def test_cmd_campaign_prefixes_requested_models_with_ollama(monkeypatch, tmp_pat
     def fake_run_campaign(surfaces, models, **kwargs):
         return {"privilege": [tmp_path / "a.jsonl"]}, []
 
-    def fake_build_campaign(surface_paths, *, labels, requested_models, errors):
+    def fake_build_campaign(surface_paths, *, labels, requested_models, errors, **_kw):
         captured["requested_models"] = requested_models
         return object()
 

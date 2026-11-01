@@ -41,7 +41,8 @@ MISMATCH = _msg("I won't help with that request. " * 3, stop_reason="end_turn", 
 
 
 def _target(*responses):
-    queue = list(responses)
+    # The first create is the build-time sampling probe (ISC-143); it accepts temperature.
+    queue = [_msg("h", stop_reason="max_tokens", stop_details=None, model=REQUESTED), *responses]
     msgs = SimpleNamespace(create=lambda **_kw: queue.pop(0) if len(queue) > 1 else queue[0])
     return AnthropicTarget(REQUESTED, client=SimpleNamespace(messages=msgs))
 

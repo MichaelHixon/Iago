@@ -119,10 +119,16 @@ class Comparison:
     # artifact -> the sampling controls its target dropped (`sampling.unsupported_controls`). A
     # dropped seed means the run cannot be replayed at its seeds, whatever the probe says.
     unsupported: dict[str, list[str]] = field(default_factory=dict)
+    # artifact -> the temperature its manifest recorded (`sampling.temperature`), for naming what an
+    # arm that dropped temperature did NOT sample at.
+    temperatures: dict[str, float | None] = field(default_factory=dict)
+    # Arms that differ in whether `temperature` was applied, compared under --allow-sampling-mismatch.
+    sampling_mismatch_allowed: bool = False
 
 
 def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismatch: bool = False,
                      allow_library_mismatch: bool = False,
+                     allow_sampling_mismatch: bool = False,
                      strict_fingerprints: bool = False) -> Comparison:
     """Read >=1 single-model artifacts and aggregate per model.
 
@@ -145,6 +151,7 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
     library_ids: dict[str, str | None] = {}
     determinism: dict[str, dict | None] = {}
     unsupported: dict[str, list[str]] = {}
+    temperatures: dict[str, float | None] = {}
     seen_trials: dict[tuple[str, str, int], str] = {}   # (model, scenario, trial) -> artifact
     for path in artifact_paths:
         manifest, rows = read_artifact(path)
@@ -153,6 +160,7 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
         library_ids[str(path)] = manifest.get("scenario_library_sha256") if manifest else None
         determinism[str(path)] = manifest.get("determinism") if manifest else None
         unsupported[str(path)] = dropped_controls(manifest)
+        temperatures[str(path)] = ((manifest or {}).get("sampling") or {}).get("temperature")
         for r in rows:
             model = r.get("model", "unknown")
             ms = by_model.get(model)
@@ -229,6 +237,15 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
             + "); the same scenario id names a different stimulus in each, so a rate delta is not "
             "a model difference. Re-run on one library, or pass --allow-library-mismatch"
         )
+    mismatch = sampling_mismatch(unsupported)
+    if mismatch and not allow_sampling_mismatch:
+        raise ValueError(
+            "artifacts differ in whether the target applied `temperature` ("
+            + ", ".join(f"{Path(p).name}={'model default' if not applied else 'applied'}"
+                        for p, applied in mismatch.items())
+            + "); a rate delta between arms on unequal sampling is not a model difference. Re-run "
+            "on equal sampling, or pass --allow-sampling-mismatch for a configured-system comparison"
+        )
     for fp_key, fp_unknown in (("judge_id", unknown_judges),
                                ("scenario_library_sha256", unknown_libraries)):
         refuse_unknown_fingerprint(fp_key, [Path(p).name for p in fp_unknown],
@@ -237,7 +254,16 @@ def build_comparison(artifact_paths: Sequence[Path | str], *, allow_judge_mismat
                       scenario_ids=order, scenario_names=names, judge_ids=judge_ids,
                       determinism=determinism, unsupported=unsupported, library_ids=library_ids,
                       library_mismatch_allowed=len(libraries) > 1,
-                      judge_mismatch_allowed=len(distinct) > 1)
+                      judge_mismatch_allowed=len(distinct) > 1,
+                      temperatures=temperatures, sampling_mismatch_allowed=bool(mismatch))
+
+
+def sampling_mismatch(unsupported: dict[str, list[str]]) -> dict[str, bool]:
+    """artifact -> whether its target applied `temperature`, when the artifacts disagree on that;
+    {} when they agree. One arm at a pinned 0.8 and another at the model's default sampled
+    differently, so their delta is a comparison of configured systems, never a model ranking."""
+    applied = {p: "temperature" not in c for p, c in unsupported.items()}
+    return applied if len(set(applied.values())) > 1 else {}
 
 
 
@@ -256,9 +282,27 @@ def dropped_controls_line(comp: Comparison) -> str | None:
     dropped = [f"{Path(p).name} ({', '.join(c)})" for p, c in (comp.unsupported or {}).items() if c]
     if not dropped:
         return None
-    return (f"_⚠️ **Sampling controls dropped by the target:** {'; '.join(dropped)}. Those were "
+    line = (f"_⚠️ **Sampling controls dropped by the target:** {'; '.join(dropped)}. Those were "
             "requested but not applied, so the run cannot be replayed at its recorded settings and "
-            "a delta involving it may be sampling noise rather than a model difference._")
+            "a delta involving it may be sampling noise rather than a model difference.")
+    default_arms = [f"{Path(p).name} sampled at the model's default temperature, not the recorded "
+                    f"{(comp.temperatures or {}).get(p, '?')}"
+                    for p, c in (comp.unsupported or {}).items() if "temperature" in c]
+    if default_arms:
+        line += f" {'; '.join(default_arms)}."
+    return line + "_"
+
+
+#: The headline label when arms differ in whether `temperature` was applied (--allow-sampling-mismatch).
+SAMPLING_MISMATCH_LABEL = "configured-system comparison (unequal sampling): not a model ranking"
+
+
+def sampling_mismatch_line(comp: Comparison) -> str | None:
+    if not comp.sampling_mismatch_allowed:
+        return None
+    return (f"_⚠️ **{SAMPLING_MISMATCH_LABEL[0].upper()}{SAMPLING_MISMATCH_LABEL[1:]}** (compared with "
+            "`--allow-sampling-mismatch`): the arms differ in whether the target applied "
+            "`temperature`, so a delta here belongs to each configured system, not to the model._")
 
 
 def divergent_scenarios(comp: Comparison) -> list[Divergence]:
@@ -296,7 +340,9 @@ def _difference_section(comp: Comparison) -> list[str]:
     first, second = comp.models[0], comp.models[1]
     degenerate = {m.model: ("dead floor" if m.has_floor else "uncalibrated")
                   for m in (first, second) if not m.floor_alive}
-    lines = ["## Difference between models", "",
+    heading = "## Difference between models" + (f": {SAMPLING_MISMATCH_LABEL}"
+                                                 if comp.sampling_mismatch_allowed else "")
+    lines = [heading, "",
              f"`{first.model}` − `{second.model}` per scenario, on each model's adjudicated trials. "
              "The two runs are independent samples: trial *i* on one model is a different draw from "
              "trial *i* on the other, whatever the seed, so the 95% CI is Newcombe's hybrid-score "
@@ -461,6 +507,8 @@ def write_comparison_report(comp: Comparison, reports_dir: Path | None = None) -
                      "replies. A delta below may be the HOST rather than a model difference. Re-run "
                      "on a host whose check comes back clean before treating any gap as a finding._")
         lines.append("")
+    if mismatch_note := sampling_mismatch_line(comp):
+        lines += [mismatch_note, ""]
     if dropped := dropped_controls_line(comp):
         lines += [dropped, ""]
     unread = [Path(p).name for p, d in (comp.determinism or {}).items()

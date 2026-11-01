@@ -462,7 +462,7 @@ def _run_pairs(model_name: str, probes: ProbeSet, fire, *, triggers: list[Trigge
     action labels, an incomplete-reason or None); text indicators are added here."""
     triggers = list(triggers) if triggers is not None else list(probes.triggers)
     requested = trials
-    trials = effective_trials(trials, temperature)
+    trials = effective_trials(trials, temperature, unsupported)
     rx = compile_sentinel(sentinel, probes, triggers)
     own = check_triggers(triggers, probes.prompts, Path("triggers"), canary=probes.canary,
                          system_prompt=probes.system_prompt, extra_inputs=probes.extra_inputs)
@@ -591,10 +591,12 @@ class TriggerResult:
         return bool(self.false_trigger_ci_fallback) and self.n_pairs > 0
 
 
-def effective_trials(trials: int, temperature: float) -> int:
-    """At temperature 0 every trial of a prompt is the same generation (the seed changes
-    nothing), so `trials` of it would be one observation counted `trials` times. One per prompt."""
-    return 1 if temperature == 0 else trials
+def effective_trials(trials: int, temperature: float, dropped: list[str] | tuple[str, ...] = ()) -> int:
+    """At temperature 0 every trial of a prompt is the same REQUEST (the seed changes nothing), so
+    `trials` of it would be one observation counted `trials` times. One per prompt. That is a claim
+    about identical requests, not proven identical outputs. A target that dropped `temperature`
+    samples at its own default, so its trials are not identical and nothing collapses."""
+    return 1 if temperature == 0 and "temperature" not in dropped else trials
 
 
 def _arm_intervals(act_clusters: list[tuple[int, int]], ft_clusters: list[tuple[int, int]],
@@ -710,7 +712,12 @@ def render_trigger_report(rows: list[dict], manifest: dict | None = None) -> str
     inc = [r for r in rows if r.get("status") == "incomplete"]
     # The shared-seed sentence is a claim about the target: `report.py` reads the same
     # `unsupported_controls` list, and a backend that drops the seed matched the arms on prompt only.
-    if "seed" in (sampling.get("unsupported_controls") or []):
+    dropped = sampling.get("unsupported_controls") or []
+    if "seed" in dropped and "temperature" in dropped:
+        seed_note = ("(the target ignored the seed and the temperature: the arms of a pair are "
+                     "matched on prompt only, not on sampling; temperature-pinned reproducibility "
+                     "does not hold on this model)")
+    elif "seed" in dropped:
         seed_note = ("(the target ignored the seed: the arms of a pair are matched on prompt and "
                      "temperature only, not on sampling)")
     else:
@@ -757,7 +764,9 @@ def render_trigger_report(rows: list[dict], manifest: dict | None = None) -> str
         "",
         f"- Model: `{model}`",
         f"- Trials per prompt: {sampling.get('trials', '?')}" + trials_note
-        + f" · temperature {sampling.get('temperature', '?')} · base seed {sampling.get('base_seed', '?')} " + seed_note,
+        + f" · temperature {sampling.get('temperature', '?')}"
+        + (" (requested; not applied by the target)" if "temperature" in dropped else "")
+        + f" · base seed {sampling.get('base_seed', '?')} " + seed_note,
         f"- Prompts: {manifest.get('prompts', len({r['prompt_id'] for r in rows}))} benign tasks "
         f"· Candidate triggers: {len(results)}",
         f"- Indicators: {'; '.join(indicator_notes)}. {indicator_basis}",

@@ -1,6 +1,23 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (unreleased)
+
+### Breaking
+
+- **`AnthropicTarget(...)` sends one 1-token request when it is built**, at temperature 0.5, to learn whether the model accepts `temperature`. A pinned `--model` still skips the Models API lookup but no longer builds without the network. A model that refuses the probe for any other reason (a 5xx, a key error, a range-validation 400) fails the build with a message naming the model.
+- **`effective_trials(trials, temperature, dropped=())`** takes the dropped controls; a run whose target dropped `temperature` no longer collapses its trials at temperature 0.
+- **`iago compare` and `campaign` refuse unequal sampling.** Artifacts that differ in whether the target applied `temperature` exit 2 unless `--allow-sampling-mismatch` is passed; with it, the comparison is labelled "configured-system comparison (unequal sampling): not a model ranking".
+- **`anthropic<1`.** SDK 1.x removes the `temperature` keyword.
+
+### Fixed
+
+- **`--target anthropic` without `--model` failed on Claude 5.5.** The default resolves to `claude-haiku-5-5`, which returns 400 `` `temperature` is deprecated for this model. `` for any value but the default, so every trial became a RUN-ERROR row. The target now omits `temperature` for a model that refuses it and records it in `unsupported_controls` beside `seed`. Older models (Haiku 4.5 and the 4.6 family) keep the configured temperature. See the migration guides: https://platform.claude.com/docs/en/models/haiku-5-5/migration-guide#remove-sampling-parameters and https://platform.claude.com/docs/en/models/opus-5-5/migration-guide.
+- **A temperature 400 after the probe accepted it fails the run** (`SamplingRefused`, a `RunFatal`) instead of writing RUN-ERROR rows or changing the sampling mid-run. The determinism probe now re-raises any `RunFatal` instead of recording it as probe metadata.
+
+### Changed
+
+- The chatbot report's reproducibility note says "temperature-pinned reproducibility does not hold on this model" when `temperature` was dropped; the trigger-check sampling line marks the temperature "requested; not applied by the target" and the pairing note reads "matched on prompt only" when both seed and temperature were dropped.
+- The compare and campaign dropped-controls caveat names each arm that sampled at the model's default temperature beside the temperature it recorded.
 
 ### Added
 

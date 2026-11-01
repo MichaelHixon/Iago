@@ -92,7 +92,7 @@ uv run iago regrade reports/artifacts/<run>.jsonl --judge ollama:<model>
 
 - `defense-delta` runs the library with and without a guard on the same seeds and reports the difference. `delta` builds the same report from two existing artifacts.
 
-- `compare` puts two or more same-surface artifacts from different models into one report.
+- `compare` puts two or more same-surface artifacts from different models into one report. It exits 2 when one artifact's target applied `temperature` and another's sampled at the model default; `--allow-sampling-mismatch` compares them anyway and labels the report a configured-system comparison, not a model ranking.
 
 - `campaign` runs every surface against every local model and writes one consolidated report.
 
@@ -108,11 +108,11 @@ Agent surfaces, each with a `--smoke` mode and a companion `*-scenarios` command
 
 ### Options for `run`
 
-- `--target {ollama,anthropic,replay}` picks the backend (default `ollama`). `anthropic` is an API target: it needs `--authorized` and `ANTHROPIC_API_KEY`, and without `--model` it runs the newest released Claude Haiku the Models API lists. The report names the exact model, so re-running without `--model` later may test a newer one; pin `--model` for a repeatable run, and `iago gate` refuses to compare runs on different models unless told to.
+- `--target {ollama,anthropic,replay}` picks the backend (default `ollama`). `anthropic` is an API target: it needs `--authorized` and `ANTHROPIC_API_KEY`, and without `--model` it runs the newest released Claude Haiku the Models API lists. The report names the exact model, so re-running without `--model` later may test a newer one; pin `--model` for a repeatable run, and `iago gate` refuses to compare runs on different models unless told to. When built, the target sends one 1-token request to check whether the model accepts `temperature`; a model that does not (Claude Haiku 5.5 and Opus 5.5 return a 400 for any value but the default) runs at its default temperature, and the manifest and report say so.
 
 - `--model` is the model tag within the backend. Ollama has no default, so an Ollama run without `--model` exits 2 before anything runs. The same holds for every `*-run`, `defense-delta`, `adaptive-run` (and its `--attacker-model` with `--attacker llm`), and `campaign --models` (two or more). With `--target replay` it is a fixture path.
 
-- `--trials`, `--temperature`, `--base-seed` control sampling. Trials are per (technique, objective) pair.
+- `--trials`, `--temperature`, `--base-seed` control sampling. Trials are per (technique, objective) pair. `--temperature` is applied where the backend accepts it; the report says when it was not.
 
 - `--category` fires one category only (one row of `iago library`). With `--smoke`, it fires the first technique in that category.
 
@@ -190,7 +190,7 @@ Iago distributes **no model weights**, no backdoored model and no demonstrator. 
 
 2. **Attack library.** Techniques stored as YAML data under `attacks/`, grouped in categories: direct asks, role-play, encoding, low-resource languages, many-shot transcripts, stacked evasions, forged conversation history, and attacks that arrive through retrieved documents, agent tool calls and MCP servers. The `dead-end` category tests whether a model stops instead of inventing an answer. Full list: [docs/attack-library.md](docs/attack-library.md).
 
-3. **Runner.** Fires each technique at each objective for N trials with pinned sampling (fixed temperature, a seed per trial), and writes every reply to a JSONL artifact. Reports are built from the artifact and never re-query the model.
+3. **Runner.** Fires each technique at each objective for N trials with pinned sampling (fixed temperature, a seed per trial) where the backend accepts them (the report says when it did not), and writes every reply to a JSONL artifact. Reports are built from the artifact and never re-query the model.
 
 4. **Judge.** Decides, per attempt, whether the guardrail held or was bypassed. Where it can, the verdict rests on a fact: a planted secret word in the reply, an action token the model emits only if it crosses a line, or the tool calls an agent actually made. The rest goes to `needs-review` for a rubric judge.
 
