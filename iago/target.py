@@ -34,6 +34,9 @@ class Target(ABC):
     #: The sampling controls this backend honors; `None` means every option passes through.
     supported_options: frozenset[str] | None = None
 
+    #: Manifest fields a backend declares about itself (`target_manifest_extra`); None = nothing.
+    manifest_extra: dict | None = None
+
     @abstractmethod
     def generate(
         self,

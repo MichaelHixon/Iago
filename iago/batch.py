@@ -124,7 +124,9 @@ def plan_requests(model: str, supported_options, *, probe: str, sampling: dict,
         rows = load_rows(path)
 
     trust = {o.id for o in objs if o.is_trust_escalation}
-    calls, requests, seen = recorder.calls, [], set()
+    calls = recorder.calls
+    requests: list[dict] = []
+    seen: set[str] = set()
     for r in rows:
         turns = TRUST_ARMS if r["objective_id"] in trust else (SINGLE_TURN,)
         mine = calls[len(requests):len(requests) + len(turns)]

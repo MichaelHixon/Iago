@@ -529,7 +529,10 @@ def _cmd_batch_submit(args: argparse.Namespace) -> int:
                 supported = AnthropicTarget.supported_options - {"temperature"}
                 probe = "not probed (--dry-run): temperature assumed refused"
             else:
-                supported = build_target("anthropic", model=model).supported_options
+                probed = build_target("anthropic", model=model).supported_options
+                if probed is None:  # an AnthropicTarget always records its probe result
+                    raise ValueError(f"{model}: the build probe recorded no sampling controls")
+                supported = probed
                 probe = (f"build-time probe at temperature 0.5, "
                          f"{datetime.now(timezone.utc).date().isoformat()}")
             plans.append(b.plan_requests(model, supported, probe=probe, sampling=sampling,
@@ -594,6 +597,10 @@ def _cmd_batch_collect(args: argparse.Namespace) -> int:
             failed += 1
             continue
         manifest, rows = read_artifact(artifact)
+        if manifest is None:  # collect_plan always writes one; a missing manifest is a defect
+            print(f"ERROR: {p['model']}: {artifact} has no manifest", file=sys.stderr)
+            failed += 1
+            continue
         acct = manifest["batch"]
         lost = {k: len(acct[k]) for k in b.NOT_ANSWERED if acct[k]}
         print(f"  {p['model']}: {acct['succeeded']}/{acct['planned']} succeeded"
