@@ -264,3 +264,24 @@ def test_campaign_labels_unequal_sampling(tmp_path):
 def test_anthropic_target_class_default_is_unchanged():
     """The class still declares temperature; only an instance learns otherwise."""
     assert "temperature" in AnthropicTarget.supported_options
+
+
+class _FatalOnCall(Target):
+    """Raises SamplingRefused on call `n` (0 = the warm-up), answers every other call."""
+    name, is_local = "fake:model", True
+
+    def __init__(self, n):
+        self.n, self.calls = n, 0
+
+    def generate(self, prompt, system=None, options=None):
+        self.calls += 1
+        if self.calls - 1 == self.n:
+            raise SamplingRefused("refused mid-run")
+        return "reply"
+
+
+@pytest.mark.parametrize("n", [0, 1], ids=["warmup", "probe-pair"])
+def test_each_determinism_probe_clause_reraises_run_fatal(n):
+    """One test per except clause. Mutation: drop either `except RunFatal: raise` -> metadata."""
+    with pytest.raises(SamplingRefused):
+        _determinism_probe(_FatalOnCall(n), temperature=0.8, base_seed=1)
