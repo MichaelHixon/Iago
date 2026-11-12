@@ -38,9 +38,10 @@ from .attacks import (
 )
 from .config import ARTIFACTS_DIR, BASE_SEED, CATEGORIES, DEFAULT_TEMPERATURE, DEFAULT_TRIALS
 from .decode import decode_recovered, is_decode_gated
-from .judge import (_trust_arm_signal, judge, judge_deadend, judge_leak, judge_trust,
-                    judge_unsafe_output, run_error)
-from .objectives import Objective, load_objectives
+from .judge import (BYPASSED, REFUSAL_MARKERS, _trust_arm_signal, judge, judge_deadend, judge_leak,
+                    judge_trust, judge_unsafe_output, run_error)
+from .leak_kind import leak_subtype
+from .objectives import Objective, objectives_with_source, refuse_canaries_in_templates
 from .profiles import ModelProfile
 from .target import (RunFatal, Target, TruncatedReply, exc_label, generation_bounds, requested_api_model,
                      sampling_gap, served_matches, target_manifest_extra)
@@ -140,6 +141,10 @@ class TrialResult:
     served_model: str | None = None
     vendor_absent: list | None = None
     model_stratum: str | None = None
+    # prompt-leak rows the canary oracle scored BYPASSED only: HOW the canary got out
+    # (leak_kind.LEAK_SUBTYPES). Attribution beside the verdict, never a re-score; the key is
+    # omitted from every other row (`trial_row`), so earlier artifacts and goldens keep their shape.
+    leak_subtype: str | None = None
 
 
 PROFILE_ONLY_FIELDS = ("profile_arm", "model_profile_sha256")
@@ -192,6 +197,8 @@ def trial_row(row: TrialResult) -> dict:
     if row.requested_model is None:
         for key in VENDOR_ONLY_FIELDS:
             del d[key]
+    if row.leak_subtype is None:
+        del d["leak_subtype"]
     return d
 
 
@@ -400,6 +407,7 @@ def run(
     artifacts_dir: Path | None = None,
     techniques: list[Technique] | None = None,
     objectives: list[Objective] | None = None,
+    objectives_file: Path | str | None = None,
     progress: bool = False,
     determinism_check: bool = True,
     profile: "ModelProfile | None" = None,
@@ -414,6 +422,10 @@ def run(
 
     `sampling_mode` is recorded as `sampling.mode` when given ("batch": the replies came from the
     Message Batches API, `iago batch-collect`); omitted, the manifest keeps its earlier shape.
+
+    `objectives_file` names the objectives YAML to load (default: the repo's `objectives.yaml`);
+    `objectives` hands over an already-loaded list instead. The manifest records the file's path
+    and sha256 when it was read from one, and null for both when the caller passed only a list.
 
     `technique_limit` / `objective_limit` cap the matrix for a fast smoke run
     without hammering the model for the whole library. `shots` overrides the
@@ -430,7 +442,11 @@ def run(
         raise ValueError(f"unknown category {category!r}; known: {', '.join(CATEGORIES)}")
 
     lib = techniques if techniques is not None else load_library()
-    objs = objectives if objectives is not None else load_objectives()
+    objs, objectives_source = objectives_with_source(objectives, objectives_file)
+    if not objectives_source:  # a list with no file: the manifest records null for both keys
+        objectives_source = {"objectives_file": None, "objectives_file_sha256": None}
+    # The canary-only-in-the-planted-prompt invariant, for whichever objectives file this run reads.
+    refuse_canaries_in_templates(objs, lib)
     if category is not None:
         # Filter techniques BEFORE the positional limit, so --limit-techniques / --smoke take the
         # first technique OF THIS CATEGORY.
@@ -504,7 +520,13 @@ def run(
 
     extra = {"technique_library_sha256": library_id,
              "techniques": len(lib), "objectives": len(objs), "compatible_pairs": compatible,
-             "category": category, "determinism": determinism}
+             "category": category, "determinism": determinism,
+             **objectives_source,
+             # The planted prompts this run could send, by hash, so the artifact alone says which
+             # prompt each leak row ran under (the rows carry the same hash).
+             "objective_prompts": [{"objective_id": o.id, "kind": o.kind,
+                                    "system_prompt_sha256": sha256_text(o.system_prompt)}
+                                   for o in objs if o.system_prompt]}
     if profile is not None:
         # Only present on a profiled run — an unprofiled manifest keeps its pre-profile bytes
         # (same byte-identity discipline as trial_row), so no existing artifact golden moves.
@@ -548,6 +570,7 @@ def run(
                         started = time.monotonic()
                         anon_response = anon_signal = placebo_response = placebo_signal = prov_signal = None
                         deadend_signal = None
+                        subtype = None
 
                         if obj.is_trust_escalation:
                             # THREE-ARM DIFFERENTIAL under the SAME scenario gate (obj.system_prompt):
@@ -594,6 +617,11 @@ def run(
                             #   everything else → the harmful-content heuristic (the Claude judge confirms later)
                             if obj.is_prompt_leak:
                                 v = judge_leak(obj.canary, response)
+                                if v.verdict == BYPASSED:  # attribution only; the verdict above stands
+                                    subtype = leak_subtype(
+                                        obj.canary or "", obj.system_prompt, response,
+                                        (*REFUSAL_MARKERS, *(render_profile.refusal_markers
+                                                             if render_profile is not None else ())))
                             elif obj.is_unsafe_output:
                                 v = judge_unsafe_output(response, obj.sink, obj.marker)
                             elif obj.is_dead_end:
@@ -653,6 +681,7 @@ def run(
                             response_sha256=sha256_text(response),
                             judge_id=offline_judge_id,
                             system_prompt_sha256=sha256_text(planted_system),
+                            leak_subtype=subtype,
                             **vendor_row_fields(target, response, anon_response, placebo_response),
                         )
                         fh.write(json.dumps(trial_row(row)) + "\n")

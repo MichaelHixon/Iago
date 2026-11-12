@@ -35,7 +35,7 @@ from types import SimpleNamespace
 
 from .artifacts import library_fingerprint, load_rows
 from .attacks import Technique, load_library
-from .objectives import Objective, load_objectives
+from .objectives import Objective, objectives_with_source
 from .runner import run
 from .target import AnthropicTarget, _field, unsupported_options
 
@@ -109,17 +109,21 @@ def _run_kwargs(sampling: dict) -> dict:
 
 def plan_requests(model: str, supported_options, *, probe: str, sampling: dict,
                   techniques: list[Technique] | None = None,
-                  objectives: list[Objective] | None = None) -> dict:
+                  objectives: list[Objective] | None = None,
+                  objectives_file: Path | str | None = None) -> dict:
     """The batch plan for one model: every single-shot call the runner fires, keyed by custom_id.
     `sampling` holds `runner.run`'s trials, temperature, base_seed, category, technique_limit,
-    objective_limit and shots; `probe` records where `supported_options` came from."""
+    objective_limit and shots; `probe` records where `supported_options` came from. The plan
+    records the objectives file's path and sha256 (when the objectives came from a file) so a
+    collection can refuse a different panel."""
     lib, excluded = _single_shot(techniques)
-    objs = objectives if objectives is not None else load_objectives()
+    objs, source = objectives_with_source(objectives, objectives_file)
     recorder = _RecordedMessages()
     target = AnthropicTarget(model, client=SimpleNamespace(messages=recorder),
                              supported_options=supported_options)
     with tempfile.TemporaryDirectory() as tmp:
-        path = run(target, authorized=True, techniques=lib, objectives=objs,
+        path = run(target, authorized=True, techniques=lib, objectives=objectives,
+                   objectives_file=objectives_file,
                    artifacts_dir=Path(tmp), determinism_check=False, **_run_kwargs(sampling))
         rows = load_rows(path)
 
@@ -152,7 +156,8 @@ def plan_requests(model: str, supported_options, *, probe: str, sampling: dict,
                                            "seed": sampling["base_seed"]})
     return {"model": model, "supported_options": sorted(target.supported_options), "probe": probe,
             "sampling": {**sampling, "unsupported_controls": dropped},
-            "technique_library_sha256": library_fingerprint(lib), "excluded_multiturn": excluded,
+            "technique_library_sha256": library_fingerprint(lib), **source,
+            "excluded_multiturn": excluded,
             "requests": requests, "estimate": estimate(requests, model)}
 
 
@@ -319,16 +324,22 @@ class _ResultMessages:
 def collect_plan(plan: dict, results: dict[str, object], *, batch: object | None = None,
                  techniques: list[Technique] | None = None,
                  objectives: list[Objective] | None = None,
+                 objectives_file: Path | str | None = None,
                  artifacts_dir: Path | None = None) -> Path:
     """Write the runner artifact for one collected batch. The rows come from the runner itself; a
     result that did not succeed becomes the same RUN-ERROR row a failed synchronous call does, and
     its id is listed in the manifest's `batch` block."""
     lib, excluded = _single_shot(techniques)
-    objs = objectives if objectives is not None else load_objectives()
+    _, source = objectives_with_source(objectives, objectives_file)
     if library_fingerprint(lib) != plan["technique_library_sha256"]:
         raise PlanDrift("the technique library changed since the plan was made")
+    recorded = plan.get("objectives_file_sha256")  # absent in a plan made before it was recorded
+    if recorded and source and source["objectives_file_sha256"] != recorded:
+        raise PlanDrift("the objectives file changed since the plan was made (plan recorded "
+                        f"{plan.get('objectives_file')}); pass the same file with --objectives")
     replanned = plan_requests(plan["model"], plan["supported_options"], probe=plan["probe"],
-                              sampling=_run_kwargs(plan["sampling"]), techniques=lib, objectives=objs)
+                              sampling=_run_kwargs(plan["sampling"]), techniques=lib,
+                              objectives=objectives, objectives_file=objectives_file)
     for old, new in zip(plan["requests"], replanned["requests"]):
         if old != new:
             raise PlanDrift(f"{old['custom_id']}: the request the code builds today differs from "
@@ -348,7 +359,8 @@ def collect_plan(plan: dict, results: dict[str, object], *, batch: object | None
         **{k: acct[k] for k in NOT_ANSWERED},
         "excluded_multiturn": excluded, "fallbacks_sent": False, "probe": plan["probe"],
     }}
-    path = run(target, authorized=True, techniques=lib, objectives=objs, artifacts_dir=artifacts_dir,
+    path = run(target, authorized=True, techniques=lib, objectives=objectives,
+               objectives_file=objectives_file, artifacts_dir=artifacts_dir,
                determinism_check=False, sampling_mode="batch", **_run_kwargs(plan["sampling"]))
     if messages.misaligned or messages.served != len(plan["requests"]):
         # Renamed, not deleted: kept for diagnosis, but no `*.jsonl` reader will pick it up.

@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import IO, overload
 
 from . import __version__
+from .gitdirty import dirty_state
 
 SCHEMA_VERSION = 1
 MANIFEST_RECORD = "manifest"
@@ -88,8 +89,10 @@ def git_info(root: Path | None = None) -> dict:
     anti-claim that they spawn no process and open no socket. Shelling out to `git` here put a
     `subprocess.run` on that path behind an import the anti-claim's source scans could not see
     (code-review major), so the commit is resolved from `.git` directly: HEAD -> a ref file or a
-    packed-refs entry. `dirty` needs a full index comparison and is NOT available without git, so
-    it is reported None rather than guessed — a null says "unknown", never "clean".
+    packed-refs entry. `dirty` is read the same way, from `.git/index` (`gitdirty.dirty_state`): True
+    with the modified `dirty_paths`, or False, for tracked files against the index; `dirty_scope` says
+    what that does not cover. Only when the index cannot be read is it None, with `dirty_error`: a
+    null says "unknown", never "clean".
 
     Also refuses to report an unrelated ancestor repository's commit: the discovered root must be
     the checkout that actually contains this package's `pyproject.toml`.
@@ -133,6 +136,7 @@ def git_info(root: Path | None = None) -> dict:
             elif len(head) == 40:  # detached HEAD
                 out["commit"] = head
             out["root"] = str(candidate)
+            out.update(dirty_state(candidate, git_dir))
             break
     except Exception:  # unreadable .git — provenance is best-effort, never fatal
         pass

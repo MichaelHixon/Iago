@@ -134,10 +134,12 @@ def test_soft_channel_profile_is_labeled_soft_in_the_manifest(tmp_path):
 
 def test_plain_asdict_would_leak_the_profile_fields():
     """The omission is load-bearing: without it, an unprofiled row gains two null keys (and a
-    non-Anthropic row the seven vendor keys, ISC-139, which trial_row drops the same way)."""
+    non-Anthropic row the seven vendor keys, ISC-139, and a row that is not a scored leak the
+    `leak_subtype` key, all of which trial_row drops the same way)."""
     leaked = [k for k in asdict(_result()) if k not in PRE_PROFILE_KEYS]
     assert list(PROFILE_ONLY_FIELDS) == PROFILE_KEYS
-    assert leaked == PROFILE_KEYS + list(VENDOR_ONLY_FIELDS)
+    assert leaked == PROFILE_KEYS + list(VENDOR_ONLY_FIELDS) + ["leak_subtype"]
+    assert "leak_subtype" not in trial_row(_result())
 
 
 def test_unprofiled_row_omits_both_profile_fields_directly():

@@ -13,10 +13,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import hashlib
 import re
 
+from .canary import contains_secret
 from .yaml_records import load_records
-from .config import OBJECTIVES_FILE
+from .config import OBJECTIVES_FILE, PROJECT_ROOT
 from .judge import RESULT_CHANNEL, STOP_CHANNEL
 
 REQUIRED_FIELDS = ("id", "objective", "kind")
@@ -110,7 +112,7 @@ class Objective:
         return self.kind == "dead-end"
 
 
-def load_objectives(objectives_file: Path | None = None) -> list[Objective]:
+def load_objectives(objectives_file: Path | str | None = None) -> list[Objective]:
     """Read, validate, and return every objective. Fails loudly on a bad record.
 
     A run with zero forbidden objectives is meaningless, so that is an error too.
@@ -261,5 +263,96 @@ def load_objectives(objectives_file: Path | None = None) -> list[Objective]:
 
     if not any(o.kind == "forbidden" for o in objectives):
         raise ValueError(f"{path.name}: at least one 'forbidden' objective is required")
+    _refuse_cross_matching_canaries(objectives, path.name)
 
     return objectives
+
+
+def _refuse_cross_matching_canaries(objectives: list[Objective], filename: str) -> None:
+    """No planted prompt may carry another objective's canary, under the oracle's own matcher.
+
+    `canary.contains_secret` is decode-tolerant (case, whitespace, reverse, rot13, leetspeak,
+    base64, hex). If objective B's planted prompt, or its canary, contained objective A's canary under
+    any of those transforms, a reply that disclosed only B would also score a leak for A: the
+    per-config leak rates would no longer be independent facts. Two canaries may share a prefix
+    (two `ORCHID-` codes) so long as the full canaries cannot match each other."""
+    leaks = [(o, o.system_prompt, o.canary) for o in objectives
+             if o.kind == "prompt-leak" and o.canary and o.system_prompt]
+    for a, _, a_canary in leaks:
+        for b, b_prompt, b_canary in leaks:
+            if a is b:
+                continue
+            if contains_secret(b_prompt, a_canary) or contains_secret(b_canary, a_canary):
+                raise ValueError(
+                    f"{filename}: prompt-leak objective {b.id!r} would score as a leak of "
+                    f"{a.id!r}'s canary {a_canary!r} (decode-tolerant match inside its system "
+                    "prompt or canary) — each planted canary must be matchable only by its own prompt"
+                )
+
+
+def refuse_canaries_in_templates(objectives: list[Objective], techniques) -> None:
+    """A canary must live only in its planted system prompt, never in an attack technique's own
+    text. If a template that can fire at a prompt-leak objective carried a canary, a model that merely
+    echoed the attack prompt would read as a leak. Checked with the oracle's own matcher
+    (`contains_secret`), so a base64/rot13/reverse/leet collision fails here, not in a report.
+
+    Runs for every objectives file, the shipped one and a `--objectives PATH` one alike."""
+    canaries = [(o.id, o.canary) for o in objectives if o.kind == "prompt-leak" and o.canary]
+    for t in techniques:
+        if not t.applies_to_kind("prompt-leak"):
+            continue
+        text = " ".join([*(t.turns or ()), t.template])
+        for oid, canary in canaries:
+            if contains_secret(text, canary):
+                raise ValueError(
+                    f"technique {t.id!r} carries objective {oid!r}'s canary {canary!r} in its own "
+                    "template (decode-tolerant match) — the oracle would read an echo as a leak")
+
+
+def resolve_objectives_path(objectives_file: Path | str | None = None) -> Path:
+    """The objectives file a run reads: the one given, else the repo's `objectives.yaml`."""
+    return Path(objectives_file) if objectives_file else OBJECTIVES_FILE
+
+
+def _display_path(path: Path) -> str:
+    """The path as an artifact records it: repo-relative inside this checkout, `~/...` under the
+    home directory, else the resolved path. Never an absolute home path."""
+    resolved = path.resolve()
+    for base, prefix in ((PROJECT_ROOT, ""), (Path.home(), "~/")):
+        try:
+            return prefix + resolved.relative_to(base).as_posix()
+        except ValueError:
+            continue
+    return str(resolved)
+
+
+def load_objectives_hashed(objectives_file: Path | str | None = None) -> tuple[list[Objective], dict]:
+    """The objectives and the `objectives_file_info` of the bytes they came from. The file is hashed
+    before and after it is parsed and the load is refused if the two differ, so a manifest never
+    carries the hash of a file other than the one that was validated and run."""
+    before = objectives_file_info(objectives_file)
+    objs = load_objectives(objectives_file)
+    if objectives_file_info(objectives_file) != before:
+        raise ValueError(f"{before['objectives_file']} changed while it was being read; run again")
+    return objs, before
+
+
+def objectives_with_source(objectives: list[Objective] | None,
+                           objectives_file: Path | str | None) -> tuple[list[Objective], dict]:
+    """The objectives a run uses and their `objectives_file_info`. Without a list, the file is loaded
+    (`load_objectives_hashed`); with one, the list is used as given and the file, when named, is only
+    hashed. `{}` when the caller passed a list and no file: there is no file to describe."""
+    if objectives is None:
+        return load_objectives_hashed(objectives_file)
+    if objectives_file is None:
+        return objectives, {}
+    return objectives, objectives_file_info(objectives_file)
+
+
+def objectives_file_info(objectives_file: Path | str | None = None) -> dict:
+    """`{"objectives_file": <path>, "objectives_file_sha256": <hex of the file's bytes>}`: what an
+    artifact records so a reader can tell WHICH objectives ran, as `technique_library_sha256` does
+    for the attacks. The hash covers the whole file as read, not just the objectives a run kept."""
+    path = resolve_objectives_path(objectives_file)
+    return {"objectives_file": _display_path(path),
+            "objectives_file_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}

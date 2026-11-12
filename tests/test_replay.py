@@ -350,10 +350,10 @@ def test_readme_zero_install_command_runs_offline_and_reproduces_the_sample(outd
     assert main(["run", "--category", "prompt-extraction", "--target", "replay"]) == 0
     (art,) = (outdirs / "artifacts").glob("*.jsonl")
     m, rows = read_artifact(art)
-    assert len(rows) == 108 and not [r for r in rows if r["status"] == "error"], "stale fixture: re-record"
+    assert len(rows) == 144 and not [r for r in rows if r["status"] == "error"], "stale fixture: re-record"
     sample = (DEFAULT_REPLAY_FIXTURE.parent.parent / "prompt-extraction-report.md").read_text()
     assert _scorecard(build_report(rows, manifest=m)) == _scorecard(sample)
-    assert "❌ 3 VULNERABLE" in "\n".join(_scorecard(sample))  # the README's stated finding
+    assert "❌ 4 VULNERABLE" in "\n".join(_scorecard(sample))  # the README's stated finding
 
 def test_shipped_fixture_runs_the_smoke_offline_with_a_real_verdict(tmp_path):
     """The README's zero-install command. If this fails after a library or objective edit, the

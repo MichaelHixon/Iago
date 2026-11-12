@@ -25,7 +25,7 @@ from .config import (
     DEFAULT_TEMPERATURE,
     DEFAULT_TRIALS,
 )
-from .objectives import load_objectives
+from .objectives import load_objectives, refuse_canaries_in_templates
 from .judge import ERROR
 from .report import verdict_of, write_html_report, write_log, write_report
 from .artifacts import read_artifact
@@ -104,8 +104,35 @@ def _refused_before_build(kind: str, authorized: bool) -> bool:
     return True
 
 
+def _add_objectives_arg(parser: argparse.ArgumentParser, what: str = "run") -> None:
+    parser.add_argument("--objectives", default=None, metavar="PATH",
+                        help=f"objectives YAML the {what} reads, in place of the repo's objectives.yaml: "
+                             "to test your own system prompt, give a prompt-leak objective with its "
+                             "system_prompt and canary. It passes the same validation as the shipped "
+                             "file (the canary must sit in its own prompt and in no technique "
+                             "template or other objective's prompt); the artifact records its path "
+                             "and sha256")
+
+
+def _checked_objectives(path: str | None) -> tuple[list | None, bool]:
+    """(objectives, ok) for an optional `--objectives PATH`: `(None, True)` without one, so the
+    caller falls through to the repo file, and `(None, False)` after printing the loader's refusal."""
+    if not path:
+        return None, True
+    try:
+        objs = load_objectives(path)
+        refuse_canaries_in_templates(objs, load_library())
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return None, False
+    return objs, True
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     if _refused_before_build(args.target, args.authorized):
+        return 2
+    _, ok = _checked_objectives(getattr(args, "objectives", None))
+    if not ok:
         return 2
     record_path = getattr(args, "record_replay", None)
     if record_path and args.target == "replay":
@@ -173,6 +200,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             progress=True,
             determinism_check=getattr(args, "determinism_check", True),
             profile=profile,
+            objectives_file=getattr(args, "objectives", None),
         )
     except AuthorizationError as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
@@ -418,6 +446,9 @@ def _cmd_defense_delta(args: argparse.Namespace) -> int:
     if not guards:
         print("ERROR: --guard is required (e.g. --guard all)", file=sys.stderr)
         return 2
+    _, ok = _checked_objectives(getattr(args, "objectives", None))
+    if not ok:
+        return 2
     guarded = GuardedTarget(base, guards)
 
     trials = 1 if args.smoke else args.trials
@@ -427,6 +458,7 @@ def _cmd_defense_delta(args: argparse.Namespace) -> int:
         trials=trials, temperature=args.temperature, base_seed=args.base_seed,
         authorized=args.authorized, technique_limit=tech_limit, objective_limit=obj_limit,
         category=getattr(args, "category", None), shots=args.shots, progress=True,
+        objectives_file=getattr(args, "objectives", None),
     )
 
     print(f"Iago defense-delta → raw {base.name}  vs  guarded {guarded.name}")
@@ -519,7 +551,11 @@ def _cmd_batch_submit(args: argparse.Namespace) -> int:
     sampling = {"trials": args.trials, "temperature": args.temperature, "base_seed": args.base_seed,
                 "category": args.category, "technique_limit": args.limit_techniques,
                 "objective_limit": args.limit_objectives, "shots": args.shots}
-    lib, objs = load_library(), load_objectives()
+    objectives_path = getattr(args, "objectives", None)
+    _, ok = _checked_objectives(objectives_path)
+    if not ok:
+        return 2
+    lib = load_library()
     plans = []
     try:
         for model in args.model:
@@ -536,7 +572,7 @@ def _cmd_batch_submit(args: argparse.Namespace) -> int:
                 probe = (f"build-time probe at temperature 0.5, "
                          f"{datetime.now(timezone.utc).date().isoformat()}")
             plans.append(b.plan_requests(model, supported, probe=probe, sampling=sampling,
-                                         techniques=lib, objectives=objs))
+                                         techniques=lib, objectives_file=objectives_path))
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -590,7 +626,8 @@ def _cmd_batch_collect(args: argparse.Namespace) -> int:
             pending += 1
             continue
         try:
-            artifact = b.collect_plan(p, b.read_results(client, p["batch_id"]), batch=batch)
+            artifact = b.collect_plan(p, b.read_results(client, p["batch_id"]), batch=batch,
+                                      objectives_file=getattr(args, "objectives", None))
         except (SamplingRefused, ValueError, RuntimeError) as exc:
             # One model's failure does not stop the others from being collected.
             print(f"ERROR: {p['model']}: {exc}", file=sys.stderr)
@@ -1049,9 +1086,13 @@ def _cmd_profiles(_args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_library(_args: argparse.Namespace) -> int:
+def _cmd_library(args: argparse.Namespace) -> int:
     lib = load_library()
-    objs = load_objectives()
+    objs, ok = _checked_objectives(getattr(args, "objectives", None))
+    if not ok:
+        return 2
+    if objs is None:
+        objs = load_objectives()
     print(f"Attack library: {len(lib)} techniques")
     for category, count in summarize(lib).items():
         print(f"  {category:24} {count}")
@@ -1113,6 +1154,7 @@ def build_parser() -> argparse.ArgumentParser:
                         "--model PATH` with the same flags re-runs this exact run with no model — "
                         "SENSITIVE: holds every reply in full, including harmful completions and "
                         "leaked secrets; only a prompt-extraction recording is safe to share")
+    _add_objectives_arg(r)
     r.set_defaults(func=_cmd_run)
 
     rep = sub.add_parser("report", help="(re)generate a report from an existing artifact file")
@@ -1124,6 +1166,7 @@ def build_parser() -> argparse.ArgumentParser:
     rep.set_defaults(func=_cmd_report)
 
     lib = sub.add_parser("library", help="show the loaded attack library + objectives")
+    _add_objectives_arg(lib, "listing")
     lib.set_defaults(func=_cmd_library)
 
     dl = sub.add_parser("delta", help="attack-vs-defense delta from a raw + a guarded artifact")
@@ -1254,6 +1297,7 @@ def build_parser() -> argparse.ArgumentParser:
     dd.add_argument("--smoke", action="store_true", help="tiny paired proof (1x1x1 each side)")
     dd.add_argument("--authorized", action="store_true",
                     help="permit a non-local target (only for models you own/are authorized to test)")
+    _add_objectives_arg(dd, "both runs")
     dd.set_defaults(func=_cmd_defense_delta)
 
     pw = sub.add_parser("power",
@@ -1377,6 +1421,7 @@ def build_parser() -> argparse.ArgumentParser:
                          "(no probe: temperature is assumed refused)")
     bs.add_argument("--authorized", action="store_true",
                     help="permit sending to the Anthropic API (only for models you are authorized to test)")
+    _add_objectives_arg(bs, "plan")
     bs.set_defaults(func=_cmd_batch_submit)
 
     bc = sub.add_parser("batch-collect",
@@ -1387,6 +1432,7 @@ def build_parser() -> argparse.ArgumentParser:
     bc.add_argument("--wait", action="store_true", help="poll until each batch has ended")
     bc.add_argument("--poll-seconds", type=float, default=60.0, dest="poll_seconds")
     bc.add_argument("--html", action="store_true", help="also write a styled HTML report")
+    _add_objectives_arg(bc, "collection")
     bc.set_defaults(func=_cmd_batch_collect)
 
     return p
